@@ -99,12 +99,26 @@ const sId = () => S.site?.id || null;
 const siteBIds = () => (S.buildings.length ? S.buildings.map(b => b.id) : [S.activeBuildingId].filter(Boolean));
 
 // Aktif (ücretli ve süresi geçmemiş) abonelik var mı?
-// Davet kodları YALNIZCA abonelik aktifken gösterilir.
 const isSubscribed = () => {
   const s = S.site || activeBuilding();
   if (!s || !s.subscription_type || s.subscription_type === 'free') return false;
   if (!s.subscription_expiry) return false;
   return new Date(s.subscription_expiry).getTime() > Date.now();
+};
+// Deneme (1 ay ücretsiz) süresi dolmamış mı?
+const trialEndsAt = () => {
+  const s = S.site;
+  return s?.trial_ends_at ? new Date(s.trial_ends_at) : null;
+};
+const isInTrial = () => {
+  const t = trialEndsAt();
+  return !isSubscribed() && !!t && t.getTime() > Date.now();
+};
+// Davet kodları/premium erişimi: ücretli abonelik VEYA aktif deneme.
+const hasAccess = () => isSubscribed() || isInTrial();
+const trialDaysLeft = () => {
+  const t = trialEndsAt();
+  return t ? Math.max(0, Math.ceil((t.getTime() - Date.now()) / 86400000)) : 0;
 };
 
 function toast(msg, isErr) {
@@ -602,7 +616,7 @@ async function updateOverviewDetails(buildingId) {
             <h3>${esc(b.name)}</h3>
             <span class="muted detail-addr">${esc(b.address || 'Adres belirtilmemiş')}</span>
             <div class="detail-tags">
-              <span class="detail-tag">${isSubscribed() ? `🔑 ${esc(b.building_code || '—')}` : '🔒 Kod ödemeyle açılır'}</span>
+              <span class="detail-tag">${hasAccess() ? `🔑 ${esc(b.building_code || '—')}` : '🔒 Kod ödemeyle açılır'}</span>
               <span class="detail-tag">🏗 ${b.floor_count || 5} Kat</span>
             </div>
           </div>
@@ -2719,6 +2733,8 @@ async function renderSubscription() {
 
   const expiry = b.subscription_expiry ? new Date(b.subscription_expiry) : null;
   const isActive = b.subscription_type && b.subscription_type !== 'free' && expiry && expiry.getTime() > Date.now();
+  const inTrial = isInTrial();
+  const access = isActive || inTrial;   // kodlar/erişim: ödeme ya da deneme
   const daysLeft = expiry ? Math.max(0, Math.ceil((expiry.getTime() - Date.now()) / 86400000)) : 0;
   const pendingPayments = payments.filter(p => p.status === 'pending');
 
@@ -2729,16 +2745,18 @@ async function renderSubscription() {
   $content().innerHTML = `
     <div class="page-head"><h2>💳 Abonelik</h2></div>
 
-    <div class="wallet-card ${isActive ? '' : 'neg'}">
-      <div class="wallet-head">${isActive ? '✅' : '⚠️'} <span>${esc(b.name)}${S.site && S.site.site_type === 'site' ? ` (${S.buildings.length} bina)` : ''} — Abonelik Durumu</span></div>
-      <div class="wallet-amount" style="font-size:26px;">${isActive ? 'Aktif' : (b.subscription_type === 'free' || !expiry ? 'Ücretsiz Plan' : 'Süresi Doldu')}</div>
-      ${expiry ? `<div class="muted" style="margin-top:6px;font-size:13.5px;">Bitiş: <strong>${dmy(expiry)}</strong>${isActive ? ` · ${daysLeft} gün kaldı` : ''}</div>` : ''}
+    <div class="wallet-card ${access ? '' : 'neg'}">
+      <div class="wallet-head">${isActive ? '✅' : inTrial ? '🎁' : '⚠️'} <span>${esc(b.name)}${S.site && S.site.site_type === 'site' ? ` (${S.buildings.length} bina)` : ''} — Abonelik Durumu</span></div>
+      <div class="wallet-amount" style="font-size:26px;">${isActive ? 'Aktif' : inTrial ? 'Ücretsiz Deneme' : (b.subscription_type === 'free' || !expiry ? 'Ücretsiz Plan' : 'Süresi Doldu')}</div>
+      ${inTrial
+        ? `<div class="muted" style="margin-top:6px;font-size:13.5px;">Deneme süreniz <strong>${trialDaysLeft()} gün</strong> sonra doluyor. Kesintisiz devam için aşağıdan kart ile ödeyin.</div>`
+        : (expiry ? `<div class="muted" style="margin-top:6px;font-size:13.5px;">Bitiş: <strong>${dmy(expiry)}</strong>${isActive ? ` · ${daysLeft} gün kaldı` : ''}</div>` : '')}
     </div>
 
     <div class="card">
       <h3>🔑 Bina Davet Kodları</h3>
-      ${isActive
-        ? `<p class="muted" style="font-size:12.5px;margin-top:-4px;margin-bottom:12px;">Bu kodları sakinlerinizle paylaşın; her sakin kendi binasının koduyla uygulamaya katılır.</p>
+      ${access
+        ? `<p class="muted" style="font-size:12.5px;margin-top:-4px;margin-bottom:12px;">${inTrial ? '🎁 Deneme sürümünüz aktif — ' : ''}Bu kodları sakinlerinizle paylaşın; her sakin kendi binasının koduyla uygulamaya katılır.</p>
            <table><thead><tr><th>Bina</th><th>Daire</th><th>Davet Kodu</th></tr></thead>
            <tbody>${S.buildings.map(x => `<tr>
              <td>${esc(x.name)}</td>
@@ -2747,7 +2765,7 @@ async function renderSubscription() {
                <button class="btn btn-sm btn-ghost copy-code" data-code="${esc(x.building_code || '')}" style="margin-left:8px;">Kopyala</button></td>
            </tr>`).join('')}</tbody></table>`
         : `<div class="info-banner" style="margin:0;">
-             🔒 Davet kodları <strong>abonelik ödemesi yapıldıktan sonra</strong> burada görünür. Ödeme yapmadan sakin davet edemezsiniz.
+             🔒 Deneme süreniz doldu. Davet kodları <strong>ödeme yapıldıktan sonra</strong> yeniden görünür.
            </div>`}
     </div>
 
