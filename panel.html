@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KOMŞU — Yönetim Paneli</title>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <!-- Yükleniyor -->
+  <div id="loading" class="loading">Yükleniyor…</div>
+
+  <!-- GİRİŞ EKRANI -->
+  <div id="login" class="login-screen hidden">
+    <div class="login-card">
+      <div class="brand" style="margin-bottom:18px;">
+        <span>KOMŞU</span><span class="home">⌂</span>
+      </div>
+      
+      <!-- Giriş Tipi Seçimi -->
+      <div class="login-tabs" style="display:flex; gap:8px; margin-bottom:20px; background:rgba(43,38,32,0.04); padding:4px; border-radius:10px;">
+        <button type="button" class="login-tab active" id="tab-admin" style="flex:1; border:none; padding:10px; border-radius:8px; font-weight:700; cursor:pointer; background:#fff; color:var(--ink);">Yönetici</button>
+        <button type="button" class="login-tab" id="tab-security" style="flex:1; border:none; padding:10px; border-radius:8px; font-weight:700; cursor:pointer; background:transparent; color:var(--muted);">Güvenlik</button>
+      </div>
+
+      <h1 id="login-title">Yönetici Girişi</h1>
+      <p class="sub" id="login-sub">Mobil uygulamada belirlediğiniz e-posta ve şifre ile giriş yapın.</p>
+      <div id="login-error" class="error hidden"></div>
+      <form id="login-form">
+        <div class="field">
+          <label for="email" id="email-label">E-posta</label>
+          <input id="email" type="text" placeholder="ornek@eposta.com" required />
+        </div>
+        <div class="field">
+          <label for="password">Şifre</label>
+          <div class="input-row">
+            <input id="password" type="password" placeholder="••••••••" required />
+            <button type="button" class="eye" id="toggle-pass">Göster</button>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-block" id="login-btn">Giriş Yap</button>
+      </form>
+      <p class="foot" id="login-foot">Giriş bilgilerinizi mobil uygulamadan<br /><strong>Profil → Web Paneli Girişi</strong> ekranından belirleyebilirsiniz.</p>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="app" class="app hidden">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="side-brand"><span>KOMŞU</span><span class="home">⌂</span></div>
+      <nav class="side-nav" id="side-nav">
+        <a data-section="overview" class="active"><i>◈</i> Genel Bakış</a>
+        <a data-section="apartments"><i>⌂</i> Daireler &amp; Sakinler</a>
+        <a data-section="fees"><i>₺</i> Aidat Takibi</a>
+        <a data-section="transactions"><i>◇</i> Kasa &amp; Harcamalar</a>
+        <a data-section="announcements"><i>📢</i> Duyurular</a>
+        <a data-section="maintenance"><i>🔧</i> Arıza Bildirimleri</a>
+        <a data-section="jobs"><i>🛠</i> İş Takibi</a>
+        <a data-section="meetings"><i>📅</i> Toplantılar</a>
+        <a data-section="rules"><i>📋</i> Site Kuralları</a>
+        <a data-section="assets"><i>📦</i> Demirbaşlar</a>
+        <a data-section="decisions"><i>📜</i> Karar Defteri</a>
+        <a data-section="security_mode" class="nav-security-btn" style="background: rgba(43,38,32,0.06); border-radius: 12px; margin-top: 14px; font-weight: 700;"><i>🛡️</i> Güvenlik Modu</a>
+        <a data-section="settings"><i>⚙</i> Site Ayarları</a>
+        <a data-section="reports"><i>📊</i> Raporlar</a>
+        <a data-section="subscription"><i>💳</i> Abonelik</a>
+      </nav>
+      <button class="side-logout" id="logout-btn">Çıkış Yap</button>
+    </aside>
+
+    <!-- Main -->
+    <div class="main">
+      <header class="topbar">
+        <button class="hamburger" id="hamburger" aria-label="Menü">☰</button>
+        <div class="top-building">
+          <span class="top-name" id="top-building-name">—</span>
+          <span class="top-addr" id="top-building-addr"></span>
+        </div>
+        <div class="top-user" id="top-user"></div>
+      </header>
+      <main class="content" id="content">
+        <!-- Bölümler JS ile render edilir -->
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal" id="modal">
+      <div class="modal-head">
+        <h3 id="modal-title">Başlık</h3>
+        <button class="modal-close" id="modal-close">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- 3D Grafikler için Three.js ve OrbitControls -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+  <!-- PDF Oluşturma Kütüphaneleri -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+
+  <script type="module" src="panel.js"></script>
+</body>
+</html>
