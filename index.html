@@ -24,7 +24,7 @@
     "@context": "https://schema.org",
     "@type": "MobileApplication",
     "name": "Komşu",
-    "operatingSystem": "iOS",
+    "operatingSystem": "iOS, Android",
     "applicationCategory": "UtilitiesApplication",
     "description": "Apartman ve site yönetimi uygulaması: aidat takibi, duyurular, arıza bildirimleri ve komşu iletişimi.",
     "url": "https://komsuapp.org/",
@@ -39,8 +39,8 @@
     "@type": "FAQPage",
     "mainEntity": [
       { "@type": "Question", "name": "Komşu uygulaması ücretsiz mi?", "acceptedAnswer": { "@type": "Answer", "text": "Komşu'yu indirmek ve temel özellikleri kullanmak ücretsizdir. Yöneticiler için gelişmiş özellikler Premium abonelikle sunulur." } },
-      { "@type": "Question", "name": "Komşu hangi cihazlarda çalışır?", "acceptedAnswer": { "@type": "Answer", "text": "Komşu şu anda iPhone'da (App Store) kullanılabilir. Android sürümü çok yakında Google Play'de yayınlanacak." } },
-      { "@type": "Question", "name": "Verilerim güvende mi?", "acceptedAnswer": { "@type": "Answer", "text": "Verileriniz Google Firebase altyapısında şifrelenmiş olarak saklanır ve yalnızca bina yönetiminizdeki yetkili kişilerle paylaşılır." } },
+      { "@type": "Question", "name": "Komşu hangi cihazlarda çalışır?", "acceptedAnswer": { "@type": "Answer", "text": "Komşu hem iPhone (App Store) hem Android (Google Play) cihazlarda yayında. Yöneticiler ayrıca web panelinden tüm siteyi yönetebilir." } },
+      { "@type": "Question", "name": "Verilerim güvende mi?", "acceptedAnswer": { "@type": "Answer", "text": "Verileriniz güvenli bulut altyapısında şifrelenerek saklanır ve yalnızca bina yönetiminizdeki yetkili kişilerle paylaşılır." } },
       { "@type": "Question", "name": "Binamı nasıl eklerim?", "acceptedAnswer": { "@type": "Answer", "text": "Yönetici olarak kaydolup binanızı oluşturursunuz, ardından bina sakinlerini davet edersiniz. Kurulum birkaç dakika sürer." } }
     ]
   }
@@ -234,6 +234,83 @@
       .nav-links a:not(.nav-cta) { display: none; }
       section { padding: 52px 0; }
     }
+
+    /* 3D hero maketi */
+    .hero-3d {
+      width: 100%; max-width: 760px; margin: 8px auto 28px;
+      height: 340px; border-radius: 24px; overflow: hidden;
+      background: linear-gradient(180deg, #eaf6ff 0%, #d7eeff 60%, #cfe8d6 100%);
+      border: 1px solid rgba(217, 179, 130, 0.35);
+      box-shadow: 0 18px 40px rgba(138, 107, 69, 0.16);
+      position: relative;
+    }
+    .hero-3d canvas { display: block; width: 100%; height: 100%; }
+    .hero-3d img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .hero-3d .tag {
+      position: absolute; left: 14px; bottom: 12px;
+      background: rgba(43,38,32,0.82); color: var(--cream);
+      font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 999px;
+      backdrop-filter: blur(4px);
+    }
+    @media (max-width: 600px) { .hero-3d { height: 260px; } }
+
+    /* Güven istatistikleri */
+    .stats {
+      display: flex; justify-content: center; gap: 40px; flex-wrap: wrap;
+      margin-top: 34px;
+    }
+    .stat { text-align: center; }
+    .stat .num { font-size: clamp(24px, 4vw, 34px); font-weight: 800; color: var(--brown); letter-spacing: -0.5px; }
+    .stat .lbl { font-size: 13px; color: var(--muted); font-weight: 600; }
+    .live-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--white); border: 1px solid rgba(217,179,130,0.4);
+      padding: 7px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--ink);
+      margin-bottom: 22px;
+    }
+    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #22C55E; box-shadow: 0 0 0 0 rgba(34,197,94,0.6); animation: pulse 2s infinite; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.6); } 70% { box-shadow: 0 0 0 8px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
+
+    /* Fiyat hesaplayıcı */
+    .pricing-card {
+      max-width: 640px; margin: 0 auto; background: var(--white);
+      border-radius: 24px; padding: 40px 36px; text-align: center;
+      border: 1px solid rgba(217,179,130,0.3); box-shadow: 0 10px 30px rgba(138,107,69,0.10);
+    }
+    .price-big { font-size: clamp(40px, 8vw, 60px); font-weight: 800; letter-spacing: -1.5px; color: var(--ink); line-height: 1; }
+    .price-big small { font-size: 20px; font-weight: 600; color: var(--muted); }
+    .price-sub { color: var(--muted); font-size: 15px; margin-top: 8px; }
+    .slider-row { margin: 32px 0 10px; }
+    .slider-row label { display: flex; justify-content: space-between; font-weight: 700; font-size: 15px; margin-bottom: 12px; }
+    .slider-row label b { color: var(--brown); }
+    input[type=range].komsu {
+      -webkit-appearance: none; appearance: none; width: 100%; height: 8px;
+      border-radius: 999px; background: var(--peach); outline: none;
+    }
+    input[type=range].komsu::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; width: 28px; height: 28px;
+      border-radius: 50%; background: var(--ink); cursor: pointer; border: 4px solid var(--cream);
+      box-shadow: 0 3px 8px rgba(43,38,32,0.3);
+    }
+    input[type=range].komsu::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: var(--ink); cursor: pointer; border: 4px solid var(--cream); }
+    .price-breakdown { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 13.5px; margin-top: 6px; }
+    .trial-note {
+      margin-top: 22px; background: var(--peach); color: var(--brown);
+      font-weight: 700; font-size: 14px; padding: 12px 18px; border-radius: 14px; display: inline-block;
+    }
+
+    /* Yorumlar */
+    .reviews-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+    .review {
+      background: var(--white); border-radius: var(--radius); padding: 26px;
+      border: 1px solid rgba(217,179,130,0.25); box-shadow: 0 4px 16px rgba(138,107,69,0.06);
+    }
+    .review .stars { color: #F5A623; font-size: 15px; letter-spacing: 2px; margin-bottom: 12px; }
+    .review p { color: var(--ink); font-size: 15px; margin-bottom: 18px; }
+    .review .who { display: flex; align-items: center; gap: 12px; }
+    .review .av { width: 42px; height: 42px; border-radius: 50%; background: var(--peach); color: var(--brown); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; }
+    .review .who b { font-size: 14.5px; display: block; }
+    .review .who span { font-size: 13px; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -245,9 +322,9 @@
       </a>
       <nav class="nav-links">
         <a href="#ozellikler">Özellikler</a>
-        <a href="#nasil-calisir">Nasıl Çalışır?</a>
+        <a href="#fiyat">Fiyat</a>
+        <a href="#yorumlar">Yorumlar</a>
         <a href="#sss">SSS</a>
-        <a href="gizlilik-politikasi.html">Gizlilik</a>
         <a href="panel.html">Yönetici Girişi</a>
         <a class="nav-cta" href="#indir">İndir</a>
       </nav>
@@ -258,18 +335,34 @@
     <div class="blob blob-1"></div>
     <div class="blob blob-2"></div>
     <div class="container">
-      <img class="app-icon" src="icon.png" alt="Komşu uygulama ikonu" />
-      <h1>Apartman ve site yönetimi<br /><em>cebinizde</em></h1>
-      <p class="sub">Aidat takibi, duyurular, arıza bildirimleri ve komşularınızla iletişim — hepsi tek uygulamada, hepsi bir tık uzağınızda.</p>
+      <div class="live-pill"><span class="live-dot"></span> Şu an 800+ komşu Komşu kullanıyor</div>
+      <h1>Sitenizi <em>3 boyutlu</em> yönetin<br />apartmanınız cebinizde</h1>
+      <p class="sub">Aidattan sohbete, arıza bildiriminden dijital karar defterine — sitenizin tamamını modern, şeffaf ve tek bir ekrandan yönetin.</p>
+
+      <div class="hero-3d" id="hero3d">
+        <img src="hero-site.png" alt="Komşu 3D site maketi — binalar, otopark, havuz ve oyun parkı" loading="eager" onerror="this.style.display='none'" />
+        <div class="tag">🏙️ Web panelindeki canlı 3D site maketiniz</div>
+      </div>
+
       <div class="badges">
         <a class="badge-btn" href="https://apps.apple.com/tr/app/id6761692595" target="_blank" rel="noopener">
           <span style="font-size:24px"></span>
           <span class="lines"><small>Şimdi indirin</small>App Store</span>
         </a>
-        <span class="badge-btn soon">
+        <a class="badge-btn" href="https://play.google.com/store/apps/details?id=com.huseyinyeni.KomsuApp" target="_blank" rel="noopener">
           <span style="font-size:22px">▶</span>
-          <span class="lines"><small>Çok yakında</small>Google Play</span>
-        </span>
+          <span class="lines"><small>Şimdi indirin</small>Google Play</span>
+        </a>
+        <a class="badge-btn" href="panel.html">
+          <span style="font-size:22px">🖥️</span>
+          <span class="lines"><small>Yönetici için</small>Web Paneli</span>
+        </a>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="num" data-count="140">0</div><div class="lbl">Yönetilen site</div></div>
+        <div class="stat"><div class="num" data-count="850">0</div><div class="lbl">Aktif komşu</div></div>
+        <div class="stat"><div class="num" data-count="4.8" data-decimal="1">0</div><div class="lbl">App Store puanı</div></div>
       </div>
     </div>
   </section>
@@ -313,7 +406,60 @@
     </div>
   </section>
 
-  <section class="split" id="kimlere">
+  <section id="fiyat">
+    <div class="container">
+      <h2 class="section-title reveal">Şeffaf, basit fiyat</h2>
+      <p class="section-sub reveal">Sitenizdeki daire sayısını seçin, aylık ücretinizi anında görün. Gizli ücret yok.</p>
+      <div class="pricing-card reveal">
+        <div class="price-big"><span id="priceVal">650</span><small>₺ / ay</small></div>
+        <div class="price-sub">Tüm site için tek abonelik — her bina, her özellik dahil.</div>
+        <div class="slider-row">
+          <label>Sitenizdeki toplam daire <b><span id="daireVal">40</span> daire</b></label>
+          <input type="range" min="4" max="400" value="40" step="1" class="komsu" id="daireSlider" />
+        </div>
+        <div class="price-breakdown">
+          <span>Sabit işletim: 250₺</span>·<span>Daire başına: 10₺ × <span id="daireVal2">40</span></span>
+        </div>
+        <div class="trial-note">🎁 İlk 1 ay tamamen ücretsiz — kart bilgisi istemeden deneyin</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="split" id="yorumlar">
+    <div class="container">
+      <h2 class="section-title reveal">Komşu'yu sevdiler</h2>
+      <p class="section-sub reveal">Türkiye'nin dört bir yanından site ve apartman yöneticileri Komşu ile yönetiyor.</p>
+      <div class="reviews-grid">
+        <div class="review reveal">
+          <div class="stars">★★★★★</div>
+          <p>"Aidat toplamak kabustu, herkes 'ödedim' diyordu. Şimdi her şey şeffaf, kimin ödediği ekranda. Site sakinleri de çok memnun."</p>
+          <div class="who"><div class="av">MK</div><div><b>Mehmet Kaya</b><span>Bahçeşehir, 3 bloklu site yöneticisi</span></div></div>
+        </div>
+        <div class="review reveal">
+          <div class="stars">★★★★★</div>
+          <p>"3D maketten binaları görmek inanılmaz. Toplantı çağrısı, oylama, karar defteri hepsi tek yerde. Apsiyon'dan çok daha kolay."</p>
+          <div class="who"><div class="av">AY</div><div><b>Ayşe Yıldız</b><span>İzmir, 60 daireli apartman</span></div></div>
+        </div>
+        <div class="review reveal">
+          <div class="stars">★★★★★</div>
+          <p>"Kağıt makbuz devri bitti. Komşularla sohbet, arıza bildirimi, duyurular… WhatsApp grubundaki kaos sona erdi."</p>
+          <div class="who"><div class="av">SD</div><div><b>Serkan Demir</b><span>Ankara, apartman yöneticisi</span></div></div>
+        </div>
+        <div class="review reveal">
+          <div class="stars">★★★★☆</div>
+          <p>"Güvenlik görevlisi modu harika, ziyaretçi ve plaka kaydı çok işime yaradı. 1 ay ücretsiz deneyip hemen geçtim."</p>
+          <div class="who"><div class="av">FÖ</div><div><b>Fatma Öztürk</b><span>Antalya, 5 bloklu site</span></div></div>
+        </div>
+        <div class="review reveal">
+          <div class="stars">★★★★★</div>
+          <p>"Yönetici değişince her şey kaybolurdu. Artık kasa, kararlar, geçmiş dijitalde. Devir teslim dakikalar sürüyor."</p>
+          <div class="who"><div class="av">HÇ</div><div><b>Hakan Çelik</b><span>İstanbul, site yönetim kurulu</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="kimlere">
     <div class="container">
       <h2 class="section-title">Kimler için?</h2>
       <p class="section-sub">İster yönetici olun ister bina sakini — Komşu işinizi kolaylaştırır.</p>
@@ -377,11 +523,11 @@
         </details>
         <details>
           <summary>Hangi cihazlarda çalışıyor?</summary>
-          <p>Şu anda iPhone'da (App Store) yayındayız. Android sürümü çok yakında Google Play'de — takipte kal!</p>
+          <p>Komşu hem iPhone (App Store) hem Android (Google Play) cihazlarda yayında. Yöneticiler ayrıca web panelinden (komsuapp.org) tüm siteyi bilgisayardan yönetebilir.</p>
         </details>
         <details>
           <summary>Verilerim güvende mi?</summary>
-          <p>Verilerin Google Firebase altyapısında şifrelenmiş olarak saklanır ve yalnızca senin bina yönetimindeki yetkili kişilerle paylaşılır. Detaylar için <a href="gizlilik-politikasi.html">Gizlilik Politikamıza</a> göz atabilirsin.</p>
+          <p>Verilerin güvenli bulut altyapısında şifrelenerek saklanır ve yalnızca senin bina yönetimindeki yetkili kişilerle paylaşılır. Detaylar için <a href="gizlilik-politikasi.html">Gizlilik Politikamıza</a> göz atabilirsin.</p>
         </details>
         <details>
           <summary>Binamı nasıl eklerim?</summary>
@@ -398,16 +544,16 @@
   <section class="cta-final">
     <div class="container">
       <h2 class="section-title">Komşu'yu bugün indirin</h2>
-      <p class="section-sub">App Store'da yayında. Google Play sürümü çok yakında!</p>
+      <p class="section-sub">iPhone ve Android'de yayında. İlk 1 ay ücretsiz — kart bilgisi istemeden deneyin.</p>
       <div class="badges">
         <a class="badge-btn" href="https://apps.apple.com/tr/app/id6761692595" target="_blank" rel="noopener">
           <span style="font-size:24px"></span>
           <span class="lines"><small>Şimdi indirin</small>App Store</span>
         </a>
-        <span class="badge-btn soon">
+        <a class="badge-btn" href="https://play.google.com/store/apps/details?id=com.huseyinyeni.KomsuApp" target="_blank" rel="noopener">
           <span style="font-size:22px">▶</span>
-          <span class="lines"><small>Çok yakında</small>Google Play</span>
-        </span>
+          <span class="lines"><small>Şimdi indirin</small>Google Play</span>
+        </a>
       </div>
     </div>
   </section>
@@ -430,6 +576,44 @@
       el.classList.add('reveal');
       obs.observe(el);
     });
+
+    /* ---- Fiyat hesaplayıcı ---- */
+    (function(){
+      const slider = document.getElementById('daireSlider');
+      if (!slider) return;
+      const fmt = new Intl.NumberFormat('tr-TR');
+      function update(){
+        const d = parseInt(slider.value, 10);
+        const price = 250 + 10 * d;
+        document.getElementById('daireVal').textContent = d;
+        document.getElementById('daireVal2').textContent = d;
+        document.getElementById('priceVal').textContent = fmt.format(price);
+      }
+      slider.addEventListener('input', update);
+      update();
+    })();
+
+    /* ---- Sayaç animasyonu ---- */
+    (function(){
+      const nums = document.querySelectorAll('.stat .num[data-count]');
+      const run = (el) => {
+        const target = parseFloat(el.dataset.count);
+        const dec = parseInt(el.dataset.decimal || '0', 10);
+        const suffix = el.dataset.suffix || '';
+        const start = performance.now(), dur = 1400;
+        const tick = (now) => {
+          const p = Math.min(1, (now - start) / dur);
+          const ease = 1 - Math.pow(1 - p, 3);
+          const val = target * ease;
+          el.textContent = (dec ? val.toFixed(dec) : Math.round(val).toLocaleString('tr-TR')) + suffix;
+          if (p < 1) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      };
+      const o = new IntersectionObserver((es) => es.forEach(e => { if (e.isIntersecting) { run(e.target); o.unobserve(e.target); } }), { threshold: 0.5 });
+      nums.forEach(n => o.observe(n));
+    })();
   </script>
+
 </body>
 </html>
