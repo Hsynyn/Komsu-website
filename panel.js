@@ -98,6 +98,15 @@ const sId = () => S.site?.id || null;
 // Ortak (site geneli) sorgular için: sitedeki tüm bina id'leri
 const siteBIds = () => (S.buildings.length ? S.buildings.map(b => b.id) : [S.activeBuildingId].filter(Boolean));
 
+// Aktif (ücretli ve süresi geçmemiş) abonelik var mı?
+// Davet kodları YALNIZCA abonelik aktifken gösterilir.
+const isSubscribed = () => {
+  const s = S.site || activeBuilding();
+  if (!s || !s.subscription_type || s.subscription_type === 'free') return false;
+  if (!s.subscription_expiry) return false;
+  return new Date(s.subscription_expiry).getTime() > Date.now();
+};
+
 function toast(msg, isErr) {
   const t = el('toast');
   t.textContent = msg; t.className = 'toast' + (isErr ? ' err' : '');
@@ -283,8 +292,25 @@ async function boot(user) {
   
   hide('loading'); hide('login'); show('app');
   el('top-user').textContent = `${profile.name || ''} ${profile.surname || ''}`.trim();
-  
+
   renderBuildingSelector();
+
+  // iyzico ödeme dönüşü: callback panele ?payment=... ile yönlendirir
+  const payResult = new URLSearchParams(location.search).get('payment');
+  if (payResult) {
+    // URL'i temizle (yenilemede tekrar tetiklenmesin)
+    history.replaceState(null, '', location.pathname);
+    if (payResult === 'success') {
+      toast('✅ Ödeme alındı! Aboneliğiniz aktif, davet kodlarınız açıldı.');
+      navigate('subscription');
+      return;
+    }
+    if (payResult === 'failed') toast('Ödeme tamamlanmadı veya iptal edildi.', true);
+    else toast('Ödeme sırasında bir sorun oluştu.', true);
+    navigate('subscription');
+    return;
+  }
+
   navigate('overview');
 }
 
@@ -576,14 +602,14 @@ async function updateOverviewDetails(buildingId) {
             <h3>${esc(b.name)}</h3>
             <span class="muted detail-addr">${esc(b.address || 'Adres belirtilmemiş')}</span>
             <div class="detail-tags">
-              <span class="detail-tag">🔑 ${esc(b.building_code || '—')}</span>
+              <span class="detail-tag">${isSubscribed() ? `🔑 ${esc(b.building_code || '—')}` : '🔒 Kod ödemeyle açılır'}</span>
               <span class="detail-tag">🏗 ${b.floor_count || 5} Kat</span>
             </div>
           </div>
         </div>
 
         <div class="detail-stats-row">
-          <div class="detail-stat-box"><div class="val">${aptRes.count ?? 0}</div><div class="lbl">Daire</div></div>
+          <div class="detail-stat-box"><div class="val">${b.apartment_count ?? aptRes.count ?? 0}</div><div class="lbl">Daire</div></div>
           <div class="detail-stat-box"><div class="val" style="color: var(--red);">${maintRes.count ?? 0}</div><div class="lbl">Açık Arıza</div></div>
           <div class="detail-stat-box"><div class="val" style="color: var(--amber);">${feeRes.count ?? 0}</div><div class="lbl">Bekleyen Borç</div></div>
           <div class="detail-stat-box detail-stat-balance"><div class="val" style="color: var(--green);">${TL(totalBalance)}</div><div class="lbl">Site Kasası (ortak)</div></div>
@@ -2671,9 +2697,8 @@ async function renderSubscription() {
     ? supabase.from('subscription_payments').select('*').eq('site_id', sId()).order('created_at', { ascending: false })
     : supabase.from('subscription_payments').select('*').in('building_id', siteBIds()).order('created_at', { ascending: false });
 
-  const [priceRes, aptRes, payRes] = await Promise.all([
+  const [priceRes, payRes] = await Promise.all([
     supabase.from('app_pricing').select('*').eq('id', 1).maybeSingle(),
-    supabase.from('apartments').select('id', { count: 'exact', head: true }).in('building_id', siteBIds()),
     paymentsQuery,
   ]);
 
@@ -2685,7 +2710,10 @@ async function renderSubscription() {
   }
 
   const pricing = priceRes.data || { base_fee: 250, per_apartment_fee: 10 };
-  const aptCount = aptRes.count ?? 0;
+  // Ücret, sitedeki BİLDİRİLEN toplam daire sayısına göre hesaplanır
+  // (buildings.apartment_count). Fiziksel apartments satırları kayıtta
+  // oluşmadığı için satır saymak yanlış (0) sonuç veriyordu.
+  const aptCount = S.buildings.reduce((sum, x) => sum + (Number(x.apartment_count) || 0), 0);
   const payments = payRes.data || [];
   const monthly = Number(pricing.base_fee) + Number(pricing.per_apartment_fee) * aptCount;
 
@@ -2708,6 +2736,22 @@ async function renderSubscription() {
     </div>
 
     <div class="card">
+      <h3>🔑 Bina Davet Kodları</h3>
+      ${isActive
+        ? `<p class="muted" style="font-size:12.5px;margin-top:-4px;margin-bottom:12px;">Bu kodları sakinlerinizle paylaşın; her sakin kendi binasının koduyla uygulamaya katılır.</p>
+           <table><thead><tr><th>Bina</th><th>Daire</th><th>Davet Kodu</th></tr></thead>
+           <tbody>${S.buildings.map(x => `<tr>
+             <td>${esc(x.name)}</td>
+             <td>${x.apartment_count || 0}</td>
+             <td><strong style="letter-spacing:1px;">${esc(x.building_code || '—')}</strong>
+               <button class="btn btn-sm btn-ghost copy-code" data-code="${esc(x.building_code || '')}" style="margin-left:8px;">Kopyala</button></td>
+           </tr>`).join('')}</tbody></table>`
+        : `<div class="info-banner" style="margin:0;">
+             🔒 Davet kodları <strong>abonelik ödemesi yapıldıktan sonra</strong> burada görünür. Ödeme yapmadan sakin davet edemezsiniz.
+           </div>`}
+    </div>
+
+    <div class="card">
       <h3>Aylık Ücret Hesabı</h3>
       <table style="margin-top:6px;"><tbody>
         <tr><td>İşletim ücreti (sabit)</td><td class="t-right">${TL(pricing.base_fee)}</td></tr>
@@ -2718,23 +2762,23 @@ async function renderSubscription() {
     </div>
 
     <div class="card">
-      <h3>Ödeme Yap</h3>
+      <h3>Kart ile Öde</h3>
       <div class="field"><label>Süre</label>
         <div class="cat-grid" id="sub-months">
           ${[1,3,6,12].map(m => `<button type="button" class="cat-chip ${m===1?'active':''}" data-m="${m}">${m} Ay</button>`).join('')}
         </div>
       </div>
-      <div class="field"><label>Dekont / açıklama (opsiyonel)</label><input id="sub-ref" placeholder="Örn: havale açıklaması, dekont no"></div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0;">
         <span class="muted" style="font-weight:700;">Ödenecek tutar:</span>
         <strong id="sub-total" style="font-size:22px;">${TL(total())}</strong>
       </div>
-      <button class="btn btn-block" id="sub-pay">Ödeme Talebi Oluştur</button>
+      <button class="btn btn-block" id="sub-pay">💳 Kart ile Öde</button>
       <div class="info-banner" style="margin-top:14px;margin-bottom:0;">
-        ${pricing.payment_iban
-          ? `Ödemeyi <strong>${esc(pricing.payment_account_holder || '')}</strong> — <strong>${esc(pricing.payment_iban)}</strong> hesabına havale/EFT ile yapın; açıklamaya <strong>${esc(b.building_code || b.name)}</strong> yazın. Ödemeniz onaylandığında aboneliğiniz otomatik uzatılır.`
-          : 'Ödeme talebi oluşturduktan sonra ödeme bilgileri e-posta ile iletilir; ödemeniz onaylandığında aboneliğiniz otomatik uzatılır.'}
+        Ödeme güvenli iyzico altyapısıyla alınır; kart bilgileriniz bize iletilmez.
+        Ödeme onaylandığında aboneliğiniz otomatik uzar ve davet kodlarınız açılır.
       </div>
+      <!-- iyzico Checkout Form buraya yüklenir -->
+      <div id="iyzico-form" style="margin-top:16px;"></div>
     </div>
 
     ${pendingPayments.length ? `<div class="pending-alert-card">
@@ -2757,6 +2801,20 @@ async function renderSubscription() {
       </tr>`).join('') : '<tr><td colspan="6" class="t-empty">Henüz ödeme kaydı yok</td></tr>'}</tbody></table>
     </div>`;
 
+  // Davet kodu kopyalama
+  $content().querySelectorAll('.copy-code').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const code = btn.dataset.code || '';
+      if (!code) return;
+      try {
+        await navigator.clipboard.writeText(code);
+        toast(`Kod kopyalandı: ${code}`);
+      } catch {
+        toast('Kopyalanamadı, kodu elle seçin', true);
+      }
+    });
+  });
+
   el('sub-months').addEventListener('click', (e) => {
     const chip = e.target.closest('button[data-m]'); if (!chip) return;
     state.months = Number(chip.dataset.m);
@@ -2764,28 +2822,43 @@ async function renderSubscription() {
     el('sub-total').textContent = TL(total());
   });
 
+  // Kart ile öde: iyzico-init Edge Function'ını çağır, dönen Checkout Form'u göm.
   el('sub-pay').addEventListener('click', async () => {
-    if (pendingPayments.length && !confirm('Zaten onay bekleyen bir ödeme talebiniz var. Yine de yeni talep oluşturulsun mu?')) return;
-    el('sub-pay').disabled = true;
+    if (!sId()) { toast('Site bulunamadı; migration 0013/0015 uygulanmalı', true); return; }
+    const btn = el('sub-pay');
+    btn.disabled = true; btn.textContent = 'Hazırlanıyor…';
     try {
-      const { error } = await supabase.from('subscription_payments').insert({
-        ...(sId() ? { site_id: sId() } : {}), // migration 0013 uygulanmadan da çalışsın
-        building_id: bId(),
-        created_by: S.user.id,
-        apartment_count: aptCount,
-        base_fee: pricing.base_fee,
-        per_apartment_fee: pricing.per_apartment_fee,
-        months: state.months,
-        amount: total(),
-        status: 'pending',
-        payment_method: 'bank_transfer',
-        provider_ref: el('sub-ref').value.trim() || null,
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token;
+      if (!accessToken) throw new Error('Oturum bulunamadı');
+
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/iyzico-init`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+          'apikey': SUPABASE_KEY,
+        },
+        body: JSON.stringify({ siteId: sId(), months: state.months }),
       });
-      if (error) throw new Error(error.message);
-      toast('Ödeme talebi oluşturuldu — ödemeniz onaylandığında abonelik otomatik uzar');
-      renderSubscription();
+      const out = await res.json();
+      if (!res.ok || out.error) throw new Error(out.error || 'Ödeme başlatılamadı');
+
+      // iyzico Checkout Form'unu göm ve içindeki script'leri çalıştır
+      const container = el('iyzico-form');
+      container.innerHTML = out.checkoutFormContent || '';
+      container.querySelectorAll('script').forEach((old) => {
+        const s = document.createElement('script');
+        if (old.src) s.src = old.src; else s.textContent = old.textContent;
+        document.body.appendChild(s);
+      });
+      container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      btn.textContent = '💳 Kart ile Öde';
+      btn.disabled = false;
     } catch (err) {
-      toast(err.message, true); el('sub-pay').disabled = false;
+      // iyzico anahtarları henüz eklenmemişse buraya düşer
+      toast(err.message || 'Ödeme başlatılamadı', true);
+      btn.textContent = '💳 Kart ile Öde'; btn.disabled = false;
     }
   });
 }
