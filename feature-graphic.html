@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1024px; height: 500px; overflow: hidden; }
+  .fg {
+    width: 1024px; height: 500px; position: relative;
+    background: linear-gradient(135deg, #FFF6E9 0%, #FFE4C4 100%);
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    display: flex; align-items: center; overflow: hidden;
+  }
+  .blob { position: absolute; border-radius: 50%; filter: blur(70px); opacity: 0.6; }
+  .b1 { width: 380px; height: 380px; background: #FFD9A8; top: -140px; left: -120px; }
+  .b2 { width: 340px; height: 340px; background: #F5C89B; bottom: -160px; right: 180px; }
+  .left { position: relative; z-index: 2; padding: 0 60px; max-width: 620px; }
+  .brand { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
+  .brand img { width: 74px; height: 74px; border-radius: 18px; box-shadow: 0 10px 22px rgba(138,107,69,0.28); }
+  .brand span { font-size: 46px; font-weight: 800; color: #2B2620; letter-spacing: -1px; }
+  .tag { font-size: 34px; font-weight: 800; color: #2B2620; line-height: 1.18; letter-spacing: -0.5px; }
+  .tag em { font-style: normal; color: #C85B2E; }
+  .sub { font-size: 18px; color: #6E6357; margin-top: 14px; font-weight: 600; }
+  .pills { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
+  .pill { background: #fff; border: 1px solid rgba(217,179,130,0.5); color: #8A6B45; font-weight: 700;
+          font-size: 14px; padding: 8px 14px; border-radius: 999px; }
+  .free { background: #2B2620; color: #FFF6E9; border: none; }
+  .art { position: absolute; right: 0; top: 0; height: 500px; width: 420px; z-index: 1; }
+  .ground { position: absolute; right: -40px; bottom: -60px; width: 460px; height: 300px;
+            background: #a9dd93; border-radius: 40px; transform: rotate(-12deg); }
+  .road { position: absolute; right: 150px; bottom: -40px; width: 70px; height: 320px;
+          background: #d8cdb8; transform: rotate(-12deg); border-radius: 8px; }
+  .bld { position: absolute; border-radius: 6px 6px 0 0; box-shadow: 0 12px 24px rgba(43,38,32,0.18);
+         background-image: linear-gradient(#ffffff33 2px, transparent 2px), linear-gradient(90deg, #ffffff33 2px, transparent 2px);
+         background-size: 22px 26px; }
+  .roof { position: absolute; border-radius: 4px; background: #9a8468; }
+  .tree { position: absolute; width: 46px; height: 46px; background: #5aa54e; border-radius: 50%; box-shadow: 0 8px 14px rgba(43,38,32,0.15); }
+</style>
+</head>
+<body>
+  <div class="fg">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+
+    <div class="art">
+      <div class="ground"></div>
+      <div class="road"></div>
+      <div class="bld" style="right:250px; bottom:150px; width:78px; height:230px; background-color:#E9724C;"></div>
+      <div class="roof" style="right:244px; bottom:378px; width:90px; height:14px;"></div>
+      <div class="bld" style="right:150px; bottom:180px; width:70px; height:180px; background-color:#efe6d3;"></div>
+      <div class="roof" style="right:145px; bottom:358px; width:80px; height:12px;"></div>
+      <div class="bld" style="right:60px; bottom:140px; width:74px; height:250px; background-color:#e6d3c0;"></div>
+      <div class="roof" style="right:55px; bottom:388px; width:84px; height:13px;"></div>
+      <div class="tree" style="right:210px; bottom:120px;"></div>
+      <div class="tree" style="right:120px; bottom:110px; width:38px; height:38px;"></div>
+      <div class="tree" style="right:20px; bottom:100px;"></div>
+    </div>
+
+    <div class="left">
+      <div class="brand">
+        <img src="icon.png" alt="Komşu" />
+        <span>Komşu</span>
+      </div>
+      <div class="tag">Sitenizi <em>3 boyutlu</em> yönetin,<br />apartmanınız cebinizde</div>
+      <div class="sub">Aidat · Sohbet · Arıza · Oylama · Karar Defteri</div>
+      <div class="pills">
+        <span class="pill free">🎁 İlk 1 ay ücretsiz</span>
+        <span class="pill">Site &amp; apartman</span>
+        <span class="pill">Şeffaf kasa</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
