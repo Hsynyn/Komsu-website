@@ -38,6 +38,9 @@
     li { margin-bottom: 6px; }
     a.mail { color: var(--brown); font-weight: 600; }
     footer { border-top: 1px solid rgba(217,179,130,0.3); padding: 28px 24px; text-align: center; color: var(--muted); font-size: 14px; }
+    footer .links { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin-bottom: 12px; }
+    footer .links a { color: var(--muted); text-decoration: none; }
+    footer .links a:hover { color: var(--ink); }
   </style>
 </head>
 <body>
@@ -48,7 +51,7 @@
   </header>
   <main>
     <h1>Gizlilik Politikası</h1>
-    <p class="updated">Son güncelleme: 2 Temmuz 2026</p>
+    <p class="updated">Son güncelleme: 31 Temmuz 2026</p>
 
     <p>Bu Gizlilik Politikası, Komşu uygulamasını ("Uygulama") kullanımınız sırasında elde edilen kişisel verilerinizin nasıl toplandığını, kullanıldığını ve korunduğunu açıklar. Uygulamayı kullanarak bu politikayı kabul etmiş sayılırsınız.</p>
 
@@ -59,6 +62,7 @@
       <li><strong>Konum Bilgisi:</strong> Yakınınızdaki nöbetçi eczaneleri ve hizmetleri gösterebilmek için, yalnızca izin vermeniz halinde yaklaşık veya hassas konumunuz kullanılır. Konum verisi bu amaç dışında kullanılmaz ve sunucularımızda kalıcı olarak saklanmaz.</li>
       <li><strong>İşlem Bilgileri:</strong> Uygulama içi aidat takibi, arıza bildirimleri ve duyuru etkileşimleri.</li>
       <li><strong>Cihaz ve Kullanım Verileri:</strong> IP adresi, cihaz modeli, işletim sistemi sürümü ve uygulama içi kullanım istatistikleri.</li>
+      <li><strong>Ödeme Bilgileri:</strong> Abonelik satın alımlarında fatura bilgileri ve işlem kayıtları (tutar, tarih, işlem numarası). <strong>Kart numarası, son kullanma tarihi ve CVC gibi kart bilgileri tarafımızca görülmez ve saklanmaz.</strong></li>
     </ul>
 
     <h2>2. Verilerin Kullanım Amacı</h2>
@@ -74,24 +78,38 @@
     <h2>3. Verilerin Paylaşımı</h2>
     <p>Kişisel verileriniz, yalnızca apartman/site yönetiminiz kapsamındaki yetkili kişilerle (örneğin bina yöneticiniz) hizmetin gereği olarak paylaşılır. Yasal zorunluluklar dışında verileriniz hiçbir üçüncü taraf reklam veya pazarlama şirketine satılmaz.</p>
 
-    <h2>4. Veri Güvenliği</h2>
-    <p>Verileriniz, Google Firebase gibi güvenli bulut servis sağlayıcılarında şifrelenmiş olarak saklanır. Ancak internet üzerinden yapılan hiçbir veri iletiminin %100 güvenli olduğu garanti edilemez.</p>
+    <h2>4. Ödeme Verileri ve Ödeme Kuruluşu</h2>
+    <p>Abonelik ödemeleri, 6493 sayılı Kanun kapsamında BDDK tarafından yetkilendirilmiş ödeme kuruluşu <strong>iyzico Ödeme Hizmetleri A.Ş.</strong> altyapısı üzerinden alınır. Ödeme sayfasında girdiğiniz kart bilgileri doğrudan iyzico'ya iletilir; bu bilgiler Komşu sunucularına hiçbir aşamada ulaşmaz ve tarafımızca saklanmaz. İşlem, 256-bit SSL şifrelemesi ve 3D Secure doğrulaması ile korunur. iyzico'nun veri işleme esasları için kendi gizlilik politikasını inceleyebilirsiniz.</p>
 
-    <h2>5. Bildirimler</h2>
+    <h2>5. Veri Güvenliği</h2>
+    <p>Verileriniz, Google Firebase ve Supabase gibi güvenli bulut servis sağlayıcılarında şifrelenmiş olarak saklanır. Erişim yetkileri rol bazlı olarak sınırlandırılmıştır. Ancak internet üzerinden yapılan hiçbir veri iletiminin %100 güvenli olduğu garanti edilemez.</p>
+
+    <h2>6. Bildirimler</h2>
     <p>Duyuru ve önemli güncellemeleri iletebilmek için anlık bildirim (push notification) gönderilir. Bildirimleri cihaz ayarlarınızdan dilediğiniz zaman kapatabilirsiniz.</p>
 
-    <h2>6. Veri Silme ve Kullanıcı Hakları</h2>
+    <h2>7. Veri Silme ve Kullanıcı Hakları</h2>
     <p>Kullanıcılar, diledikleri zaman Profil sekmesinden "Hesabımı Sil" seçeneği ile hesaplarını ve tüm kişisel verilerini kalıcı olarak silebilirler. Silinen veriler geri getirilemez. Ayrıca verilerinize erişim, düzeltme veya silme talepleriniz için bizimle iletişime geçebilirsiniz.</p>
 
-    <h2>7. Çocukların Gizliliği</h2>
+    <h2>8. Çocukların Gizliliği</h2>
     <p>Uygulama 13 yaşın altındaki çocuklara yönelik değildir ve bilerek çocuklardan kişisel veri toplanmaz.</p>
 
-    <h2>8. Değişiklikler</h2>
+    <h2>9. Değişiklikler</h2>
     <p>Bu Gizlilik Politikası zaman zaman güncellenebilir. Önemli değişiklikler uygulama üzerinden bildirim yoluyla kullanıcılara duyurulur.</p>
 
-    <h2>9. İletişim</h2>
+    <h2>10. İletişim</h2>
     <p>Sorularınız için: <a class="mail" href="mailto:huseyinyeni1994@gmail.com">huseyinyeni1994@gmail.com</a></p>
   </main>
-  <footer>© 2026 Komşu. Tüm hakları saklıdır.</footer>
+  <footer>
+    <div class="links">
+      <a href="index.html">Ana sayfa</a>
+      <a href="mesafeli-satis-sozlesmesi.html">Mesafeli Satış Sözleşmesi</a>
+      <a href="iptal-iade-kosullari.html">İptal ve İade</a>
+      <a href="teslimat.html">Teslimat</a>
+      <a href="kullanim-kosullari.html">Kullanım Koşulları</a>
+      <a href="gizlilik-politikasi.html">Gizlilik</a>
+      <a href="iletisim.html">İletişim</a>
+    </div>
+    © 2026 Komşu. Tüm hakları saklıdır.
+  </footer>
 </body>
 </html>

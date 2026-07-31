@@ -175,6 +175,17 @@
     .footer-links { display: flex; gap: 20px; }
     .footer-links a { color: var(--muted); font-size: 14px; text-decoration: none; }
     .footer-links a:hover { color: var(--ink); }
+    .footer-links { flex-wrap: wrap; }
+    .footer-pay {
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      padding-top: 22px; margin-top: 22px; border-top: 1px solid rgba(217, 179, 130, 0.25);
+    }
+    .pay-logos { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+    .pay-logos span {
+      background: var(--white); border: 1px solid rgba(217, 179, 130, 0.45); border-radius: 8px;
+      padding: 7px 14px; font-size: 12.5px; font-weight: 700; color: var(--brown); letter-spacing: 0.3px;
+    }
+    .pay-note { max-width: 640px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.6; }
 
     /* Hero dekor */
     .hero { position: relative; overflow: hidden; }
@@ -280,6 +291,11 @@
     .price-big { font-size: clamp(40px, 8vw, 60px); font-weight: 800; letter-spacing: -1.5px; color: var(--ink); line-height: 1; }
     .price-big small { font-size: 20px; font-weight: 600; color: var(--muted); }
     .price-sub { color: var(--muted); font-size: 15px; margin-top: 8px; }
+    .price-legal {
+      margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(217, 179, 130, 0.3);
+      color: var(--muted); font-size: 12.5px; line-height: 1.65; text-align: center;
+    }
+    .price-legal a { color: var(--brown); font-weight: 600; }
     .slider-row { margin: 32px 0 10px; }
     .slider-row label { display: flex; justify-content: space-between; font-weight: 700; font-size: 15px; margin-bottom: 12px; }
     .slider-row label b { color: var(--brown); }
@@ -421,6 +437,12 @@
           <span>Sabit işletim: 250₺</span>·<span>Daire başına: 10₺ × <span id="daireVal2">40</span></span>
         </div>
         <div class="trial-note">🎁 İlk 1 ay tamamen ücretsiz — kart bilgisi istemeden deneyin</div>
+        <p class="price-legal">
+          Fiyatlar Türk Lirası (₺) cinsinden olup [KDV DAHİLDİR / KDV HARİÇTİR]. Abonelik aylıktır ve iptal edilmediği sürece otomatik yenilenir.
+          Satın alma öncesi <a href="mesafeli-satis-sozlesmesi.html">Mesafeli Satış Sözleşmesi</a>,
+          <a href="iptal-iade-kosullari.html">İptal ve İade Koşulları</a> ve
+          <a href="teslimat.html">Teslimat Koşulları</a>'nı inceleyebilirsiniz.
+        </p>
       </div>
     </div>
   </section>
@@ -562,9 +584,19 @@
     <div class="container footer-inner">
       <p>© 2026 Komşu. Tüm hakları saklıdır.</p>
       <div class="footer-links">
+        <a href="mesafeli-satis-sozlesmesi.html">Mesafeli Satış Sözleşmesi</a>
+        <a href="iptal-iade-kosullari.html">İptal ve İade</a>
+        <a href="teslimat.html">Teslimat</a>
+        <a href="kullanim-kosullari.html">Kullanım Koşulları</a>
         <a href="gizlilik-politikasi.html">Gizlilik Politikası</a>
-        <a href="mailto:huseyinyeni1994@gmail.com">İletişim</a>
+        <a href="iletisim.html">İletişim</a>
       </div>
+    </div>
+    <div class="container footer-pay">
+      <div class="pay-logos">
+        <span>VISA</span><span>MASTERCARD</span><span>TROY</span><span>3D SECURE</span><span>iyzico</span>
+      </div>
+      <p class="pay-note">Ödemeler BDDK lisanslı ödeme kuruluşu iyzico altyapısı ile 256-bit SSL ve 3D Secure korumalı olarak alınır. Kart bilgileriniz sunucularımızda saklanmaz.</p>
     </div>
   </footer>
 
