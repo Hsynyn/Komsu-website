@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KOMŞU — Platform Yönetimi</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="stylesheet" href="panel.css" />
+  <link rel="stylesheet" href="cms.css" />
+</head>
+<body>
+  <div id="loading" class="loading">Yükleniyor…</div>
+
+  <!-- GİRİŞ -->
+  <div id="login" class="login-screen hidden">
+    <div class="login-card">
+      <div class="brand" style="margin-bottom:18px;">
+        <span>KOMŞU</span><span class="home">⌂</span>
+      </div>
+      <h1>Platform Yönetimi</h1>
+      <p class="sub">Yalnızca platform yöneticileri erişebilir.</p>
+      <div id="login-error" class="error hidden"></div>
+      <form id="login-form">
+        <div class="field">
+          <label for="email">E-posta</label>
+          <input id="email" type="email" autocomplete="email" placeholder="ornek@eposta.com" required />
+        </div>
+        <div class="field">
+          <label for="password">Şifre</label>
+          <div class="input-row">
+            <input id="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
+            <button type="button" class="eye" id="toggle-pass">Göster</button>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-block" id="login-btn">Giriş Yap</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- PANEL -->
+  <div id="app" class="cms hidden">
+    <header class="cms-top">
+      <div class="brand"><span>KOMŞU</span><span class="home">⌂</span></div>
+      <span class="cms-tag">Platform Yönetimi</span>
+      <div class="cms-top-right">
+        <span class="cms-user" id="top-user"></span>
+        <button class="btn btn-sm btn-ghost" id="refresh-btn">Yenile</button>
+        <button class="btn btn-sm btn-outline-red" id="logout-btn">Çıkış</button>
+      </div>
+    </header>
+
+    <main class="cms-main">
+      <!-- Özet metrikler -->
+      <section class="stat-grid" id="stats"></section>
+
+      <!-- Müşteri listesi -->
+      <section class="card">
+        <div class="page-head">
+          <h2>Müşteriler</h2>
+          <div class="tools">
+            <input class="search" id="search" type="search" placeholder="Site, yönetici, e-posta ara…" />
+            <select class="search" id="filter-status">
+              <option value="">Tüm durumlar</option>
+              <option value="active">Aktif abone</option>
+              <option value="trial">Denemede</option>
+              <option value="expired">Süresi dolmuş</option>
+            </select>
+            <select class="search" id="sort-by">
+              <option value="created_at">Kayıt tarihi (yeni→eski)</option>
+              <option value="days_left">Bitişe kalan gün (az→çok)</option>
+              <option value="total_paid">Toplam ödeme (çok→az)</option>
+              <option value="apartment_capacity">Daire sayısı (çok→az)</option>
+              <option value="site_name">Site adı (A→Z)</option>
+            </select>
+            <button class="btn btn-sm btn-ghost" id="export-btn">CSV indir</button>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="cms-table" id="sites-table">
+            <thead>
+              <tr>
+                <th>Site</th>
+                <th>Yönetici</th>
+                <th>İletişim</th>
+                <th class="t-right">Bina</th>
+                <th class="t-right">Daire</th>
+                <th class="t-right">Katılan</th>
+                <th>Abonelik</th>
+                <th class="t-right">Toplam Ödeme</th>
+                <th>Son Hareket</th>
+              </tr>
+            </thead>
+            <tbody id="sites-body"></tbody>
+          </table>
+        </div>
+        <p class="cms-count" id="row-count"></p>
+      </section>
+    </main>
+  </div>
+
+  <!-- Detay modalı -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modal-title">Detay</h3>
+        <button class="modal-close" id="modal-close">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script type="module" src="cms.js"></script>
+</body>
+</html>
