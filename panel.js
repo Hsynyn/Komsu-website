@@ -172,6 +172,7 @@ el('tab-admin').addEventListener('click', () => {
   el('email-label').textContent = 'E-posta';
   el('email').placeholder = 'ornek@eposta.com';
   el('login-foot').style.display = 'block';
+  el('login-alt').style.display = 'block';
 });
 
 el('tab-security').addEventListener('click', () => {
@@ -188,6 +189,7 @@ el('tab-security').addEventListener('click', () => {
   el('email-label').textContent = 'Güvenlik Kullanıcı Adı';
   el('email').placeholder = 'Örn: guvenlik-a-blok';
   el('login-foot').style.display = 'none';
+  el('login-alt').style.display = 'none';
 });
 
 el('toggle-pass').addEventListener('click', () => {
@@ -195,10 +197,264 @@ el('toggle-pass').addEventListener('click', () => {
   p.type = on ? 'text' : 'password'; el('toggle-pass').textContent = on ? 'Gizle' : 'Göster';
 });
 
+// Tam ekran görünümler — aynı anda yalnızca biri açık olur
+const SCREENS = ['loading', 'login', 'signup', 'verify', 'setup', 'app'];
+function showScreen(id) { SCREENS.forEach(s => (s === id ? show(s) : hide(s))); }
+
 function showLogin(message) {
-  hide('loading'); hide('app'); show('login');
+  showScreen('login');
   if (message) { el('login-error').textContent = message; show('login-error'); } else hide('login-error');
 }
+
+function showSignup() {
+  showScreen('signup');
+  hide('signup-error');
+}
+
+function showVerify(email) {
+  showScreen('verify');
+  hide('verify-error');
+  el('verify-email').textContent = email;
+}
+
+/* ============ Yönetici kaydı ============ */
+// Mobildeki akışın web karşılığı: hesap oluştur → (gerekirse e-posta doğrula)
+// → kurulum sihirbazıyla siteyi/binaları tanımla → panele gir.
+// Mobilde kimlik Apple/Google ile alınır; web'de e-posta + şifre kullanılır.
+// İkisi de aynı Supabase Auth kullanıcısına, aynı RPC'ye ve aynı RLS'e bağlanır.
+
+el('go-signup').addEventListener('click', () => showSignup());
+el('go-login').addEventListener('click', () => showLogin());
+el('verify-to-login').addEventListener('click', () => showLogin());
+
+el('su-toggle-pass').addEventListener('click', () => {
+  const p = el('su-pass'); const on = p.type === 'password';
+  p.type = on ? 'text' : 'password'; el('su-toggle-pass').textContent = on ? 'Gizle' : 'Göster';
+});
+
+function signupError(msg) {
+  el('signup-error').textContent = msg;
+  show('signup-error');
+}
+
+el('signup-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  hide('signup-error');
+
+  const name = el('su-name').value.trim();
+  const surname = el('su-surname').value.trim();
+  const email = el('su-email').value.trim().toLowerCase();
+  const pass = el('su-pass').value;
+  const pass2 = el('su-pass2').value;
+
+  if (!name || !surname) return signupError('Lütfen ad ve soyad alanlarını doldurun.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return signupError('Geçerli bir e-posta adresi girin.');
+  if (pass.length < 6) return signupError('Şifre en az 6 karakter olmalı.');
+  if (pass !== pass2) return signupError('Şifreler birbiriyle eşleşmiyor.');
+  if (!el('su-terms').checked) return signupError('Devam etmek için sözleşmeleri kabul etmelisiniz.');
+
+  const btn = el('signup-btn');
+  btn.disabled = true; btn.textContent = 'Hesap oluşturuluyor…';
+
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password: pass,
+    options: { data: { display_name: `${name} ${surname}`, name, surname } },
+  });
+
+  btn.disabled = false; btn.textContent = 'Hesap Oluştur';
+
+  if (error) {
+    const m = (error.message || '').toLowerCase();
+    if (m.includes('already registered') || m.includes('already been registered')) {
+      return signupError('Bu e-posta zaten kayıtlı. Giriş yapmayı deneyin.');
+    }
+    if (m.includes('password')) return signupError('Şifre çok zayıf (en az 6 karakter olmalı).');
+    if (m.includes('rate limit') || m.includes('too many')) {
+      return signupError('Çok fazla deneme yapıldı. Lütfen birkaç dakika sonra tekrar deneyin.');
+    }
+    return signupError(error.message || 'Kayıt oluşturulamadı.');
+  }
+
+  // Kurulum adımında kullanmak üzere ad/soyadı sakla
+  S.pendingName = { name, surname };
+
+  // Projede e-posta onayı açıksa signUp oturum döndürmez → doğrulama ekranı.
+  // Kapalıysa oturum gelir → doğrudan kurulum sihirbazına geçilir.
+  if (data.session && data.user) {
+    await boot(data.user);
+  } else {
+    S.pendingEmail = email;
+    showVerify(email);
+  }
+});
+
+el('verify-resend').addEventListener('click', async () => {
+  const btn = el('verify-resend');
+  hide('verify-error');
+  btn.disabled = true; btn.textContent = 'Gönderiliyor…';
+  const { error } = await supabase.auth.resend({ type: 'signup', email: S.pendingEmail || '' });
+  btn.disabled = false; btn.textContent = 'Doğrulama E-postasını Tekrar Gönder';
+  if (error) {
+    el('verify-error').textContent = 'E-posta gönderilemedi. Lütfen birkaç dakika sonra tekrar deneyin.';
+    show('verify-error');
+  } else {
+    toast('Doğrulama e-postası tekrar gönderildi.');
+  }
+});
+
+/* ============ Kurulum sihirbazı ============ */
+// Mobildeki app/register/admin.tsx ekranının birebir karşılığı:
+// site tipi, ad, adres ve bina bilgileri → create_site_with_buildings RPC.
+
+const BLOCK_LETTERS = 'ABCDEFGHIJKLMNOPRSTUVYZ';
+const defaultBlockName = (i) => `${BLOCK_LETTERS[i % BLOCK_LETTERS.length]} Blok`;
+
+const SETUP = {
+  siteType: 'apartment',
+  blocks: [
+    { name: defaultBlockName(0), apartmentCount: '', floorCount: '' },
+    { name: defaultBlockName(1), apartmentCount: '', floorCount: '' },
+  ],
+};
+
+function renderBlocks() {
+  el('blocks-list').innerHTML = SETUP.blocks.map((b, i) => `
+    <div class="block-row" data-i="${i}">
+      <input class="b-name" type="text" placeholder="${esc(defaultBlockName(i))}" value="${esc(b.name)}" data-f="name" />
+      <input class="b-num" type="number" min="1" inputmode="numeric" placeholder="Daire" value="${esc(b.apartmentCount)}" data-f="apartmentCount" />
+      <input class="b-num" type="number" min="0" inputmode="numeric" placeholder="Kat" value="${esc(b.floorCount)}" data-f="floorCount" />
+      <button type="button" class="b-del" data-i="${i}" ${SETUP.blocks.length <= 2 ? 'disabled' : ''} title="Binayı kaldır">✕</button>
+    </div>
+  `).join('');
+}
+
+el('blocks-list').addEventListener('input', (e) => {
+  const input = e.target.closest('input[data-f]');
+  if (!input) return;
+  const i = Number(input.closest('.block-row').dataset.i);
+  SETUP.blocks[i][input.dataset.f] = input.value;
+});
+
+el('blocks-list').addEventListener('click', (e) => {
+  const btn = e.target.closest('.b-del');
+  if (!btn || btn.disabled) return;
+  SETUP.blocks.splice(Number(btn.dataset.i), 1);
+  renderBlocks();
+});
+
+el('add-block').addEventListener('click', () => {
+  if (SETUP.blocks.length >= 20) return toast('En fazla 20 bina tanımlayabilirsiniz.', true);
+  SETUP.blocks.push({ name: defaultBlockName(SETUP.blocks.length), apartmentCount: '', floorCount: '' });
+  renderBlocks();
+});
+
+function setSiteType(type) {
+  SETUP.siteType = type;
+  const isSite = type === 'site';
+  el('seg-site').classList.toggle('active', isSite);
+  el('seg-apartment').classList.toggle('active', !isSite);
+  el('setup-blocks').classList.toggle('hidden', !isSite);
+  el('setup-single').classList.toggle('hidden', isSite);
+  el('st-name-label').textContent = isSite ? 'Site Adı' : 'Apartman Adı';
+  el('st-name').placeholder = isSite ? 'Site adını girin' : 'Apartman adını girin';
+  if (isSite) renderBlocks();
+}
+
+el('seg-apartment').addEventListener('click', () => setSiteType('apartment'));
+el('seg-site').addEventListener('click', () => setSiteType('site'));
+
+el('setup-logout').addEventListener('click', async () => {
+  await supabase.auth.signOut();
+  showLogin();
+});
+
+function showSetup() {
+  showScreen('setup');
+  hide('setup-error');
+  setSiteType(SETUP.siteType);
+  renderBlocks();
+}
+
+function setupError(msg) {
+  el('setup-error').textContent = msg;
+  show('setup-error');
+  el('setup').querySelector('.setup-card')?.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+el('setup-btn').addEventListener('click', async () => {
+  hide('setup-error');
+
+  const name = el('st-name').value.trim();
+  const address = el('st-address').value.trim();
+  const isSite = SETUP.siteType === 'site';
+
+  if (!name) return setupError(isSite ? 'Lütfen site adını girin.' : 'Lütfen apartman adını girin.');
+  if (!address) return setupError('Lütfen adresi girin.');
+
+  let buildings;
+  if (isSite) {
+    buildings = [];
+    for (let i = 0; i < SETUP.blocks.length; i++) {
+      const b = SETUP.blocks[i];
+      const bName = (b.name || '').trim();
+      if (!bName) return setupError(`${i + 1}. binanın adını girin.`);
+      const apt = parseInt(b.apartmentCount, 10);
+      if (isNaN(apt) || apt <= 0) return setupError(`${bName} için geçerli bir daire sayısı girin.`);
+      buildings.push({ name: bName, apartment_count: apt, floor_count: parseInt(b.floorCount, 10) || 0 });
+    }
+  } else {
+    const apt = parseInt(el('st-apt').value, 10);
+    const flr = parseInt(el('st-floor').value, 10);
+    if (isNaN(apt) || apt <= 0) return setupError('Geçerli bir daire sayısı girin.');
+    if (isNaN(flr) || flr <= 0) return setupError('Geçerli bir kat sayısı girin.');
+    buildings = [{ name, apartment_count: apt, floor_count: flr }];
+  }
+
+  const btn = el('setup-btn');
+  btn.disabled = true; btn.textContent = 'Kuruluyor…';
+
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { showLogin('Oturumunuz sona ermiş. Lütfen tekrar giriş yapın.'); return; }
+
+    // 1) Siteyi binalarıyla birlikte kur (mobildekiyle aynı RPC)
+    const { data, error } = await supabase.rpc('create_site_with_buildings', {
+      p_name: name,
+      p_site_type: SETUP.siteType,
+      p_address: address,
+      p_buildings: buildings,
+    });
+    if (error) throw new Error(error.message || 'Site oluşturulamadı');
+
+    const firstBuildingId = data?.buildings?.[0]?.id || null;
+
+    // 2) Yönetici profilini oluştur (mobildeki createAdmin ile aynı)
+    const meta = user.user_metadata || {};
+    const pName = S.pendingName?.name || meta.name || (meta.display_name || '').split(' ')[0] || '';
+    const pSurname = S.pendingName?.surname || meta.surname || (meta.display_name || '').split(' ').slice(1).join(' ') || '';
+
+    const { error: pErr } = await supabase.from('profiles').upsert({
+      id: user.id,
+      role: 'admin',
+      name: pName,
+      surname: pSurname,
+      phone: null,
+      email: user.email || null,
+      building_id: firstBuildingId,
+    });
+    if (pErr) throw new Error(pErr.message || 'Yönetici profili kaydedilemedi');
+
+    S.pendingName = null;
+    await boot(user);
+    toast('🎉 Kurulum tamamlandı! 1 aylık ücretsiz denemeniz başladı.');
+  } catch (err) {
+    btn.disabled = false; btn.textContent = 'Kurulumu Tamamla';
+    setupError(err.message || 'Kurulum tamamlanamadı. Lütfen tekrar deneyin.');
+    return;
+  }
+  btn.disabled = false; btn.textContent = 'Kurulumu Tamamla';
+});
 
 el('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -212,7 +468,7 @@ el('login-form').addEventListener('submit', async (e) => {
     });
     btn.disabled = false; btn.textContent = 'Giriş Yap';
     if (error || !data.user) { el('login-error').textContent = 'E-posta veya şifre hatalı.'; show('login-error'); return; }
-    show('loading'); hide('login'); await boot(data.user);
+    showScreen('loading'); await boot(data.user);
   } else {
     // Güvenlik Görevlisi Girişi (şifre doğrulamalı RPC — bina satırı istemciye açılmaz)
     try {
@@ -240,8 +496,7 @@ el('login-form').addEventListener('submit', async (e) => {
       S.buildings = [{ id: building.building_id, name: building.building_name, address: '' }];
       S.activeBuildingId = building.building_id;
       
-      hide('login');
-      show('app');
+      showScreen('app');
       el('top-user').textContent = 'Güvenlik Görevlisi';
       
       // Güvenlik moduna yönlendir
@@ -269,42 +524,51 @@ el('logout-btn').addEventListener('click', async () => {
 async function boot(user) {
   S.user = user;
   const { data: profile } = await supabase.from('profiles').select('name, surname, building_id, role').eq('id', user.id).maybeSingle();
-  if (!profile || profile.role !== 'admin') {
+
+  // Web'den yeni kaydolan yöneticinin henüz profili yoktur → kurulum sihirbazı.
+  if (!profile) { showSetup(); return; }
+
+  if (profile.role !== 'admin') {
     await supabase.auth.signOut();
     showLogin('Bu panel yalnızca bina yöneticileri içindir. Daire hesabıyla giriş yapılamaz.');
     return;
   }
   S.profile = profile;
 
-  // Yöneticinin sitesini çek (site modeli — migration 0013)
-  try {
-    const { data: site } = await supabase.from('sites').select('*')
-      .eq('admin_id', user.id).order('created_at', { ascending: true }).limit(1).maybeSingle();
-    S.site = site || null;
-  } catch { S.site = null; }
+  // Binaları önce doğrudan admin_id ile çek — kaydı yarım kalmış (binasız site
+  // oluşmuş) hesaplarda site-önce yaklaşımı boş sonuç döndürüp kurulum
+  // ekranında sonsuz döngüye sokuyordu.
+  let { data: buildings } = await supabase.from('buildings').select('*')
+    .eq('admin_id', user.id).order('created_at', { ascending: true });
 
-  // Sitenin (yoksa yöneticinin) tüm binalarını çek
-  let buildings = null;
-  if (S.site) {
-    ({ data: buildings } = await supabase.from('buildings').select('*')
-      .eq('site_id', S.site.id).order('created_at', { ascending: true }));
-  }
-  if (!buildings || buildings.length === 0) {
-    ({ data: buildings } = await supabase.from('buildings').select('*').eq('admin_id', user.id));
-  }
-  S.buildings = buildings || [];
-
-  // Geriye dönük uyumluluk: Eğer binalar boşsa ve profilde building_id varsa onu ekle
-  if (S.buildings.length === 0 && profile.building_id) {
+  // Geriye dönük uyumluluk: binalar boşsa profildeki building_id'yi dene
+  if ((!buildings || buildings.length === 0) && profile.building_id) {
     const { data: building } = await supabase.from('buildings').select('*').eq('id', profile.building_id).maybeSingle();
-    if (building) S.buildings.push(building);
+    if (building) buildings = [building];
   }
 
-  if (S.buildings.length > 0) {
-    S.activeBuildingId = S.buildings[0].id;
+  // Binası olmayan yönetici (kayıt yarıda kalmış) → kurulumu tamamlasın
+  if (!buildings || buildings.length === 0) { showSetup(); return; }
+
+  // Binanın bağlı olduğu siteyi ve o sitedeki TÜM binaları çek
+  const siteId = buildings.find(b => b.site_id)?.site_id || null;
+  if (siteId) {
+    try {
+      const { data: site } = await supabase.from('sites').select('*').eq('id', siteId).maybeSingle();
+      S.site = site || null;
+    } catch { S.site = null; }
+
+    const { data: siteBuildings } = await supabase.from('buildings').select('*')
+      .eq('site_id', siteId).order('created_at', { ascending: true });
+    if (siteBuildings && siteBuildings.length) buildings = siteBuildings;
+  } else {
+    S.site = null;
   }
-  
-  hide('loading'); hide('login'); show('app');
+
+  S.buildings = buildings;
+  S.activeBuildingId = S.buildings[0].id;
+
+  showScreen('app');
   el('top-user').textContent = `${profile.name || ''} ${profile.surname || ''}`.trim();
 
   renderBuildingSelector();
@@ -3285,6 +3549,8 @@ async function saveVisitorEntry() {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) await boot(session.user);
+    // Ana sayfadaki "Ücretsiz Başla" bağlantısı ?signup=1 ile gelir
+    else if (new URLSearchParams(location.search).get('signup') === '1') showSignup();
     else showLogin();
   } catch (err) {
     window.onerror(err.message, 'panel.js', 0, 0, err);

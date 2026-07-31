@@ -122,6 +122,11 @@
       border: 2px dashed var(--tan); cursor: default;
     }
     .badge-btn.soon:hover { transform: none; box-shadow: none; }
+    .badge-btn.badge-primary {
+      background: linear-gradient(135deg, #E9724C, #FDD05E); color: #fff;
+      box-shadow: 0 6px 18px rgba(233, 114, 76, 0.32);
+    }
+    .badge-btn.badge-primary small { opacity: 0.9; }
 
     section { padding: 72px 0; }
     .section-title { text-align: center; font-size: clamp(26px, 4vw, 36px); font-weight: 800; letter-spacing: -0.5px; margin-bottom: 12px; }
@@ -291,6 +296,13 @@
     .price-big { font-size: clamp(40px, 8vw, 60px); font-weight: 800; letter-spacing: -1.5px; color: var(--ink); line-height: 1; }
     .price-big small { font-size: 20px; font-weight: 600; color: var(--muted); }
     .price-sub { color: var(--muted); font-size: 15px; margin-top: 8px; }
+    .price-cta {
+      display: block; margin-top: 20px; padding: 15px 24px; border-radius: 14px;
+      background: var(--ink); color: var(--cream); text-decoration: none;
+      font-weight: 700; font-size: 16px; text-align: center;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .price-cta:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(43, 38, 32, 0.25); }
     .price-legal {
       margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(217, 179, 130, 0.3);
       color: var(--muted); font-size: 12.5px; line-height: 1.65; text-align: center;
@@ -342,7 +354,7 @@
         <a href="#yorumlar">Yorumlar</a>
         <a href="#sss">SSS</a>
         <a href="panel.html">Yönetici Girişi</a>
-        <a class="nav-cta" href="#indir">İndir</a>
+        <a class="nav-cta" href="panel.html?signup=1">Ücretsiz Başla</a>
       </nav>
     </div>
   </header>
@@ -372,6 +384,10 @@
         <a class="badge-btn" href="panel.html">
           <span style="font-size:22px">🖥️</span>
           <span class="lines"><small>Yönetici için</small>Web Paneli</span>
+        </a>
+        <a class="badge-btn badge-primary" href="panel.html?signup=1">
+          <span style="font-size:22px">✨</span>
+          <span class="lines"><small>İndirmeden, web'den</small>Ücretsiz Başla</span>
         </a>
       </div>
 
@@ -437,6 +453,7 @@
           <span>Sabit işletim: 250₺</span>·<span>Daire başına: 10₺ × <span id="daireVal2">40</span></span>
         </div>
         <div class="trial-note">🎁 İlk 1 ay tamamen ücretsiz — kart bilgisi istemeden deneyin</div>
+        <a class="price-cta" href="panel.html?signup=1">Ücretsiz Başla →</a>
         <p class="price-legal">
           Fiyatlar Türk Lirası (₺) cinsinden olup [KDV DAHİLDİR / KDV HARİÇTİR]. Abonelik aylıktır ve iptal edilmediği sürece otomatik yenilenir.
           Satın alma öncesi <a href="mesafeli-satis-sozlesmesi.html">Mesafeli Satış Sözleşmesi</a>,

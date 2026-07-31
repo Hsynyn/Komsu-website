@@ -50,6 +50,60 @@ a { color: inherit; cursor: pointer; }
 .error { color: var(--red); background: var(--red-bg); border: 1px solid #F3C9C1; border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-bottom: 16px; }
 .foot { text-align: center; color: var(--muted); font-size: 12px; margin-top: 20px; line-height: 1.6; }
 
+/* ---- Kayıt / kurulum akışı ---- */
+.alt-action { text-align: center; font-size: 13.5px; color: var(--muted); margin-top: 18px; }
+.linklike {
+  background: none; border: none; padding: 0; font: inherit; font-weight: 700;
+  color: var(--brown); cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+.linklike:hover { color: var(--ink); }
+.check-row {
+  display: flex; align-items: flex-start; gap: 10px; margin: 4px 0 18px;
+  font-size: 12.5px; color: var(--muted); line-height: 1.55; cursor: pointer;
+}
+.check-row input { width: 17px; height: 17px; margin-top: 1px; flex-shrink: 0; accent-color: var(--ink); cursor: pointer; }
+.check-row a { color: var(--brown); font-weight: 600; }
+
+.setup-card { max-width: 560px; max-height: 92vh; overflow-y: auto; }
+.type-seg-row { display: flex; gap: 10px; }
+.type-seg {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 12px 8px; border: 2px solid var(--line); border-radius: 12px;
+  background: #FFFDF9; cursor: pointer; font-family: inherit; color: var(--muted);
+  transition: border-color .15s, background .15s, color .15s;
+}
+.type-seg b { font-size: 14.5px; color: var(--ink); }
+.type-seg span { font-size: 11.5px; }
+.type-seg.active { border-color: var(--ink); background: var(--peach); color: var(--ink); }
+.type-seg.active b { color: var(--ink); }
+
+.blocks-label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.blocks-hint { font-size: 12.5px; color: var(--muted); line-height: 1.55; margin-bottom: 14px; }
+.block-row { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.block-row input {
+  border: 2px solid var(--line); border-radius: 11px; padding: 10px 12px;
+  font-size: 14px; font-family: inherit; background: #FFFDF9; outline: none; min-width: 0;
+}
+.block-row input:focus { border-color: var(--tan); }
+.block-row .b-name { flex: 2; }
+.block-row .b-num { flex: 1; }
+.block-row .b-del {
+  width: 34px; height: 34px; flex-shrink: 0; border: none; border-radius: 10px;
+  background: var(--red-bg); color: var(--red); font-size: 15px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+}
+.block-row .b-del:disabled { background: #EEE7DB; color: #BBB; cursor: default; }
+.add-block {
+  width: 100%; padding: 11px; margin-bottom: 18px; border: 2px dashed var(--tan);
+  border-radius: 12px; background: transparent; color: var(--brown);
+  font-weight: 700; font-size: 14px; font-family: inherit; cursor: pointer;
+}
+.add-block:hover { background: var(--cream); }
+@media (max-width: 480px) {
+  .block-row { flex-wrap: wrap; }
+  .block-row .b-name { flex: 1 1 100%; }
+}
+
 /* ---------- Butonlar ---------- */
 .btn { padding: 11px 18px; border: none; border-radius: 12px; cursor: pointer; background: var(--ink); color: var(--cream); font-size: 14px; font-weight: 700; font-family: inherit; transition: opacity .15s, transform .05s; }
 .btn:hover { opacity: .9; } .btn:active { transform: translateY(1px); } .btn:disabled { opacity: .55; cursor: default; }

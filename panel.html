@@ -43,6 +43,147 @@
         <button type="submit" class="btn btn-block" id="login-btn">Giriş Yap</button>
       </form>
       <p class="foot" id="login-foot">Giriş bilgilerinizi mobil uygulamadan<br /><strong>Profil → Web Paneli Girişi</strong> ekranından belirleyebilirsiniz.</p>
+      <div class="alt-action" id="login-alt">
+        Henüz hesabınız yok mu?
+        <button type="button" class="linklike" id="go-signup">Yönetici olarak kayıt olun</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- KAYIT EKRANI (Yönetici) -->
+  <div id="signup" class="login-screen hidden">
+    <div class="login-card">
+      <div class="brand" style="margin-bottom:18px;">
+        <span>KOMŞU</span><span class="home">⌂</span>
+      </div>
+      <h1>Yönetici Kaydı</h1>
+      <p class="sub">Hesabınızı oluşturun, ardından sitenizi tanımlayın. İlk 1 ay ücretsiz.</p>
+      <div id="signup-error" class="error hidden"></div>
+      <form id="signup-form">
+        <div class="grid-2">
+          <div class="field">
+            <label for="su-name">Ad</label>
+            <input id="su-name" type="text" autocomplete="given-name" placeholder="Adınız" required />
+          </div>
+          <div class="field">
+            <label for="su-surname">Soyad</label>
+            <input id="su-surname" type="text" autocomplete="family-name" placeholder="Soyadınız" required />
+          </div>
+        </div>
+        <div class="field">
+          <label for="su-email">E-posta</label>
+          <input id="su-email" type="email" autocomplete="email" placeholder="ornek@eposta.com" required />
+        </div>
+        <div class="field">
+          <label for="su-pass">Şifre</label>
+          <div class="input-row">
+            <input id="su-pass" type="password" autocomplete="new-password" placeholder="En az 6 karakter" required />
+            <button type="button" class="eye" id="su-toggle-pass">Göster</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="su-pass2">Şifre (Tekrar)</label>
+          <input id="su-pass2" type="password" autocomplete="new-password" placeholder="Şifrenizi tekrar girin" required />
+        </div>
+        <label class="check-row">
+          <input type="checkbox" id="su-terms" />
+          <span>
+            <a href="kullanim-kosullari.html" target="_blank" rel="noopener">Kullanım Koşulları</a>,
+            <a href="mesafeli-satis-sozlesmesi.html" target="_blank" rel="noopener">Mesafeli Satış Sözleşmesi</a> ve
+            <a href="gizlilik-politikasi.html" target="_blank" rel="noopener">Gizlilik Politikası</a>'nı okudum, kabul ediyorum.
+          </span>
+        </label>
+        <button type="submit" class="btn btn-block" id="signup-btn">Hesap Oluştur</button>
+      </form>
+      <div class="alt-action">
+        Zaten hesabınız var mı?
+        <button type="button" class="linklike" id="go-login">Giriş yapın</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- E-POSTA DOĞRULAMA BEKLENİYOR -->
+  <div id="verify" class="login-screen hidden">
+    <div class="login-card">
+      <div class="brand" style="margin-bottom:18px;">
+        <span>KOMŞU</span><span class="home">⌂</span>
+      </div>
+      <h1>E-postanızı doğrulayın</h1>
+      <p class="sub">
+        <strong id="verify-email">—</strong> adresine bir doğrulama bağlantısı gönderdik.
+        Bağlantıya tıkladıktan sonra buraya dönüp giriş yapabilirsiniz.
+      </p>
+      <div id="verify-error" class="error hidden"></div>
+      <button type="button" class="btn btn-block" id="verify-resend">Doğrulama E-postasını Tekrar Gönder</button>
+      <div class="alt-action">
+        E-posta geldi mi?
+        <button type="button" class="linklike" id="verify-to-login">Giriş ekranına dön</button>
+      </div>
+      <p class="foot">Gelen kutunuzda göremezseniz spam/gereksiz klasörünü kontrol edin.</p>
+    </div>
+  </div>
+
+  <!-- KURULUM SİHİRBAZI (Site / Apartman tanımı) -->
+  <div id="setup" class="login-screen hidden">
+    <div class="login-card setup-card">
+      <div class="brand" style="margin-bottom:18px;">
+        <span>KOMŞU</span><span class="home">⌂</span>
+      </div>
+      <h1>Yönetiminizi tanımlayın</h1>
+      <p class="sub">Son adım — binalarınızı burada tanımlıyorsunuz. Bu bilgiler sonradan bina eklemeye izin vermez, dikkatle doldurun.</p>
+      <div id="setup-error" class="error hidden"></div>
+
+      <div class="field">
+        <label>Neyi yönetiyorsunuz?</label>
+        <div class="type-seg-row">
+          <button type="button" class="type-seg active" id="seg-apartment">
+            <b>Apartman</b><span>Tek bina</span>
+          </button>
+          <button type="button" class="type-seg" id="seg-site">
+            <b>Site</b><span>Birden çok blok</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="st-name" id="st-name-label">Apartman Adı</label>
+        <input id="st-name" type="text" placeholder="Apartman adını girin" required />
+      </div>
+
+      <div class="field">
+        <label for="st-address">Adres</label>
+        <textarea id="st-address" placeholder="Açık adresi girin" required></textarea>
+      </div>
+
+      <!-- Apartman: tek bina -->
+      <div id="setup-single">
+        <div class="grid-2">
+          <div class="field">
+            <label for="st-apt">Daire Sayısı</label>
+            <input id="st-apt" type="number" min="1" max="2000" inputmode="numeric" placeholder="Örn: 24" />
+          </div>
+          <div class="field">
+            <label for="st-floor">Kat Sayısı</label>
+            <input id="st-floor" type="number" min="1" max="200" inputmode="numeric" placeholder="Örn: 6" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Site: çoklu blok -->
+      <div id="setup-blocks" class="hidden">
+        <label class="blocks-label">Sitenizdeki Binalar</label>
+        <p class="blocks-hint">
+          Her bina için ayrı bir davet kodu oluşturulur; sakinler bu kodla kendi binasına katılır.
+          Kasa, sohbet ve kurallar tüm site için ortaktır. Binalar yalnızca kayıt sırasında tanımlanır.
+        </p>
+        <div id="blocks-list"></div>
+        <button type="button" class="add-block" id="add-block">+ Bina Ekle</button>
+      </div>
+
+      <button type="button" class="btn btn-block" id="setup-btn" style="margin-top:8px;">Kurulumu Tamamla</button>
+      <div class="alt-action">
+        <button type="button" class="linklike" id="setup-logout">Çıkış yap</button>
+      </div>
     </div>
   </div>
 
