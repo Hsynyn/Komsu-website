@@ -92,6 +92,120 @@ const TL = (n) => new Intl.NumberFormat('tr-TR', { style:'currency', currency:'T
 const dmy = (v) => v ? new Date(v).toLocaleDateString('tr-TR') : '—';
 const dmyhm = (v) => v ? new Date(v).toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
 
+/* Daire no'su metin kolonu olduğu için Postgres "1, 10, 11, 2" diye sıralıyor.
+   Intl.Collator numeric:true ile "2" < "10" olur; "3A"/"Zemin" gibi karışık
+   değerler de doğal sırada kalır. */
+const apartmentCollator = new Intl.Collator('tr', { numeric: true, sensitivity: 'base' });
+const byApartmentNo = (a, b) =>
+  apartmentCollator.compare(String(a?.apartment_number ?? ''), String(b?.apartment_number ?? ''));
+const sortByApartment = (rows) => (rows || []).slice().sort(byApartmentNo);
+
+/* Bugünün tarihi YYYY-MM-DD (input[type=date] için). toISOString() UTC'ye
+   çevirdiği için gece yarısına yakın saatlerde bir gün geri kayıyordu. */
+const todayISO = () => {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
+/* ---------- Basit zengin metin editörü (karar defteri) ----------
+   Word benzeri ama sadece gerçekten kullanılan biçimler: kalın, italik,
+   altı çizili, başlık, madde/numaralı liste. Harici kütüphane yok. */
+
+const RICH_ALLOWED = {
+  B:[], STRONG:[], I:[], EM:[], U:[], BR:[], P:[], DIV:[],
+  H3:[], H4:[], UL:[], OL:[], LI:[], SPAN:[],
+};
+
+/* Kaydedilen HTML'i güvenli etikete indirger. Yönetici yazsa bile
+   <script>/<img onerror> gibi içerik panele geri basılmamalı. */
+const sanitizeRichHTML = (html) => {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = String(html || '');
+  const walk = (node) => {
+    [...node.childNodes].forEach(child => {
+      if (child.nodeType === Node.TEXT_NODE) return;
+      if (child.nodeType !== Node.ELEMENT_NODE) { child.remove(); return; }
+      const allowed = RICH_ALLOWED[child.tagName];
+      if (!allowed) {
+        // İzinsiz etiket: içeriğini koru, etiketi at
+        const text = document.createTextNode(child.textContent || '');
+        child.replaceWith(text);
+        return;
+      }
+      [...child.attributes].forEach(a => child.removeAttribute(a.name));
+      walk(child);
+    });
+  };
+  walk(tpl.content);
+  return tpl.innerHTML;
+};
+
+const RICH_TOOLS = [
+  { cmd:'bold',            label:'B',  title:'Kalın (Ctrl+B)',   style:'font-weight:800' },
+  { cmd:'italic',          label:'I',  title:'İtalik (Ctrl+I)',  style:'font-style:italic' },
+  { cmd:'underline',       label:'U',  title:'Altı çizili',      style:'text-decoration:underline' },
+  { sep:true },
+  { cmd:'formatBlock', arg:'<h3>', label:'Başlık',    title:'Başlık yap' },
+  { cmd:'formatBlock', arg:'<p>',  label:'Normal',    title:'Normal metne çevir' },
+  { sep:true },
+  { cmd:'insertUnorderedList', label:'• Liste',  title:'Madde listesi' },
+  { cmd:'insertOrderedList',   label:'1. Liste', title:'Numaralı liste' },
+  { sep:true },
+  { cmd:'removeFormat', label:'✕ Biçimi sil', title:'Seçili metnin biçimini temizle' },
+];
+
+const richEditorHTML = (id, initialHTML = '') => `
+  <div class="rich-editor">
+    <div class="rich-toolbar" data-for="${id}">
+      ${RICH_TOOLS.map(t => t.sep
+        ? '<span class="rich-sep"></span>'
+        : `<button type="button" class="rich-btn" data-cmd="${t.cmd}"${t.arg ? ` data-arg="${esc(t.arg)}"` : ''} title="${esc(t.title)}"${t.style ? ` style="${t.style}"` : ''}>${esc(t.label)}</button>`
+      ).join('')}
+    </div>
+    <div class="rich-area" id="${id}" contenteditable="true"
+         data-placeholder="Alınan kararları buraya yazın. Metni seçip yukarıdaki düğmelerle biçimlendirebilirsiniz.">${sanitizeRichHTML(initialHTML)}</div>
+  </div>`;
+
+const bindRichEditor = (id) => {
+  const area = el(id);
+  const bar = document.querySelector(`.rich-toolbar[data-for="${id}"]`);
+  if (!area || !bar) return;
+  bar.addEventListener('mousedown', (e) => {
+    const btn = e.target.closest('.rich-btn'); if (!btn) return;
+    e.preventDefault();              // odak editörden çıkmasın
+    area.focus();
+    document.execCommand(btn.dataset.cmd, false, btn.dataset.arg || null);
+  });
+  // Yapıştırmada Word'den gelen devasa biçimlendirmeyi düz metne indir
+  area.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+    document.execCommand('insertText', false, text);
+  });
+};
+
+/* Editörün içeriğini temizlenmiş olarak döner; boşsa '' verir. */
+const richValue = (id) => {
+  const area = el(id);
+  if (!area) return '';
+  const html = sanitizeRichHTML(area.innerHTML);
+  return area.textContent.trim() ? html : '';
+};
+
+/* Satırları CSV'ye çevirip indirir. Excel'in Türkçe karakterleri doğru
+   göstermesi için BOM eklenir; alanlar her zaman tırnaklanır. */
+const downloadCSV = (filename, header, rows) => {
+  const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [header, ...rows].map(r => r.map(cell).join(';')).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+};
+
 const bId = () => S.activeBuildingId;
 const activeBuilding = () => S.buildings.find(b => b.id === S.activeBuildingId) || null;
 const sId = () => S.site?.id || null;
@@ -1655,8 +1769,8 @@ function init3DScene() {
 /* ============ 2) DAİRELER (ekleme yok — sakinler kendi ekler) ============ */
 async function renderApartments() {
   if (!needBuilding()) return;
-  const { data } = await supabase.from('apartments').select('*').eq('building_id', bId()).order('apartment_number');
-  const list = data || [];
+  const { data } = await supabase.from('apartments').select('*').eq('building_id', bId());
+  const list = sortByApartment(data);
   const rows = (filter='') => list
     .filter(a => !filter || `${a.apartment_number} ${a.owner_name||''} ${a.username||''} ${a.vehicle_plate_number||''}`.toLowerCase().includes(filter.toLowerCase()))
     .map(a => `<tr>
@@ -1701,10 +1815,10 @@ async function renderFees() {
   if (!needBuilding()) return;
   const { year, month } = feeState;
   const [aptRes, feeRes] = await Promise.all([
-    supabase.from('apartments').select('id, apartment_number, owner_name, user_id').eq('building_id', bId()).order('apartment_number'),
+    supabase.from('apartments').select('id, apartment_number, owner_name, user_id').eq('building_id', bId()),
     supabase.from('monthly_fees').select('*').eq('building_id', bId()).eq('year', year).eq('month', month),
   ]);
-  const apts = aptRes.data || []; const fees = feeRes.data || [];
+  const apts = sortByApartment(aptRes.data); const fees = feeRes.data || [];
   const feeByApt = new Map(fees.map(f => [f.apartment_id, f]));
   const paid = fees.filter(f => f.is_paid); const totalPaid = paid.reduce((s,f)=>s+Number(f.amount),0);
   const totalExpected = fees.reduce((s,f)=>s+Number(f.amount),0);
@@ -1715,14 +1829,23 @@ async function renderFees() {
 
   const rows = apts.map(a => {
     const f = feeByApt.get(a.id);
+    // Ödeme kontrolü onay kutusu: dolu yeşil buton "zaten ödenmiş" izlenimi
+    // veriyordu. Kutu boşsa ödenmemiş, işaretlenince ödenmiş — tek bakışta belli.
+    const payCell = !f
+      ? `<button class="btn btn-sm btn-ghost" data-act="mk" data-apt="${a.id}" data-no="${esc(a.apartment_number)}">Aidat Gir</button>`
+      : `<label class="pay-check${f.is_paid ? ' is-paid' : ''}">
+           <input type="checkbox" data-act="toggle" data-id="${f.id}" data-on="${f.is_paid}"
+                  data-amt="${f.amount}" data-no="${esc(a.apartment_number)}"
+                  data-uid="${a.user_id||''}" ${f.is_paid ? 'checked' : ''}>
+           <span>${f.is_paid ? 'Ödendi' : 'Ödendi olarak işaretle'}</span>
+         </label>`;
     return `<tr>
-      <td><strong>${esc(a.apartment_number)}</strong><div class="muted" style="font-size:12px">${esc(a.owner_name||'')}</div></td>
+      <td><strong>${esc(a.apartment_number)}</strong></td>
+      <td>${esc(a.owner_name || '—')}</td>
       <td>${f ? TL(f.amount) : '—'}</td>
       <td>${f ? `<span class="badge ${f.is_paid?'b-green':'b-amber'}">${f.is_paid?'Ödendi':'Bekliyor'}</span>` : '<span class="badge b-gray">Kayıt yok</span>'}</td>
       <td>${f?.paid_date ? dmy(f.paid_date) : '—'}</td>
-      <td class="t-right">${f
-        ? `<button class="btn btn-sm ${f.is_paid?'btn-outline-red':'btn-green'}" data-act="toggle" data-id="${f.id}" data-on="${f.is_paid}" data-amt="${f.amount}" data-no="${esc(a.apartment_number)}" data-uid="${a.user_id||''}">${f.is_paid?'Geri Al':'Ödendi'}</button>`
-        : `<button class="btn btn-sm btn-ghost" data-act="mk" data-apt="${a.id}" data-no="${esc(a.apartment_number)}">Aidat Gir</button>`}</td>
+      <td class="t-right">${payCell}</td>
     </tr>`;
   }).join('');
 
@@ -1746,8 +1869,8 @@ async function renderFees() {
       </div>
       <p class="muted" style="font-size:12.5px;margin-top:10px">Kaydı olmayan dairelere aidat oluşturur; ödenmemiş kayıtların tutarını günceller (ödenmiş olanlara dokunmaz).</p>
     </div>
-    <div class="card"><table><thead><tr><th>Daire</th><th>Tutar</th><th>Durum</th><th>Ödeme Tarihi</th><th></th></tr></thead>
-      <tbody id="fee-body">${apts.length ? rows : '<tr><td colspan="5" class="t-empty">Önce sakinler daire eklemeli</td></tr>'}</tbody></table></div>`;
+    <div class="card"><table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th>Tutar</th><th>Durum</th><th>Ödeme Tarihi</th><th></th></tr></thead>
+      <tbody id="fee-body">${apts.length ? rows : '<tr><td colspan="6" class="t-empty">Önce sakinler daire eklemeli</td></tr>'}</tbody></table></div>`;
 
   el('fee-month').addEventListener('change', e => { feeState.month = +e.target.value; renderFees(); });
   el('fee-year').addEventListener('change', e => { feeState.year = +e.target.value; renderFees(); });
@@ -1768,25 +1891,37 @@ async function renderFees() {
   });
 
   el('fee-body').addEventListener('click', async (e) => {
-    const btn = e.target.closest('button[data-act]'); if (!btn) return;
+    const btn = e.target.closest('button[data-act="mk"]'); if (!btn) return;
     btn.disabled = true;
     try {
-      if (btn.dataset.act === 'mk') {
-        const amtStr = prompt(`${btn.dataset.no} için aidat tutarı (₺):`); if (!amtStr) { btn.disabled=false; return; }
-        const amt = parseFloat(amtStr.replace(',','.')); if (isNaN(amt)||amt<=0) return toast('Geçersiz tutar', true);
-        await supabase.from('monthly_fees').insert({ apartment_id:btn.dataset.apt, building_id:bId(), year, month, amount:amt, is_paid:false });
-        renderFees();
-      } else if (btn.dataset.act === 'toggle') {
-        const on = btn.dataset.on === 'true'; const amt = Number(btn.dataset.amt);
-        await supabase.from('monthly_fees').update({ is_paid: !on, paid_by: !on ? S.user.id : null, paid_date: !on ? new Date().toISOString() : null }).eq('id', btn.dataset.id);
-        await adjustBalance({ amount: amt, operation: !on ? 'add' : 'subtract',
-          description: `${!on?'Aidat ödemesi':'Aidat iptali'} - Daire ${btn.dataset.no} - ${year}/${month}`, category:'fee', walletType:'bank', relatedId: btn.dataset.id });
-        if (!on && btn.dataset.uid) {
-          notifyUser(btn.dataset.uid, '✅ Aidat Onaylandı', `${MONTHS[month-1]} ${year} ayı aidatınız ödendi olarak işaretlendi.`);
-        }
-        toast(!on ? 'Ödendi işaretlendi, kasaya eklendi' : 'Ödeme geri alındı'); renderFees();
-      }
+      const amtStr = prompt(`${btn.dataset.no} için aidat tutarı (₺):`); if (!amtStr) { btn.disabled=false; return; }
+      const amt = parseFloat(amtStr.replace(',','.')); if (isNaN(amt)||amt<=0) return toast('Geçersiz tutar', true);
+      await supabase.from('monthly_fees').insert({ apartment_id:btn.dataset.apt, building_id:bId(), year, month, amount:amt, is_paid:false });
+      renderFees();
     } catch (err) { toast(err.message, true); btn.disabled = false; }
+  });
+
+  // Ödeme onay kutusu: işaretlemek ödemeyi kaydeder, kaldırmak geri alır.
+  el('fee-body').addEventListener('change', async (e) => {
+    const box = e.target.closest('input[type="checkbox"][data-act="toggle"]'); if (!box) return;
+    const on = box.dataset.on === 'true';
+    const amt = Number(box.dataset.amt);
+    if (on && !confirm(`Daire ${box.dataset.no} için ödemeyi geri almak istediğinize emin misiniz? Tutar kasadan düşülecek.`)) {
+      box.checked = true; return;
+    }
+    box.disabled = true;
+    try {
+      await supabase.from('monthly_fees').update({ is_paid: !on, paid_by: !on ? S.user.id : null, paid_date: !on ? new Date().toISOString() : null }).eq('id', box.dataset.id);
+      await adjustBalance({ amount: amt, operation: !on ? 'add' : 'subtract',
+        description: `${!on?'Aidat ödemesi':'Aidat iptali'} - Daire ${box.dataset.no} - ${year}/${month}`, category:'fee', walletType:'bank', relatedId: box.dataset.id });
+      if (!on && box.dataset.uid) {
+        notifyUser(box.dataset.uid, '✅ Aidat Onaylandı', `${MONTHS[month-1]} ${year} ayı aidatınız ödendi olarak işaretlendi.`);
+      }
+      toast(!on ? 'Ödendi işaretlendi, kasaya eklendi' : 'Ödeme geri alındı'); renderFees();
+    } catch (err) {
+      toast(err.message, true);
+      box.checked = on; box.disabled = false; // hata: kutuyu eski haline döndür
+    }
   });
 }
 
@@ -2880,14 +3015,14 @@ async function downloadFeesReportPDF() {
 
   try {
     const [aptRes, feeRes] = await Promise.all([
-      supabase.from('apartments').select('id, apartment_number, owner_name').eq('building_id', bId()).order('apartment_number'),
+      supabase.from('apartments').select('id, apartment_number, owner_name').eq('building_id', bId()),
       supabase.from('monthly_fees').select('*').eq('building_id', bId()).eq('year', year).eq('month', month)
     ]);
 
     if (aptRes.error) throw new Error(aptRes.error.message);
     if (feeRes.error) throw new Error(feeRes.error.message);
 
-    const apts = aptRes.data || [];
+    const apts = sortByApartment(aptRes.data);
     const fees = feeRes.data || [];
     const feeByApt = new Map(fees.map(f => [f.apartment_id, f]));
 
@@ -3000,9 +3135,10 @@ async function renderSubscription() {
   const inTrial = isInTrial();
   const access = isActive || inTrial;   // kodlar/erişim: ödeme ya da deneme
   const daysLeft = expiry ? Math.max(0, Math.ceil((expiry.getTime() - Date.now()) / 86400000)) : 0;
-  const pendingPayments = payments.filter(p => p.status === 'pending');
 
-  const PAY_STATUS = { pending: '<span class="badge b-amber">Onay Bekliyor</span>', paid: '<span class="badge b-green">Ödendi</span>', rejected: '<span class="badge b-red">Reddedildi</span>', canceled: '<span class="badge b-gray">İptal</span>' };
+  // Ödeme doğrudan iyzico'dan alınıyor; yönetici onayı diye bir adım yok.
+  // 'pending' artık "banka dönüşü bekleniyor" demek, "onay bekliyor" değil.
+  const PAY_STATUS = { pending: '<span class="badge b-amber">İşleniyor</span>', paid: '<span class="badge b-green">Ödendi</span>', rejected: '<span class="badge b-red">Başarısız</span>', canceled: '<span class="badge b-gray">İptal</span>' };
   const state = { months: 1 };
   const total = () => monthly * state.months;
 
@@ -3034,43 +3170,33 @@ async function renderSubscription() {
     </div>
 
     <div class="card">
-      <h3>Aylık Ücret Hesabı</h3>
-      <table style="margin-top:6px;"><tbody>
-        <tr><td>İşletim ücreti (sabit)</td><td class="t-right">${TL(pricing.base_fee)}</td></tr>
-        <tr><td>Daire başına ücret × ${aptCount} daire</td><td class="t-right">${TL(Number(pricing.per_apartment_fee) * aptCount)}</td></tr>
-        <tr><td><strong>Aylık toplam</strong></td><td class="t-right"><strong>${TL(monthly)}</strong></td></tr>
-      </tbody></table>
-      <p class="muted" style="font-size:12.5px;margin-top:10px;">Abonelik SİTE bazlıdır: tek ödeme sitedeki tüm binaları kapsar. Daire sayısı sitedeki toplam daire sayısıdır; değişirse sonraki ödemede yeni sayı üzerinden hesaplanır.</p>
-    </div>
+      <h3>Aboneliği Uzat</h3>
 
-    <div class="card">
-      <h3>Kart ile Öde</h3>
-      <div class="field"><label>Süre</label>
+      <div class="sub-breakdown">
+        <div class="sub-line"><span>İşletim ücreti (sabit)</span><span>${TL(pricing.base_fee)}</span></div>
+        <div class="sub-line"><span>Daire başına ücret × ${aptCount} daire</span><span>${TL(Number(pricing.per_apartment_fee) * aptCount)}</span></div>
+        <div class="sub-line sub-line-total"><span>Aylık toplam</span><span>${TL(monthly)}</span></div>
+      </div>
+      <p class="muted" style="font-size:12.5px;margin:10px 0 18px;">Abonelik SİTE bazlıdır: tek ödeme sitedeki tüm binaları kapsar. Daire sayınız değişirse sonraki ödemede yeni sayı üzerinden hesaplanır.</p>
+
+      <div class="field"><label>Kaç ay ödemek istersiniz?</label>
         <div class="cat-grid" id="sub-months">
           ${[1,3,6,12].map(m => `<button type="button" class="cat-chip ${m===1?'active':''}" data-m="${m}">${m} Ay</button>`).join('')}
         </div>
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0;">
-        <span class="muted" style="font-weight:700;">Ödenecek tutar:</span>
-        <strong id="sub-total" style="font-size:22px;">${TL(total())}</strong>
+
+      <div class="sub-total-row">
+        <span>Ödenecek tutar</span>
+        <strong id="sub-total">${TL(total())}</strong>
       </div>
       <button class="btn btn-block" id="sub-pay">💳 Kart ile Öde</button>
       <div class="info-banner" style="margin-top:14px;margin-bottom:0;">
         Ödeme güvenli iyzico altyapısıyla alınır; kart bilgileriniz bize iletilmez.
-        Ödeme onaylandığında aboneliğiniz otomatik uzar ve davet kodlarınız açılır.
+        Ödeme tamamlandığı anda aboneliğiniz uzar ve davet kodlarınız açılır — ayrıca onay beklemezsiniz.
       </div>
       <!-- iyzico Checkout Form buraya yüklenir -->
       <div id="iyzico-form" style="margin-top:16px;"></div>
     </div>
-
-    ${pendingPayments.length ? `<div class="pending-alert-card">
-      <div class="pending-alert-head">⏳ Onay bekleyen ödeme talebiniz var</div>
-      ${pendingPayments.map(p => `<div class="pending-row">
-        <div style="flex:1"><strong>${p.months} aylık abonelik</strong>
-          <div class="muted" style="font-size:12px">${dmyhm(p.created_at)}${p.provider_ref ? ` · ${esc(p.provider_ref)}` : ''}</div></div>
-        <div class="tx-amount expense">${TL(p.amount)}</div>
-      </div>`).join('')}
-    </div>` : ''}
 
     <div class="card">
       <h3>Ödeme Geçmişi</h3>
@@ -3270,33 +3396,70 @@ async function renderDecisions() {
     return;
   }
 
-  const items = (decisions || []).map(d => `
-    <div class="decision-card">
-      <div class="decision-meta">
-        <span>📅 Karar Tarihi: ${dmy(d.decision_date)}</span>
-        ${d.content_url ? `<a href="${esc(d.content_url)}" target="_blank" style="color: var(--blue); font-weight: 700;">📄 Belgeyi Aç</a>` : ''}
+  const list = decisions || [];
+
+  // description eskiden düz metindi, artık sınırlı HTML. İçinde etiket yoksa
+  // eski kayıttır; satır sonlarını koruyarak göster.
+  const body = (text) => {
+    const raw = String(text || '');
+    return /<[a-z][\s\S]*>/i.test(raw)
+      ? sanitizeRichHTML(raw)
+      : esc(raw).replace(/\n/g, '<br>');
+  };
+
+  const items = list.map(d => `
+    <article class="decision-card">
+      <div class="decision-top">
+        <div class="decision-date">
+          <span class="dd-day">${new Date(d.decision_date).getDate()}</span>
+          <span class="dd-mon">${MONTHS[new Date(d.decision_date).getMonth()]?.slice(0,3) || ''}</span>
+          <span class="dd-year">${new Date(d.decision_date).getFullYear()}</span>
+        </div>
+        <div class="decision-head">
+          <h3>${esc(d.title)}</h3>
+          ${d.content_url ? `<a class="decision-doc" href="${esc(d.content_url)}" target="_blank" rel="noopener">📄 Belgeyi aç</a>` : ''}
+        </div>
+        <div class="decision-actions">
+          <button class="btn btn-sm btn-ghost" data-act="edit" data-id="${d.id}">Düzenle</button>
+          <button class="btn btn-sm btn-outline-red" data-act="del" data-id="${d.id}">Sil</button>
+        </div>
       </div>
-      <h3 style="margin-top: 0; margin-bottom: 10px;">${esc(d.title)}</h3>
-      <p style="white-space: pre-wrap; line-height: 1.5; font-size: 14.5px;">${esc(d.description)}</p>
-      
-      <div style="margin-top: 14px; text-align: right;">
-        <button class="btn btn-sm btn-outline-red" onclick="window.deleteDecision('${d.id}')">Sil</button>
-      </div>
-    </div>
+      <div class="decision-body rich-content">${body(d.description)}</div>
+    </article>
   `).join('');
 
   $content().innerHTML = `
     <div class="page-head">
-      <h2>Bina Karar Defteri</h2>
-      <div class="tools"><button class="btn" id="decision-add">+ Karar Yaz</button></div>
+      <h2>Karar Defteri</h2>
+      <div class="tools"><button class="btn" id="decision-add">+ Yeni Karar Yaz</button></div>
     </div>
-    
-    <div class="decision-list">
-      ${items || '<div class="card" style="text-align: center; padding: 40px; color: var(--muted);">Henüz alınmış bir karar kaydı yok.</div>'}
+    <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
+      Toplantılarda alınan kararları buraya işleyin. Metni kalınlaştırabilir, başlık ve
+      madde listesi ekleyebilirsiniz — yönetici değişse bile kayıtlar burada kalır.
+    </p>
+
+    <div class="decision-list" id="decision-list">
+      ${items || `<div class="card decision-empty">
+        <div style="font-size:38px;line-height:1">📜</div>
+        <h3 style="margin:10px 0 6px;">Karar defteriniz henüz boş</h3>
+        <p class="muted" style="font-size:13.5px;max-width:380px;margin:0 auto 16px;">
+          İlk kararınızı yazarak başlayın. Genel kurul kararları, aidat artışı,
+          site kuralı değişikliği — hepsi tarihiyle birlikte burada saklanır.
+        </p>
+        <button class="btn" id="decision-add-empty">+ İlk Kararı Yaz</button>
+      </div>`}
     </div>
   `;
 
-  el('decision-add').onclick = openAddDecisionModal;
+  el('decision-add').onclick = () => openDecisionModal(null);
+  if (el('decision-add-empty')) el('decision-add-empty').onclick = () => openDecisionModal(null);
+
+  el('decision-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-act]'); if (!btn) return;
+    const rec = list.find(x => x.id === btn.dataset.id); if (!rec) return;
+    if (btn.dataset.act === 'edit') openDecisionModal(rec);
+    else window.deleteDecision(rec.id);
+  });
 }
 
 // Karar Silme
@@ -3307,33 +3470,37 @@ window.deleteDecision = async function(id) {
   else { toast('Karar kaydı silindi'); renderDecisions(); }
 };
 
-// Karar Ekleme Modalı
-function openAddDecisionModal() {
-  openModal('Yeni Karar Yaz', `
-    <div class="field"><label>Karar Başlığı *</label><input id="d-title" placeholder="Örn: 2026 Olağan Genel Kurul Kararları" required /></div>
-    <div class="field"><label>Karar Tarihi</label><input id="d-date" type="date" value="${new Date().toISOString().split('T')[0]}" /></div>
-    <div class="field"><label>Karar Metni / Açıklama *</label><textarea id="d-desc" placeholder="Alınan kararların detayları..." style="width: 100%; min-height: 150px; padding: 12px; border-radius: 12px; border: 2px solid var(--line); font-family: inherit;" required></textarea></div>
-    <div class="field"><label>İlgili Belge URL (Opsiyonel)</label><input id="d-url" placeholder="Varsa imzalı karar tutanağı PDF linki" /></div>
-    <button class="btn btn-block" id="m-save">Kaydet</button>
+// Karar Ekleme / Düzenleme Modalı (rec === null ise yeni kayıt)
+function openDecisionModal(rec) {
+  const isEdit = !!rec;
+  openModal(isEdit ? 'Kararı Düzenle' : 'Yeni Karar Yaz', `
+    <div class="field"><label>Karar Başlığı *</label>
+      <input id="d-title" placeholder="Örn: 2026 Olağan Genel Kurul Kararları" value="${isEdit ? esc(rec.title) : ''}" required /></div>
+    <div class="field"><label>Karar Tarihi</label>
+      <input id="d-date" type="date" value="${isEdit ? esc(rec.decision_date) : todayISO()}" /></div>
+    <div class="field"><label>Karar Metni *</label>
+      ${richEditorHTML('d-desc', isEdit ? rec.description : '')}</div>
+    <div class="field"><label>İlgili Belge Bağlantısı (opsiyonel)</label>
+      <input id="d-url" placeholder="Varsa imzalı karar tutanağının bağlantısı" value="${isEdit ? esc(rec.content_url || '') : ''}" /></div>
+    <button class="btn btn-block" id="m-save">${isEdit ? 'Değişiklikleri Kaydet' : 'Deftere İşle'}</button>
   `, async () => {
     const title = el('d-title').value.trim();
     const date = el('d-date').value;
-    const desc = el('d-desc').value.trim();
+    const desc = richValue('d-desc');
     const url = el('d-url').value.trim() || null;
 
     if (!title || !desc) throw new Error('Başlık ve karar metni zorunludur.');
 
-    const { error } = await supabase.from('building_decisions').insert({
-      building_id: bId(),
-      title,
-      description: desc,
-      content_url: url,
-      decision_date: date
-    });
+    const payload = { title, description: desc, content_url: url, decision_date: date };
+    const { error } = isEdit
+      ? await supabase.from('building_decisions').update(payload).eq('id', rec.id)
+      : await supabase.from('building_decisions').insert({ building_id: bId(), ...payload });
 
     if (error) throw new Error(error.message);
-    toast('Karar başarıyla deftere işlendi');
+    toast(isEdit ? 'Karar güncellendi' : 'Karar başarıyla deftere işlendi');
   });
+
+  bindRichEditor('d-desc');
 }
 
 
@@ -3423,6 +3590,19 @@ async function renderSecurityPanel() {
         </div>
       </div>
     </div>
+
+    <!-- Günlük giriş-çıkış raporu -->
+    <div class="security-box" style="margin-top: 18px;">
+      <div class="sec-report-head">
+        <h3 style="margin: 0; font-weight: 800;">📋 Günlük Giriş-Çıkış Raporu</h3>
+        <div class="sec-report-tools">
+          <input type="date" id="sec-rep-date" value="${todayISO()}" />
+          <button class="btn btn-sm btn-ghost" id="sec-rep-load">Göster</button>
+          <button class="btn btn-sm" id="sec-rep-csv" disabled>⬇ CSV İndir</button>
+        </div>
+      </div>
+      <div id="sec-rep-body"><div class="t-empty">Bir gün seçip "Göster"e basın.</div></div>
+    </div>
   `;
 
   el('exit-security').onclick = () => {
@@ -3435,6 +3615,98 @@ async function renderSecurityPanel() {
   };
 
   el('btn-save-visitor').onclick = saveVisitorEntry;
+
+  /* --- Günlük giriş-çıkış raporu --- */
+  let repRows = [];   // CSV indirmesi için son gösterilen kayıtlar
+  let repDay = '';
+
+  const loadDayReport = async () => {
+    const day = el('sec-rep-date').value;
+    if (!day) return toast('Önce bir gün seçin', true);
+    const btn = el('sec-rep-load');
+    btn.disabled = true; btn.textContent = 'Yükleniyor…';
+    try {
+      let rows;
+      if (isSecurity) {
+        // Güvenlik görevlisinin auth oturumu yok → şifre doğrulamalı RPC
+        const { data, error } = await supabase.rpc('security_day_logs', {
+          p_username: S.securityCreds.username,
+          p_password: S.securityCreds.password,
+          p_day: day,
+        });
+        if (error) throw new Error(error.message);
+        rows = data || [];
+      } else {
+        // Yönetici RLS ile visitor_logs'u doğrudan okuyabiliyor
+        const start = new Date(`${day}T00:00:00`);
+        const end = new Date(`${day}T00:00:00`);
+        end.setDate(end.getDate() + 1);
+        const { data, error } = await supabase
+          .from('visitor_logs')
+          .select('*')
+          .in('building_id', siteBIds())
+          .or(`and(entry_at.gte.${start.toISOString()},entry_at.lt.${end.toISOString()}),and(exit_at.gte.${start.toISOString()},exit_at.lt.${end.toISOString()})`)
+          .order('entry_at', { ascending: true });
+        if (error) throw new Error(error.message);
+        rows = data || [];
+      }
+
+      repRows = rows; repDay = day;
+      el('sec-rep-csv').disabled = rows.length === 0;
+
+      const stillIn = rows.filter(r => !r.exit_at).length;
+      el('sec-rep-body').innerHTML = rows.length ? `
+        <div class="sec-report-summary">
+          <div><strong>${rows.length}</strong><span>Toplam hareket</span></div>
+          <div><strong>${rows.length - stillIn}</strong><span>Çıkış yapan</span></div>
+          <div><strong>${stillIn}</strong><span>Hâlâ içeride</span></div>
+        </div>
+        <table><thead><tr>
+          <th>Ziyaretçi</th><th>Neden</th><th>Daire</th><th>Plaka</th><th>Giriş</th><th>Çıkış</th><th>Süre</th>
+        </tr></thead><tbody>
+        ${rows.map(r => {
+          const mins = r.exit_at ? Math.round((new Date(r.exit_at) - new Date(r.entry_at)) / 60000) : null;
+          return `<tr>
+            <td><strong>${esc(r.visitor_name)}</strong></td>
+            <td>${esc(r.purpose || '—')}</td>
+            <td>${esc(r.destination_apartment || '—')}</td>
+            <td>${esc(r.plate_number || 'YAYAN')}</td>
+            <td>${dmyhm(r.entry_at)}</td>
+            <td>${r.exit_at ? dmyhm(r.exit_at) : '<span class="badge b-amber">İçeride</span>'}</td>
+            <td>${mins === null ? '—' : `${Math.floor(mins / 60)}s ${mins % 60}dk`}</td>
+          </tr>`;
+        }).join('')}
+        </tbody></table>`
+        : '<div class="t-empty">Bu güne ait giriş-çıkış kaydı yok.</div>';
+    } catch (err) {
+      toast(err.message, true);
+      el('sec-rep-body').innerHTML = `<div class="error">Rapor alınamadı: ${esc(err.message)}</div>`;
+    } finally {
+      btn.disabled = false; btn.textContent = 'Göster';
+    }
+  };
+
+  el('sec-rep-load').onclick = loadDayReport;
+  el('sec-rep-date').onchange = loadDayReport;
+
+  el('sec-rep-csv').onclick = () => {
+    if (!repRows.length) return;
+    downloadCSV(
+      `komsu-giris-cikis-${repDay}.csv`,
+      ['Ziyaretçi', 'Neden', 'Hedef Daire', 'Plaka', 'Giriş', 'Çıkış', 'Süre (dk)'],
+      repRows.map(r => {
+        const mins = r.exit_at ? Math.round((new Date(r.exit_at) - new Date(r.entry_at)) / 60000) : '';
+        return [
+          r.visitor_name, r.purpose || '', r.destination_apartment || '',
+          r.plate_number || 'YAYAN', dmyhm(r.entry_at),
+          r.exit_at ? dmyhm(r.exit_at) : 'İçeride', mins,
+        ];
+      })
+    );
+    toast('Rapor indirildi');
+  };
+
+  loadDayReport();   // açılışta bugünü göster
 
   // Plaka yazıldığında daire eşleştirmesini hızlıca algılayan mini tetikleyici (Opsiyonel Plaka Sorgu Entegrasyonu)
   el('v-plate').onblur = async (e) => {
