@@ -168,7 +168,7 @@ el('tab-admin').addEventListener('click', () => {
   el('tab-security').style.color = 'var(--muted)';
   
   el('login-title').textContent = 'Yönetici Girişi';
-  el('login-sub').textContent = 'Mobil uygulamada belirlediğiniz e-posta ve şifre ile giriş yapın.';
+  el('login-sub').textContent = 'Kayıt sırasında belirlediğiniz e-posta ve şifre ile giriş yapın.';
   el('email-label').textContent = 'E-posta';
   el('email').placeholder = 'ornek@eposta.com';
   el('login-foot').style.display = 'block';

@@ -278,14 +278,6 @@
     .stat { text-align: center; }
     .stat .num { font-size: clamp(24px, 4vw, 34px); font-weight: 800; color: var(--brown); letter-spacing: -0.5px; }
     .stat .lbl { font-size: 13px; color: var(--muted); font-weight: 600; }
-    .live-pill {
-      display: inline-flex; align-items: center; gap: 8px;
-      background: var(--white); border: 1px solid rgba(217,179,130,0.4);
-      padding: 7px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--ink);
-      margin-bottom: 22px;
-    }
-    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #22C55E; box-shadow: 0 0 0 0 rgba(34,197,94,0.6); animation: pulse 2s infinite; }
-    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.6); } 70% { box-shadow: 0 0 0 8px rgba(34,197,94,0); } 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); } }
 
     /* Fiyat hesaplayıcı */
     .pricing-card {
@@ -327,18 +319,52 @@
       font-weight: 700; font-size: 14px; padding: 12px 18px; border-radius: 14px; display: inline-block;
     }
 
-    /* Yorumlar */
-    .reviews-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+    /* Yorumlar — masaüstünde 2 kart görünür, gerisi kaydırılır */
+    .reviews { position: relative; }
+    .reviews-track {
+      display: flex; gap: 20px;
+      /* proximity (mandatory değil): kart sayısı tek olduğunda son sayfanın
+         snap noktası azami kaydırma mesafesini aşıyor ve mandatory snap
+         kaydırmayı geri alıyor. */
+      overflow-x: auto; scroll-snap-type: x proximity;
+      scroll-behavior: smooth; scrollbar-width: none;
+      padding: 4px 4px 8px;
+      margin: 0 -4px;
+    }
+    .reviews-track::-webkit-scrollbar { display: none; }
     .review {
+      flex: 0 0 calc((100% - 20px) / 2);
+      scroll-snap-align: start;
+      display: flex; flex-direction: column;
       background: var(--white); border-radius: var(--radius); padding: 26px;
       border: 1px solid rgba(217,179,130,0.25); box-shadow: 0 4px 16px rgba(138,107,69,0.06);
     }
     .review .stars { color: #F5A623; font-size: 15px; letter-spacing: 2px; margin-bottom: 12px; }
-    .review p { color: var(--ink); font-size: 15px; margin-bottom: 18px; }
+    .review p { color: var(--ink); font-size: 15px; margin-bottom: 18px; flex: 1; }
     .review .who { display: flex; align-items: center; gap: 12px; }
-    .review .av { width: 42px; height: 42px; border-radius: 50%; background: var(--peach); color: var(--brown); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; }
+    .review .av { width: 42px; height: 42px; border-radius: 50%; background: var(--peach); color: var(--brown); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; flex-shrink: 0; }
     .review .who b { font-size: 14.5px; display: block; }
     .review .who span { font-size: 13px; color: var(--muted); }
+
+    .reviews-nav { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 24px; }
+    .reviews-arrow {
+      width: 42px; height: 42px; border-radius: 50%; cursor: pointer;
+      background: var(--white); border: 1px solid rgba(217,179,130,0.45); color: var(--brown);
+      font-size: 17px; line-height: 1; display: flex; align-items: center; justify-content: center;
+      transition: background .2s, opacity .2s;
+    }
+    .reviews-arrow:hover:not(:disabled) { background: var(--peach); }
+    .reviews-arrow:disabled { opacity: .35; cursor: default; }
+    .reviews-dots { display: flex; gap: 8px; }
+    .reviews-dots button {
+      width: 8px; height: 8px; padding: 0; border-radius: 50%; cursor: pointer;
+      border: none; background: rgba(217,179,130,0.55); transition: width .25s, background .25s;
+    }
+    .reviews-dots button[aria-current="true"] { width: 22px; border-radius: 999px; background: var(--brown); }
+
+    @media (max-width: 720px) {
+      .review { flex: 0 0 100%; }
+    }
   </style>
 </head>
 <body>
@@ -363,8 +389,7 @@
     <div class="blob blob-1"></div>
     <div class="blob blob-2"></div>
     <div class="container">
-      <div class="live-pill"><span class="live-dot"></span> Şu an 800+ komşu Komşu kullanıyor</div>
-      <h1>Sitenizi <em>3 boyutlu</em> yönetin<br />apartmanınız cebinizde</h1>
+      <h1>Sitenizi yönetmenin <em>en kolay yolu</em><br />apartmanınız cebinizde</h1>
       <p class="sub">Aidattan sohbete, arıza bildiriminden dijital karar defterine — sitenizin tamamını modern, şeffaf ve tek bir ekrandan yönetin.</p>
 
       <div class="hero-3d" id="hero3d">
@@ -468,32 +493,39 @@
     <div class="container">
       <h2 class="section-title reveal">Komşu'yu sevdiler</h2>
       <p class="section-sub reveal">Türkiye'nin dört bir yanından site ve apartman yöneticileri Komşu ile yönetiyor.</p>
-      <div class="reviews-grid">
-        <div class="review reveal">
+      <div class="reviews">
+       <div class="reviews-track" id="reviewsTrack" tabindex="0" role="group" aria-label="Kullanıcı yorumları">
+        <div class="review">
           <div class="stars">★★★★★</div>
           <p>"Aidat toplamak kabustu, herkes 'ödedim' diyordu. Şimdi her şey şeffaf, kimin ödediği ekranda. Site sakinleri de çok memnun."</p>
           <div class="who"><div class="av">MK</div><div><b>Mehmet Kaya</b><span>Bahçeşehir, 3 bloklu site yöneticisi</span></div></div>
         </div>
-        <div class="review reveal">
+        <div class="review">
           <div class="stars">★★★★★</div>
           <p>"3D maketten binaları görmek inanılmaz. Toplantı çağrısı, oylama, karar defteri hepsi tek yerde. Apsiyon'dan çok daha kolay."</p>
           <div class="who"><div class="av">AY</div><div><b>Ayşe Yıldız</b><span>İzmir, 60 daireli apartman</span></div></div>
         </div>
-        <div class="review reveal">
+        <div class="review">
           <div class="stars">★★★★★</div>
           <p>"Kağıt makbuz devri bitti. Komşularla sohbet, arıza bildirimi, duyurular… WhatsApp grubundaki kaos sona erdi."</p>
           <div class="who"><div class="av">SD</div><div><b>Serkan Demir</b><span>Ankara, apartman yöneticisi</span></div></div>
         </div>
-        <div class="review reveal">
+        <div class="review">
           <div class="stars">★★★★☆</div>
           <p>"Güvenlik görevlisi modu harika, ziyaretçi ve plaka kaydı çok işime yaradı. 1 ay ücretsiz deneyip hemen geçtim."</p>
           <div class="who"><div class="av">FÖ</div><div><b>Fatma Öztürk</b><span>Antalya, 5 bloklu site</span></div></div>
         </div>
-        <div class="review reveal">
+        <div class="review">
           <div class="stars">★★★★★</div>
           <p>"Yönetici değişince her şey kaybolurdu. Artık kasa, kararlar, geçmiş dijitalde. Devir teslim dakikalar sürüyor."</p>
           <div class="who"><div class="av">HÇ</div><div><b>Hakan Çelik</b><span>İstanbul, site yönetim kurulu</span></div></div>
         </div>
+       </div>
+       <div class="reviews-nav">
+         <button class="reviews-arrow" id="revPrev" type="button" aria-label="Önceki yorumlar">&#8249;</button>
+         <div class="reviews-dots" id="revDots"></div>
+         <button class="reviews-arrow" id="revNext" type="button" aria-label="Sonraki yorumlar">&#8250;</button>
+       </div>
       </div>
     </div>
   </section>
@@ -661,6 +693,66 @@
       };
       const o = new IntersectionObserver((es) => es.forEach(e => { if (e.isIntersecting) { run(e.target); o.unobserve(e.target); } }), { threshold: 0.5 });
       nums.forEach(n => o.observe(n));
+    })();
+
+    /* ---- Yorum slider'ı: masaüstünde 2, mobilde 1 kart görünür ---- */
+    (function(){
+      const track = document.getElementById('reviewsTrack');
+      const dots  = document.getElementById('revDots');
+      const prev  = document.getElementById('revPrev');
+      const next  = document.getElementById('revNext');
+      if (!track || !dots || !prev || !next) return;
+
+      const cards = Array.from(track.children);
+      // Bir "sayfa" = aynı anda görünen kart sayısı. Kart genişliğinden hesaplanır
+      // ki CSS kırılım noktası değişirse JS'i ayrıca güncellemek gerekmesin.
+      const perPage = () => {
+        const w = cards[0]?.offsetWidth || 1;
+        return Math.max(1, Math.round(track.clientWidth / w));
+      };
+      const pageCount = () => Math.max(1, Math.ceil(cards.length / perPage()));
+      const current = () => {
+        const w = cards[0]?.offsetWidth || 1;
+        const gap = parseFloat(getComputedStyle(track).columnGap || '20') || 20;
+        return Math.round(track.scrollLeft / ((w + gap) * perPage()));
+      };
+
+      const goto = (page) => {
+        const w = cards[0]?.offsetWidth || 1;
+        const gap = parseFloat(getComputedStyle(track).columnGap || '20') || 20;
+        track.scrollTo({ left: page * (w + gap) * perPage(), behavior: 'smooth' });
+      };
+
+      const renderDots = () => {
+        const n = pageCount();
+        if (dots.children.length !== n) {
+          dots.innerHTML = '';
+          for (let i = 0; i < n; i++) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.setAttribute('aria-label', `${i + 1}. yorum grubu`);
+            b.addEventListener('click', () => goto(i));
+            dots.appendChild(b);
+          }
+        }
+        sync();
+      };
+
+      const sync = () => {
+        const cur = current();
+        Array.from(dots.children).forEach((d, i) =>
+          d.setAttribute('aria-current', i === cur ? 'true' : 'false'));
+        // Ham scrollLeft'e bakma: track'in iç boşluğu ve snap hizası yüzünden
+        // başlangıçta bile 0 olmayabiliyor. Sayfa indeksi güvenilir.
+        prev.disabled = cur <= 0;
+        next.disabled = cur >= pageCount() - 1;
+      };
+
+      prev.addEventListener('click', () => goto(Math.max(0, current() - 1)));
+      next.addEventListener('click', () => goto(Math.min(pageCount() - 1, current() + 1)));
+      track.addEventListener('scroll', sync, { passive: true });
+      window.addEventListener('resize', renderDots);
+      renderDots();
     })();
   </script>
 
