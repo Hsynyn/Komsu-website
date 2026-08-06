@@ -819,3 +819,27 @@ select.mini { padding: 8px 11px; border: 2px solid var(--line); border-radius: 1
   .decision-actions { width: 100%; }
   .decision-actions .btn { flex: 1; }
 }
+
+/* ---------- Abonelik uyarı şeridi ---------- */
+.access-banner {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 15px 18px; margin-bottom: 20px;
+  border-radius: 14px; border: 1.5px solid;
+  background: var(--red-bg); border-color: #F0BDB3; color: var(--ink);
+}
+.access-banner.warning { background: var(--amber-bg); border-color: #E8D2A4; }
+.access-banner.locked { background: #F8DDD8; border-color: #E39C8F; }
+.access-banner .ab-icon { font-size: 22px; line-height: 1; flex-shrink: 0; }
+.access-banner .ab-text { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 3px; }
+.access-banner .ab-text strong { font-size: 14.5px; font-weight: 800; }
+.access-banner .ab-text span { font-size: 12.8px; color: var(--muted); line-height: 1.5; }
+.access-banner .ab-cta {
+  flex-shrink: 0; padding: 10px 18px; border: none; border-radius: 11px;
+  background: var(--red); color: #fff; font-family: inherit;
+  font-size: 13.5px; font-weight: 800; cursor: pointer; transition: opacity .15s;
+}
+.access-banner.warning .ab-cta { background: var(--ink); }
+.access-banner .ab-cta:hover { opacity: .88; }
+@media (max-width: 620px) {
+  .access-banner .ab-cta { width: 100%; }
+}

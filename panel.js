@@ -235,6 +235,77 @@ const trialDaysLeft = () => {
   return t ? Math.max(0, Math.ceil((t.getTime() - Date.now()) / 86400000)) : 0;
 };
 
+/* ============ Abonelik erişim durumu ============
+   Mobil uygulamayla AYNI mantık: Komsu/services/subscriptionState.ts.
+   Sabitleri değiştirirsen ORAYI DA değiştir; yoksa yönetici burada
+   "3 gün kaldı" görürken sakinler mobilde çoktan kilitlenmiş olabilir.
+
+   trial/active → normal · warning → ≤7 gün kaldı · grace → süre doldu ama
+   +7 gün çalışmaya devam ediyor · locked → sakinler kilit ekranı görüyor. */
+const WARN_DAYS = 7;
+const GRACE_DAYS = 7;
+const DAY_MS = 86400000;
+
+function getAccessState(now = Date.now()) {
+  const s = S.site;
+  const none = { kind:'unknown', hasAccess:true, shouldWarn:false, daysLeft:0, graceDaysLeft:0, source:'none', endsAt:null };
+  if (!s) return none;
+
+  const paidMs = (s.subscription_type && s.subscription_type !== 'free' && s.subscription_expiry)
+    ? new Date(s.subscription_expiry).getTime() : -Infinity;
+  const trialMs = s.trial_ends_at ? new Date(s.trial_ends_at).getTime() : -Infinity;
+  if (paidMs === -Infinity && trialMs === -Infinity) return none;
+
+  const usingPaid = paidMs >= trialMs;
+  const endMs = usingPaid ? paidMs : trialMs;
+  const source = usingPaid ? 'paid' : 'trial';
+  const daysLeft = Math.ceil((endMs - now) / DAY_MS);
+
+  if (endMs > now) {
+    const kind = daysLeft <= WARN_DAYS ? 'warning' : (usingPaid ? 'active' : 'trial');
+    return { kind, hasAccess:true, shouldWarn:kind==='warning', daysLeft, graceDaysLeft:0, source, endsAt:new Date(endMs) };
+  }
+  const graceEnd = endMs + GRACE_DAYS * DAY_MS;
+  if (graceEnd > now) {
+    return { kind:'grace', hasAccess:true, shouldWarn:true, daysLeft, graceDaysLeft:Math.ceil((graceEnd-now)/DAY_MS), source, endsAt:new Date(endMs) };
+  }
+  return { kind:'locked', hasAccess:false, shouldWarn:true, daysLeft, graceDaysLeft:0, source, endsAt:new Date(endMs) };
+}
+
+/* Her ekranın üstünde görünen kırmızı uyarı şeridi. */
+function accessBannerHTML() {
+  const a = getAccessState();
+  if (!a.shouldWarn) return '';
+
+  const isTrial = a.source === 'trial';
+  let icon, head, text, cta;
+
+  if (a.kind === 'warning') {
+    icon = '⏳';
+    head = isTrial
+      ? `Ücretsiz deneme süreniz ${a.daysLeft} gün sonra doluyor`
+      : `Aboneliğiniz ${a.daysLeft} gün sonra doluyor`;
+    text = 'Süre dolduğunda davet kodlarınız kapanır ve sakinleriniz uygulamayı kullanamaz. Şimdi ödeyerek kesintisiz devam edin.';
+    cta  = isTrial ? 'Aboneliği Başlat' : 'Aboneliği Yenile';
+  } else if (a.kind === 'grace') {
+    icon = '⚠️';
+    head = `${isTrial ? 'Deneme süreniz' : 'Aboneliğiniz'} doldu — ${a.graceDaysLeft} gün ek süreniz var`;
+    text = `Sisteminiz şu an çalışıyor ama ${a.graceDaysLeft} gün içinde ödeme yapılmazsa sakinleriniz uygulamaya giremeyecek.`;
+    cta  = 'Hemen Öde';
+  } else {
+    icon = '🔒';
+    head = 'Sisteminiz kapandı';
+    text = 'Aboneliğiniz sona erdi ve sakinleriniz uygulamaya giremiyor. Ödemeyi tamamladığınızda her şey olduğu gibi geri gelir.';
+    cta  = 'Ödeme Yap ve Aç';
+  }
+
+  return `<div class="access-banner ${a.kind}">
+    <span class="ab-icon">${icon}</span>
+    <div class="ab-text"><strong>${esc(head)}</strong><span>${esc(text)}</span></div>
+    <button class="ab-cta" data-goto-subscription>${esc(cta)}</button>
+  </div>`;
+}
+
 function toast(msg, isErr) {
   const t = el('toast');
   t.textContent = msg; t.className = 'toast' + (isErr ? ' err' : '');
@@ -806,7 +877,46 @@ function navigate(section) {
     security_mode: renderSecurityPanel
   };
   $content().innerHTML = '<p class="muted">Yükleniyor…</p>';
-  (routes[section] || renderOverview)();
+
+  // Erişim kapandıysa (süre + ek süre doldu) yönetici yalnızca abonelik
+  // ekranını görebilir; oradan ödeyip sistemi geri açar. Güvenlik modu
+  // ayrı bir oturum olduğu için bu kısıttan muaf.
+  const access = getAccessState();
+  const allowedWhenLocked = section === 'subscription' || section === 'security_mode';
+  if (!access.hasAccess && !allowedWhenLocked) {
+    S.section = 'subscription';
+    document.querySelectorAll('#side-nav a').forEach((a) =>
+      a.classList.toggle('active', a.dataset.section === 'subscription'));
+    renderSubscription();
+    return;
+  }
+
+  watchAccessBanner();
+  Promise.resolve((routes[section] || renderOverview)()).finally(mountAccessBanner);
+}
+
+/* Uyarı şeridini içeriğin en üstüne yerleştirir ve butonunu bağlar.
+   Her render'dan sonra çağrılır; böylece banner tüm ekranlarda görünür. */
+function mountAccessBanner() {
+  const host = $content();
+  if (!host || host.querySelector('.access-banner')) return;
+  const html = accessBannerHTML();
+  if (!html) return;
+  host.insertAdjacentHTML('afterbegin', html);
+  const btn = host.querySelector('[data-goto-subscription]');
+  if (btn) btn.addEventListener('click', () => navigate('subscription'));
+}
+
+/* Ekranların çoğu kendi içinde innerHTML'i baştan yazıyor (ör. renderFees
+   bir işlemden sonra kendini yeniden çiziyor) ve bu bannerı siliyor.
+   Gözlemci, içerik her değiştiğinde bannerı geri koyar. */
+let accessBannerObserver = null;
+function watchAccessBanner() {
+  if (accessBannerObserver) return;
+  const host = $content();
+  if (!host || typeof MutationObserver === 'undefined') return;
+  accessBannerObserver = new MutationObserver(() => mountAccessBanner());
+  accessBannerObserver.observe(host, { childList: true });
 }
 
 // Site ve binalar YALNIZCA mobil kayıt sırasında oluşturulur; panelden
