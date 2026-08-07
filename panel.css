@@ -859,3 +859,16 @@ select.mini { padding: 8px 11px; border: 2px solid var(--line); border-radius: 1
 }
 .share-input:focus { border-color: var(--tan); }
 .share-input.saved { background: var(--green-bg); border-color: var(--green); }
+
+/* Kasa mutabakatsızlık uyarısı */
+.drift-card {
+  background: var(--amber-bg); border: 1.5px solid #E8D2A4;
+  border-radius: var(--radius); padding: 18px 20px; margin-bottom: 20px;
+}
+.drift-head { font-size: 15px; font-weight: 800; }
+.drift-rows { display: flex; flex-direction: column; gap: 6px; }
+.drift-rows > div {
+  display: flex; justify-content: space-between; gap: 16px;
+  font-size: 13.5px; padding: 7px 12px;
+  background: rgba(255,255,255,0.6); border-radius: 9px;
+}

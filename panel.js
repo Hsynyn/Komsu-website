@@ -101,6 +101,15 @@ const byApartmentNo = (a, b) =>
   apartmentCollator.compare(String(a?.apartment_number ?? ''), String(b?.apartment_number ?? ''));
 const sortByApartment = (rows) => (rows || []).slice().sort(byApartmentNo);
 
+/* Bina kurulurken daire sayısı kadar YER TUTUCU satır açılır
+   (ensure_building_apartments: username='empty-…', user_id=null).
+   Bunlar gerçek bir sakine ait değildir; aidat çıkarmak, borç saymak ya da
+   işletme projesinde paydaya katmak hayali borç üretir.
+   Doluluk ölçütü list_building_apartments RPC'siyle birebir aynı. */
+const isOccupied = (a) =>
+  !!a && (a.user_id != null || (a.username != null && !String(a.username).startsWith('empty-')));
+const occupiedOnly = (rows) => (rows || []).filter(isOccupied);
+
 /* Bugünün tarihi YYYY-MM-DD (input[type=date] için). toISOString() UTC'ye
    çevirdiği için gece yarısına yakın saatlerde bir gün geri kayıyordu. */
 const todayISO = () => {
@@ -850,7 +859,7 @@ initYonetim({
   supabase, S, el, $content, esc, TL, dmy, dmyhm, toast, openModal,
   bId, sId, siteBIds, needBuilding, navigate,
   richEditorHTML, bindRichEditor, richValue,
-  todayISO, downloadCSV, sortByApartment, notifyBuilding,
+  todayISO, downloadCSV, sortByApartment, occupiedOnly, isOccupied, notifyBuilding,
 });
 
 function navigate(section) {
@@ -951,7 +960,12 @@ async function adjustBalance({ amount, operation, description, category='other',
   // ve tüm binalara yansıtır. Onay eşiği site kaydından okunur.
   const ab = activeBuilding();
   const threshold = Number(S.site?.approval_threshold ?? ab?.approval_threshold ?? 5000);
-  const needsApproval = operation === 'subtract' && (amount >= threshold || category === 'job');
+  // Onay eşiği HARCAMALAR için vardır. Aidat iptali bir harcama değil, daha
+  // önce girmiş bir gelirin geri alınmasıdır; onaya takılırsa kasadan hiç
+  // düşülmez ve bakiye yanlış kalırdı. Bu yüzden 'fee' kategorisi muaf.
+  const needsApproval = operation === 'subtract'
+    && category !== 'fee'
+    && (amount >= threshold || category === 'job');
   const status = needsApproval ? 'pending' : 'completed';
   if (operation === 'add' || !needsApproval) {
     const delta = operation === 'add' ? amount : -amount;
@@ -1901,7 +1915,9 @@ async function renderApartments() {
       <td>${esc(a.vehicle_plate_number||'—')}</td>
       <td><input class="share-input" data-share="${a.id}" inputmode="decimal" placeholder="—"
            value="${a.land_share != null ? Number(a.land_share) : ''}" title="Arsa payı (KMK m.20)"></td>
-      <td><button class="badge chip-toggle ${a.is_active?'b-green':'b-red'}" data-act="toggle" data-id="${a.id}" data-on="${a.is_active}">${a.is_active?'Aktif':'Pasif'}</button></td>
+      <td>${isOccupied(a)
+        ? `<button class="badge chip-toggle ${a.is_active?'b-green':'b-red'}" data-act="toggle" data-id="${a.id}" data-on="${a.is_active}">${a.is_active?'Aktif':'Pasif'}</button>`
+        : '<span class="badge b-gray" title="Sakin katılmamış — aidat ve borç hesabına girmez">Boş</span>'}</td>
       <td class="t-right"><button class="btn btn-sm btn-outline-red" data-act="del" data-id="${a.id}" data-no="${esc(a.apartment_number)}">Sil</button></td>
     </tr>`).join('');
 
@@ -1951,10 +1967,15 @@ async function renderFees() {
   if (!needBuilding()) return;
   const { year, month } = feeState;
   const [aptRes, feeRes] = await Promise.all([
-    supabase.from('apartments').select('id, apartment_number, owner_name, user_id').eq('building_id', bId()),
+    supabase.from('apartments').select('id, apartment_number, owner_name, user_id, username').eq('building_id', bId()),
     supabase.from('monthly_fees').select('*').eq('building_id', bId()).eq('year', year).eq('month', month),
   ]);
-  const apts = sortByApartment(aptRes.data); const fees = feeRes.data || [];
+  // Yer tutucu (boş) daireler aidat hesabına GİRMEZ; sahibi bilinmeyen
+  // daireye borç yazmak hayali alacak üretir.
+  const allApts = sortByApartment(aptRes.data);
+  const apts = occupiedOnly(allApts);
+  const emptyCount = allApts.length - apts.length;
+  const fees = feeRes.data || [];
   const feeByApt = new Map(fees.map(f => [f.apartment_id, f]));
   const paid = fees.filter(f => f.is_paid); const totalPaid = paid.reduce((s,f)=>s+Number(f.amount),0);
   const totalExpected = fees.reduce((s,f)=>s+Number(f.amount),0);
@@ -2003,7 +2024,8 @@ async function renderFees() {
         <div class="field" style="margin:0"><input id="bulk-amt" inputmode="decimal" placeholder="Örn: 1500"></div>
         <button class="btn" id="bulk-apply">Uygula</button>
       </div>
-      <p class="muted" style="font-size:12.5px;margin-top:10px">Kaydı olmayan dairelere aidat oluşturur; ödenmemiş kayıtların tutarını günceller (ödenmiş olanlara dokunmaz).</p>
+      <p class="muted" style="font-size:12.5px;margin-top:10px">Kaydı olmayan dairelere aidat oluşturur; ödenmemiş kayıtların tutarını günceller (ödenmiş olanlara dokunmaz).
+      ${emptyCount ? `<br><strong>${emptyCount} boş daire</strong> hesaba katılmaz — sakin katılınca otomatik dahil olur.` : ''}</p>
     </div>
     <div class="card"><table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th>Tutar</th><th>Durum</th><th>Ödeme Tarihi</th><th></th></tr></thead>
       <tbody id="fee-body">${apts.length ? rows : '<tr><td colspan="6" class="t-empty">Önce sakinler daire eklemeli</td></tr>'}</tbody></table></div>`;
@@ -2083,6 +2105,16 @@ async function renderTransactions() {
   // Kasa SİTE ortak: bakiye site kaydından okunur (bina kayıtları aynadır)
   const bank = Number((S.site ?? b).bank_balance || 0);
   const isNeg = bank < 0;
+
+  // MUTABAKAT: bakiye ayrı bir alanda saklanıyor, işlem kaydı ayrı yazılıyor.
+  // İkisi tek transaction olmadığı için (RPC + insert) ayrışabilirler.
+  // Onaylanmış banka hareketlerinden beklenen bakiyeyi hesaplayıp farkı gösteriyoruz.
+  const bankTxs = txs.filter(t => (t.wallet_type || 'bank') === 'bank' && t.status !== 'pending' && t.status !== 'rejected');
+  const expectedBank = bankTxs.reduce((sum, t) => sum + (t.type === 'income' ? 1 : -1) * Number(t.amount || 0), 0);
+  // 400 kayıt sınırı var; tam liste çekilmediyse mutabakat anlamsız olur.
+  const txListComplete = txs.length < 400;
+  const drift = Math.round((bank - expectedBank) * 100) / 100;
+  const showDrift = txListComplete && Math.abs(drift) >= 0.01;
   const statusBadge = (s) =>
     s === 'pending' ? '<span class="badge b-amber">Onay Bekliyor</span>' :
     s === 'approved' ? '<span class="badge b-green">Onaylandı</span>' :
@@ -2113,6 +2145,19 @@ async function renderTransactions() {
       <div class="wallet-amount">${isNeg ? '-' : ''}${TL(Math.abs(bank)).replace('₺','').trim()} ₺</div>
       ${isNeg ? '<div class="wallet-warn">⚠️ Kasa ekside - Borçlanma durumu</div>' : ''}
     </div>
+
+    ${showDrift ? `<div class="drift-card">
+      <div class="drift-head">⚖️ Kasa mutabakatsızlığı</div>
+      <p class="muted" style="font-size:13px;margin:8px 0 12px;">Kayıtlı bakiye ile işlem hareketlerinin toplamı uyuşmuyor.
+        Bir işlem yazılırken kaydedilememiş ya da bakiye elle değiştirilmiş olabilir.</p>
+      <div class="drift-rows">
+        <div><span>Görünen bakiye</span><strong>${TL(bank)}</strong></div>
+        <div><span>Hareketlerden hesaplanan</span><strong>${TL(expectedBank)}</strong></div>
+        <div><span>Fark</span><strong style="color:var(--red)">${drift > 0 ? '+' : ''}${TL(drift)}</strong></div>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:10px;">Farkı kapatmak için eksik kalan gelir/gideri
+        Kasa &amp; Harcamalar'dan elle ekleyin; kayıt eklendiğinde bu uyarı kaybolur.</p>
+    </div>` : ''}
 
     ${pending.length ? `<div class="pending-alert-card">
       <div class="pending-alert-head">⏳ ${pending.length} işlem onay bekliyor</div>
@@ -3151,14 +3196,14 @@ async function downloadFeesReportPDF() {
 
   try {
     const [aptRes, feeRes] = await Promise.all([
-      supabase.from('apartments').select('id, apartment_number, owner_name').eq('building_id', bId()),
+      supabase.from('apartments').select('id, apartment_number, owner_name, user_id, username').eq('building_id', bId()),
       supabase.from('monthly_fees').select('*').eq('building_id', bId()).eq('year', year).eq('month', month)
     ]);
 
     if (aptRes.error) throw new Error(aptRes.error.message);
     if (feeRes.error) throw new Error(feeRes.error.message);
 
-    const apts = sortByApartment(aptRes.data);
+    const apts = occupiedOnly(sortByApartment(aptRes.data));  // boş daireler rapora girmez
     const fees = feeRes.data || [];
     const feeByApt = new Map(fees.map(f => [f.apartment_id, f]));
 

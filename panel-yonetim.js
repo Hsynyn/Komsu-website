@@ -260,13 +260,17 @@ export async function renderBudget() {
 
   const [budRes, aptRes] = await Promise.all([
     C.supabase.from('operating_budgets').select('*').eq('site_id', C.sId()).eq('year', budgetYear).maybeSingle(),
-    C.supabase.from('apartments').select('id, apartment_number, owner_name, land_share, building_id').in('building_id', C.siteBIds()),
+    C.supabase.from('apartments').select('id, apartment_number, owner_name, land_share, building_id, user_id, username').in('building_id', C.siteBIds()),
   ]);
 
   if (budRes.error && migrationUyarisi(budRes.error)) return;
 
   const budget = budRes.data;
-  const apts = C.sortByApartment(aptRes.data);
+  // Yer tutucu (boş) daireler paydaya girmez; sahibi bilinmeyen daireye
+  // gider payı düşürmek diğer maliklerin payını yanlış hesaplatır.
+  const allApts = C.sortByApartment(aptRes.data);
+  const apts = C.occupiedOnly(allApts);
+  const emptyCount = allApts.length - apts.length;
   let items = [];
   if (budget) {
     const { data: it } = await C.supabase.from('operating_budget_items')
@@ -326,7 +330,7 @@ export async function renderBudget() {
     <div class="stat-grid">
       <div class="stat"><div class="val">${C.TL(totalExpense)}</div><div class="lbl">Yıllık Gider</div></div>
       <div class="stat"><div class="val">${C.TL(totalIncome)}</div><div class="lbl">Yıllık Gelir</div></div>
-      <div class="stat"><div class="val">${apts.length}</div><div class="lbl">Daire</div></div>
+      <div class="stat"><div class="val">${apts.length}</div><div class="lbl">Dolu Daire${emptyCount ? ` <span class="muted">(+${emptyCount} boş)</span>` : ''}</div></div>
       <div class="stat"><div class="val">${STATUS[budget.status] || budget.status}</div><div class="lbl">Durum</div></div>
     </div>
 
@@ -776,14 +780,14 @@ function openMeetingModal(rec) {
 /** Hazirun cetveli: daireleri çeker, katılım ve vekaleti işaretler, yeter sayıyı hesaplar. */
 async function openAttendance(meeting) {
   const [aptRes, attRes] = await Promise.all([
-    C.supabase.from('apartments').select('id, apartment_number, owner_name, land_share').in('building_id', C.siteBIds()),
+    C.supabase.from('apartments').select('id, apartment_number, owner_name, land_share, user_id, username').in('building_id', C.siteBIds()),
     C.supabase.from('meeting_attendance').select('*').eq('meeting_id', meeting.id),
   ]);
   if (attRes.error && /does not exist|schema cache/i.test(attRes.error.message || '')) {
     return C.toast("Hazirun tablosu yok — 0020 migration'ını uygulayın", true);
   }
 
-  const apts = C.sortByApartment(aptRes.data);
+  const apts = C.occupiedOnly(C.sortByApartment(aptRes.data));
   const byNo = new Map((attRes.data || []).map(a => [a.apartment_no, a]));
 
   const rows = apts.map(a => {
@@ -861,12 +865,13 @@ export async function renderDebts() {
 
   const [feeRes, aptRes, noticeRes] = await Promise.all([
     C.supabase.from('monthly_fees').select('*').in('building_id', C.siteBIds()).eq('is_paid', false),
-    C.supabase.from('apartments').select('id, apartment_number, owner_name, building_id').in('building_id', C.siteBIds()),
+    C.supabase.from('apartments').select('id, apartment_number, owner_name, building_id, user_id, username').in('building_id', C.siteBIds()),
     C.supabase.from('debt_notices').select('*').eq('site_id', C.sId()).order('created_at', { ascending: false }),
   ]);
   if (noticeRes.error && migrationUyarisi(noticeRes.error)) return;
 
-  const apts = C.sortByApartment(aptRes.data);
+  // Boş daireler borç listesine girmez
+  const apts = C.occupiedOnly(C.sortByApartment(aptRes.data));
   const aptById = new Map(apts.map(a => [a.id, a]));
   const notices = noticeRes.data || [];
 
