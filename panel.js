@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { initYonetim, yonetimRoutes } from './panel-yonetim.js';
 
 // Mobil uygulamayla AYNI Supabase projesi (publishable key herkese açık, güvenlik RLS'te)
 const SUPABASE_URL = 'https://latrcfjexphtnqpnvscr.supabase.co';
@@ -843,6 +844,15 @@ el('hamburger').addEventListener('click', () => {
   document.body.appendChild(bd);
 });
 
+/* Yönetim modülüne bağımlılıkları geçir. panel.js'i refactor etmemek için
+   fonksiyonlar bir bağlam nesnesiyle aktarılıyor; modül bunları C.* ile kullanır. */
+initYonetim({
+  supabase, S, el, $content, esc, TL, dmy, dmyhm, toast, openModal,
+  bId, sId, siteBIds, needBuilding, navigate,
+  richEditorHTML, bindRichEditor, richValue,
+  todayISO, downloadCSV, sortByApartment, notifyBuilding,
+});
+
 function navigate(section) {
   S.section = section;
   document.querySelectorAll('#side-nav a').forEach((a) => a.classList.toggle('active', a.dataset.section === section));
@@ -874,7 +884,8 @@ function navigate(section) {
     assets: renderAssets,
     decisions: renderDecisions,
     subscription: renderSubscription,
-    security_mode: renderSecurityPanel
+    security_mode: renderSecurityPanel,
+    ...yonetimRoutes,          // tasks, budget, board, assembly, debts, archive
   };
   $content().innerHTML = '<p class="muted">Yükleniyor…</p>';
 
@@ -1888,6 +1899,8 @@ async function renderApartments() {
       <td>${esc(a.owner_name||'—')}</td>
       <td>${esc(a.owner_phone||'—')}</td>
       <td>${esc(a.vehicle_plate_number||'—')}</td>
+      <td><input class="share-input" data-share="${a.id}" inputmode="decimal" placeholder="—"
+           value="${a.land_share != null ? Number(a.land_share) : ''}" title="Arsa payı (KMK m.20)"></td>
       <td><button class="badge chip-toggle ${a.is_active?'b-green':'b-red'}" data-act="toggle" data-id="${a.id}" data-on="${a.is_active}">${a.is_active?'Aktif':'Pasif'}</button></td>
       <td class="t-right"><button class="btn btn-sm btn-outline-red" data-act="del" data-id="${a.id}" data-no="${esc(a.apartment_number)}">Sil</button></td>
     </tr>`).join('');
@@ -1896,13 +1909,26 @@ async function renderApartments() {
     <div class="page-head"><h2>Daireler &amp; Sakinler</h2>
       <div class="tools"><input class="search" id="apt-search" placeholder="Daire, sahip, plaka ara…"></div>
     </div>
-    <div class="info-banner">Daireler, sakinlerin mobil uygulamada <strong>bina kodu</strong> ile kendilerini eklemesiyle otomatik oluşur. Buradan yeni daire eklenmez; mevcut daireleri yönetebilirsiniz.</div>
-    <div class="card"><table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th>Telefon</th><th>Plaka</th><th>Durum</th><th></th></tr></thead>
-      <tbody id="apt-body">${list.length ? rows() : '<tr><td colspan="6" class="t-empty">Henüz sakin kaydı yok</td></tr>'}</tbody></table></div>`;
+    <div class="info-banner">Daireler, sakinlerin mobil uygulamada <strong>bina kodu</strong> ile kendilerini eklemesiyle otomatik oluşur. Buradan yeni daire eklenmez; mevcut daireleri yönetebilirsiniz.
+      <br><strong>Arsa payı</strong> alanını doldurursanız işletme projesi giderleri ve genel kurul yeter sayısı KMK m.20/m.30'a uygun hesaplanır. Boş bırakılırsa eşit dağıtım yapılır.</div>
+    <div class="card"><table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th>Telefon</th><th>Plaka</th><th>Arsa Payı</th><th>Durum</th><th></th></tr></thead>
+      <tbody id="apt-body">${list.length ? rows() : '<tr><td colspan="7" class="t-empty">Henüz sakin kaydı yok</td></tr>'}</tbody></table></div>`;
 
   el('apt-search')?.addEventListener('input', (e) => {
-    el('apt-body').innerHTML = rows(e.target.value) || '<tr><td colspan="6" class="t-empty">Eşleşen daire yok</td></tr>';
+    el('apt-body').innerHTML = rows(e.target.value) || '<tr><td colspan="7" class="t-empty">Eşleşen daire yok</td></tr>';
   });
+  // Arsa payı: alandan çıkınca kaydet. Boş bırakılırsa null yazılır.
+  el('apt-body').addEventListener('change', async (e) => {
+    const inp = e.target.closest('input[data-share]'); if (!inp) return;
+    const raw = inp.value.trim().replace(',', '.');
+    const val = raw === '' ? null : Number(raw);
+    if (val !== null && (!isFinite(val) || val < 0)) return toast('Geçersiz arsa payı', true);
+    const { error } = await supabase.from('apartments').update({ land_share: val }).eq('id', inp.dataset.share);
+    if (error) return toast(error.message, true);
+    inp.classList.add('saved');
+    setTimeout(() => inp.classList.remove('saved'), 900);
+  });
+
   el('apt-body').addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-act]'); if (!btn) return;
     if (btn.dataset.act === 'toggle') {

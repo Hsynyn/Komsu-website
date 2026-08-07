@@ -843,3 +843,19 @@ select.mini { padding: 8px 11px; border: 2px solid var(--line); border-radius: 1
 @media (max-width: 620px) {
   .access-banner .ab-cta { width: 100%; }
 }
+
+/* Kenar menüde bölüm başlığı */
+.side-nav .side-group {
+  font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase;
+  color: var(--tan); padding: 16px 12px 6px; margin-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+/* Daireler tablosunda arsa payı girişi */
+.share-input {
+  width: 84px; padding: 6px 9px; font-family: inherit; font-size: 13px;
+  border: 1.5px solid var(--line); border-radius: 9px; background: #FFFDF9;
+  color: var(--ink); outline: none; transition: border-color .15s, background .3s;
+}
+.share-input:focus { border-color: var(--tan); }
+.share-input.saved { background: var(--green-bg); border-color: var(--green); }
