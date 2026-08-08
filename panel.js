@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { initYonetim, yonetimRoutes } from './panel-yonetim.js';
+import { initBelge, belgeUret, belgeButonu, htmlDuzMetin, para, tarih } from './panel-belge.js';
 
 // Mobil uygulamayla AYNI Supabase projesi (publishable key herkese açık, güvenlik RLS'te)
 const SUPABASE_URL = 'https://latrcfjexphtnqpnvscr.supabase.co';
@@ -853,14 +854,17 @@ el('hamburger').addEventListener('click', () => {
   document.body.appendChild(bd);
 });
 
-/* Yönetim modülüne bağımlılıkları geçir. panel.js'i refactor etmemek için
-   fonksiyonlar bir bağlam nesnesiyle aktarılıyor; modül bunları C.* ile kullanır. */
-initYonetim({
-  supabase, S, el, $content, esc, TL, dmy, dmyhm, toast, openModal,
-  bId, sId, siteBIds, needBuilding, navigate,
+/* Yardımcı modüllere bağımlılıkları geçir. panel.js'i refactor etmemek için
+   fonksiyonlar bir bağlam nesnesiyle aktarılıyor; modüller bunları C.* ile kullanır. */
+const modulBaglami = {
+  supabase, S, el, $content, esc, TL, dmy, dmyhm, toast, openModal, closeModal,
+  bId, sId, siteBIds, needBuilding, navigate, activeBuilding,
   richEditorHTML, bindRichEditor, richValue,
   todayISO, downloadCSV, sortByApartment, occupiedOnly, isOccupied, notifyBuilding,
-});
+  MONTHS,
+};
+initYonetim(modulBaglami);
+initBelge(modulBaglami);
 
 function navigate(section) {
   S.section = section;
@@ -886,7 +890,6 @@ function navigate(section) {
     announcements: renderAnnouncements, 
     maintenance: renderMaintenance, 
     jobs: renderJobs, 
-    meetings: renderMeetings, 
     rules: renderRules, 
     settings: renderSettings, 
     reports: renderReports,
@@ -1025,13 +1028,18 @@ let buildingMeshes = [];
 
 async function renderOverview() {
   if (!needBuilding()) return;
-  
+
   $content().innerHTML = `
     <div class="page-head">
-      <h2>Sanal Site Maketi</h2>
+      <h2>Genel Bakış</h2>
+      <div class="tools"><button class="btn btn-ghost" id="dash-refresh">↻ Yenile</button></div>
     </div>
 
-    <!-- Üst Şerit: Seçili Bina Detayları (yatay) -->
+    <!-- Yöneticinin "bugün ne yapmalıyım" panosu -->
+    <div id="dash-kpi" class="dash-kpi"><div class="dash-skeleton"></div></div>
+    <div id="dash-alerts"></div>
+
+    <!-- Seçili bina detayları -->
     <div id="overview-details" class="overview-details-strip">
       <div class="loading" style="padding: 24px;">Yükleniyor…</div>
     </div>
@@ -1065,12 +1073,216 @@ async function renderOverview() {
     </div>
   `;
 
-  // Detay şeridini render et (varsayılan olarak aktif seçili bina)
-  await updateOverviewDetails(S.activeBuildingId);
+  el('dash-refresh').onclick = () => navigate('overview');
 
-  // Kayıtlı yerleşimi yükle, sonra 3D sahneyi başlat
+  // Pano ile bina detayı birbirini beklemesin; 3D sahne en son kurulur.
+  await Promise.all([renderDashboard(), updateOverviewDetails(S.activeBuildingId)]);
   await loadSiteLayout();
   init3DScene();
+}
+
+/* ---- Yönetim panosu ----
+   Panelin 20 ekranına dağılmış "işlem bekliyor" bilgilerini tek yerde toplar.
+   Her uyarı satırı, işi yapacağın ekrana götürür — pano okunacak değil,
+   üzerinden çalışılacak bir liste. */
+async function renderDashboard() {
+  const kpiHost = el('dash-kpi');
+  const alertHost = el('dash-alerts');
+  if (!kpiHost || !alertHost) return;
+
+  const yil = new Date().getFullYear();
+  const ay = new Date().getMonth() + 1;
+
+  /* Yönetim modülü tabloları (migration 0020/0021) henüz uygulanmamış
+     olabilir; o sorgular hata verirse pano yine de çalışsın. */
+  const sessiz = (p) => Promise.resolve(p).then(r => (r.error ? { data: null } : r)).catch(() => ({ data: null }));
+
+  const [txRes, maintRes, jobRes, feeRes, taskRes, conRes, auditRes, budRes] = await Promise.all([
+    sessiz(supabase.from('transactions').select('id, amount, type, status, description')
+      .in('building_id', siteBIds()).eq('status', 'pending')),
+    sessiz(supabase.from('maintenance_requests').select('id, priority, status')
+      .in('building_id', siteBIds()).not('status', 'in', '("completed","cancelled")')),
+    sessiz(supabase.from('building_jobs').select('id, title, status, next_due_date')
+      .in('building_id', siteBIds()).in('status', ['planned', 'in_progress'])),
+    sessiz(supabase.from('monthly_fees').select('amount, is_paid, year, month, apartment_id')
+      .in('building_id', siteBIds()).eq('year', yil).eq('month', ay)),
+    sessiz(supabase.from('management_tasks').select('id, title, due_date, status, legal_basis')
+      .eq('site_id', sId()).eq('status', 'pending')),
+    sessiz(supabase.from('contracts').select('id, vendor_name, end_date, is_active').eq('site_id', sId())),
+    sessiz(supabase.from('audit_reports').select('period_end').eq('site_id', sId())
+      .order('period_end', { ascending: false }).limit(1)),
+    sessiz(supabase.from('operating_budgets').select('status, year').eq('site_id', sId()).eq('year', yil).maybeSingle()),
+  ]);
+
+  /* --- KPI --- */
+  const b = activeBuilding();
+  const kasa = Number(S.site?.bank_balance ?? b?.bank_balance ?? 0)
+             + Number(S.site?.cash_balance ?? b?.cash_balance ?? 0)
+             + Number(S.site?.fund_balance ?? b?.fund_balance ?? 0);
+
+  const buAy = feeRes.data || [];
+  const tahakkuk = buAy.reduce((s, f) => s + Number(f.amount), 0);
+  const tahsilat = buAy.filter(f => f.is_paid).reduce((s, f) => s + Number(f.amount), 0);
+  const oran = tahakkuk ? Math.round((tahsilat / tahakkuk) * 100) : 0;
+
+  const borclar = await borcTablosuGetir();
+  const borcToplam = borclar.reduce((s, d) => s + d.anapara + d.gecikme, 0);
+
+  const acikArizalar = maintRes.data || [];
+  const acikIsler = jobRes.data || [];
+
+  kpiHost.innerHTML = `
+    <button class="kpi" data-go="transactions">
+      <span class="kpi-lbl">Site Kasası</span>
+      <span class="kpi-val">${TL(kasa)}</span>
+      <span class="kpi-sub">Banka + nakit + fon</span>
+    </button>
+    <button class="kpi" data-go="fees">
+      <span class="kpi-lbl">${MONTHS[ay-1]} Tahsilatı</span>
+      <span class="kpi-val ${oran >= 80 ? 'k-green' : oran >= 50 ? 'k-amber' : 'k-red'}">%${oran}</span>
+      <span class="kpi-sub">${TL(tahsilat)} / ${TL(tahakkuk)}</span>
+    </button>
+    <button class="kpi" data-go="debts">
+      <span class="kpi-lbl">Toplam Borç</span>
+      <span class="kpi-val ${borclar.length ? 'k-red' : 'k-green'}">${TL(borcToplam)}</span>
+      <span class="kpi-sub">${borclar.length} borçlu daire</span>
+    </button>
+    <button class="kpi" data-go="jobs">
+      <span class="kpi-lbl">Açık İş</span>
+      <span class="kpi-val ${acikIsler.length ? 'k-amber' : 'k-green'}">${acikIsler.length}</span>
+      <span class="kpi-sub">${acikArizalar.length} bekleyen arıza</span>
+    </button>`;
+
+  kpiHost.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-go]');
+    if (btn) navigate(btn.dataset.go);
+  });
+
+  /* --- Dikkat gerektirenler ---
+     Öncelik sırası: para → yasal süre → arıza → sözleşme. */
+  const gun = (d) => Math.ceil((new Date(d).getTime() - Date.now()) / 86400000);
+  const uyarilar = [];
+
+  const bekleyenTx = txRes.data || [];
+  if (bekleyenTx.length) {
+    const tutar = bekleyenTx.reduce((s, t) => s + Number(t.amount), 0);
+    uyarilar.push({
+      seviye: 'kirmizi', ikon: '💳', bolum: 'transactions',
+      baslik: `${bekleyenTx.length} kasa işlemi onayınızı bekliyor`,
+      detay: `Toplam ${TL(tutar)}. Onaylanana kadar kasa bakiyesine yansımaz.`,
+      eylem: 'Onaya git',
+    });
+  }
+
+  const gecikmisGorev = (taskRes.data || []).filter(t => gun(t.due_date) < 0);
+  if (gecikmisGorev.length) {
+    uyarilar.push({
+      seviye: 'kirmizi', ikon: '⚖️', bolum: 'tasks',
+      baslik: `${gecikmisGorev.length} yasal yükümlülük gecikmiş`,
+      detay: gecikmisGorev.slice(0, 3).map(t => t.title).join(' · ')
+        + (gecikmisGorev.length > 3 ? ` ve ${gecikmisGorev.length - 3} tane daha` : ''),
+      eylem: 'Takvime git',
+    });
+  }
+
+  if (borclar.length) {
+    const enBuyuk = borclar[0];
+    uyarilar.push({
+      seviye: borcToplam > tahakkuk ? 'kirmizi' : 'sari', ikon: '⚠️', bolum: 'debts',
+      baslik: `${borclar.length} dairenin ödenmemiş aidat borcu var`,
+      detay: `En yüksek borç: Daire ${enBuyuk.apt.apartment_number} — ${TL(enBuyuk.anapara + enBuyuk.gecikme)} `
+        + `(${enBuyuk.ay} ay). İhtar kaydı açıp ihtarname üretebilirsiniz.`,
+      eylem: 'Borç takibine git',
+    });
+  }
+
+  const acilArizalar = acikArizalar.filter(r => r.priority === 'high');
+  if (acikArizalar.length) {
+    uyarilar.push({
+      seviye: acilArizalar.length ? 'kirmizi' : 'sari', ikon: '🔧', bolum: 'maintenance',
+      baslik: `${acikArizalar.length} arıza bildirimi işlem bekliyor`,
+      detay: acilArizalar.length
+        ? `${acilArizalar.length} tanesi yüksek öncelikli. İş olarak tanımlayın ya da kapatın.`
+        : 'İş olarak tanımlayın ya da işlem gerektirmiyorsa kapatın.',
+      eylem: 'Arızalara git',
+    });
+  }
+
+  const yaklasanGorev = (taskRes.data || []).filter(t => { const g = gun(t.due_date); return g >= 0 && g <= 30; });
+  if (yaklasanGorev.length) {
+    uyarilar.push({
+      seviye: 'sari', ikon: '🗓', bolum: 'tasks',
+      baslik: `${yaklasanGorev.length} yükümlülüğün süresi 30 gün içinde doluyor`,
+      detay: yaklasanGorev.slice(0, 3).map(t => `${t.title} (${gun(t.due_date)} gün)`).join(' · '),
+      eylem: 'Takvime git',
+    });
+  }
+
+  const bitenSozlesme = (conRes.data || []).filter(c => c.is_active && c.end_date && gun(c.end_date) <= 60);
+  if (bitenSozlesme.length) {
+    uyarilar.push({
+      seviye: 'sari', ikon: '📄', bolum: 'archive',
+      baslik: `${bitenSozlesme.length} sözleşme 60 gün içinde bitiyor`,
+      detay: bitenSozlesme.map(c => `${c.vendor_name} (${dmy(c.end_date)})`).join(' · '),
+      eylem: 'Sözleşmelere git',
+    });
+  }
+
+  const sonDenetim = (auditRes.data || [])[0];
+  if (auditRes.data && (!sonDenetim || gun(sonDenetim.period_end) < -90)) {
+    uyarilar.push({
+      seviye: 'sari', ikon: '👥', bolum: 'board',
+      baslik: sonDenetim ? 'Son denetimin üzerinden 3 aydan fazla geçti' : 'Henüz denetim raporu girilmemiş',
+      detay: 'KMK m.41 — yönetim planında süre belirtilmemişse hesap denetimi üç ayda bir yapılır.',
+      eylem: 'Denetime git',
+    });
+  }
+
+  if (!budRes.data) {
+    uyarilar.push({
+      seviye: 'bilgi', ikon: '📊', bolum: 'budget',
+      baslik: `${yil} yılı işletme projesi henüz oluşturulmamış`,
+      detay: 'KMK m.37 — kesinleşmiş işletme projesi olmadan aidat alacağı icra takibine dayanak yapılamaz.',
+      eylem: 'İşletme projesine git',
+    });
+  } else if (budRes.data.status === 'draft') {
+    uyarilar.push({
+      seviye: 'bilgi', ikon: '📊', bolum: 'budget',
+      baslik: `${yil} işletme projesi taslak halinde`,
+      detay: 'Kat maliklerine tebliğ edilmeden kesinleşmez; tebliğden sonra 7 günlük itiraz süresi işler.',
+      eylem: 'İşletme projesine git',
+    });
+  }
+
+  alertHost.innerHTML = uyarilar.length ? `
+    <div class="card dash-todo">
+      <div class="dash-todo-head">
+        <h3>Dikkat gerektirenler</h3>
+        <span class="badge ${uyarilar.some(u => u.seviye === 'kirmizi') ? 'b-red' : 'b-amber'}">${uyarilar.length} başlık</span>
+      </div>
+      ${uyarilar.map((u, i) => `
+        <div class="todo-row t-${u.seviye}">
+          <span class="todo-ico">${u.ikon}</span>
+          <div class="todo-text">
+            <strong>${esc(u.baslik)}</strong>
+            <span class="muted">${esc(u.detay)}</span>
+          </div>
+          <button class="btn btn-sm" data-todo="${i}">${esc(u.eylem)} →</button>
+        </div>`).join('')}
+    </div>` : `
+    <div class="card dash-todo dash-clear">
+      <span style="font-size:30px;line-height:1">✅</span>
+      <div>
+        <strong>Bekleyen bir iş görünmüyor</strong>
+        <p class="muted" style="font-size:13px;margin-top:2px;">
+          Onay bekleyen ödeme, gecikmiş yükümlülük, açık arıza ya da süresi dolan sözleşme yok.</p>
+      </div>
+    </div>`;
+
+  alertHost.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-todo]');
+    if (btn) navigate(uyarilar[Number(btn.dataset.todo)].bolum);
+  });
 }
 
 /* ---- Yerleşim kalıcılığı (migration 0012 — site_layouts) ---- */
@@ -2535,6 +2747,7 @@ async function renderJobs() {
         <td>${esc(j.assigned_to||'—')}</td><td>${TL(j.price)}</td><td>${badge(j)}</td>
         <td class="t-right" style="white-space:nowrap">
           <select class="mini" data-status="${j.id}"><option value="">Durum…</option><option value="in_progress">Başlat</option><option value="completed">Tamamla</option><option value="cancelled">İptal</option></select>
+          <button class="btn btn-sm" data-belge="${j.id}">📄 ${j.status === 'completed' ? 'Teslim Tutanağı' : 'İş Emri'}</button>
           <button class="btn btn-sm btn-outline-red" data-del="${j.id}">Sil</button>
         </td></tr>`).join('') : '<tr><td colspan="5" class="t-empty">Henüz iş yok</td></tr>'}</tbody></table></div>`;
   el('job-add').addEventListener('click', () => {
@@ -2582,7 +2795,52 @@ async function renderJobs() {
     }
     toast('İş durumu güncellendi'); renderJobs();
   });
+  /* İş emri: işe başlamadan önce firmaya verilen yazı.
+     Teslim tutanağı: iş bittikten sonra ödenen tutarla birlikte imzalanan belge.
+     İkisi aynı kaydın iki aşaması olduğu için tek üretici kullanılıyor. */
   el('job-body').addEventListener('click', async (e) => {
+    const bl = e.target.closest('button[data-belge]');
+    if (bl) {
+      const j = list.find(x => x.id === bl.dataset.belge); if (!j) return;
+      const bitti = j.status === 'completed';
+      return belgeButonu(bl, () => belgeUret({
+        tur: bitti ? 'is_teslim_tutanagi' : 'is_emri', modul: 'jobs', kategori: 'tutanak',
+        baslik: bitti ? 'İş Teslim Tutanağı' : 'İş Emri',
+        altBaslik: j.title,
+        donem: bitti && j.completed_at ? tarih(j.completed_at) : tarih(new Date()),
+        dosyaAdi: `${bitti ? 'teslim-tutanagi' : 'is-emri'}-${j.title}`,
+        iliskiliId: j.id, binaId: j.building_id,
+        ozet: [
+          { etiket: 'Durum', deger: JOB_STATUS[j.status] || 'Planlandı' },
+          { etiket: bitti ? 'Ödenen Tutar' : 'Planlanan Ücret', deger: para(j.price),
+            renk: bitti ? 'kirmizi' : undefined },
+          { etiket: 'Sorumlu', deger: j.assigned_to || '—' },
+        ],
+        bolumler: [
+          { tip: 'kv', baslik: 'İş Bilgileri', satirlar: [
+            ['İş konusu', j.title],
+            ['Yüklenici / sorumlu', j.assigned_to || '—'],
+            ['Açılış tarihi', tarih(j.created_at)],
+            ...(j.next_due_date ? [['Termin tarihi', tarih(j.next_due_date)]] : []),
+            ...(bitti && j.completed_at ? [['Tamamlanma tarihi', tarih(j.completed_at)]] : []),
+          ] },
+          j.description && { tip: 'metin', baslik: 'İşin Kapsamı', icerik: j.description },
+          bitti
+            ? { tip: 'metin', baslik: 'Teslim Beyanı',
+                icerik: `Yukarıda tanımı verilen iş, yüklenici tarafından tamamlanmış ve site yönetimince teslim `
+                  + `alınmıştır. İş karşılığında ${para(j.price)} tutarında ödeme yapılmıştır. `
+                  + 'İşbu tutanak taraflarca okunarak imza altına alınmıştır.' }
+            : { tip: 'metin', baslik: 'Talimat',
+                icerik: `Yukarıda tanımı verilen işin, belirtilen kapsam ve şartlarda yapılması talep edilmektedir. `
+                  + `İş için öngörülen bedel ${para(j.price)} olup, kesin ödeme iş tamamlandıktan ve teslim `
+                  + 'tutanağı düzenlendikten sonra yapılacaktır.' },
+        ].filter(Boolean),
+        imzalar: bitti
+          ? [{ unvan: 'Yüklenici', ad: j.assigned_to || '' }, { unvan: 'Site Yönetimi' }]
+          : [{ unvan: 'Site Yönetimi' }, { unvan: 'Yüklenici', ad: j.assigned_to || '' }],
+      }));
+    }
+
     const btn = e.target.closest('button[data-del]'); if (!btn) return;
     if (!confirm('İş silinsin mi? Onay bekleyen ödemesi varsa iptal edilir.')) return;
     // Bekleyen ödemesini reddet, sohbetteki iş kartını kaldır, sonra işi sil
@@ -2686,97 +2944,14 @@ function openJobPaymentModal(job) {
   });
 }
 
-/* ============ 8) TOPLANTILAR ============ */
-async function renderMeetings() {
-  if (!needBuilding()) return;
-  const [{ data }, rsvpRes] = await Promise.all([
-    supabase.from('meetings').select('*').in('building_id', siteBIds()).order('meeting_date', { ascending:false }),
-    supabase.from('meeting_rsvps').select('*').in('building_id', siteBIds()),
-  ]);
-  const list = data || [];
-  // Katılım yanıtlarını toplantıya göre grupla (tablo henüz yoksa boş geç)
-  const rsvpsByMeeting = new Map();
-  for (const r of (rsvpRes.data || [])) {
-    const arr = rsvpsByMeeting.get(r.meeting_id) || [];
-    arr.push(r); rsvpsByMeeting.set(r.meeting_id, arr);
-  }
-  const RSVP_ICON = { attending:'✅', declined:'❌', proxy:'🤝' };
-  const rsvpBlock = (m) => {
-    const rs = rsvpsByMeeting.get(m.id) || [];
-    const att = rs.filter(r=>r.status==='attending'), dec = rs.filter(r=>r.status==='declined'), prx = rs.filter(r=>r.status==='proxy');
-    const rows = [...att, ...prx, ...dec].map(r => `<div style="font-size:12.5px;padding:2px 0;">
-      ${RSVP_ICON[r.status]||''} ${esc(r.name)}${r.apartment?` · Daire ${esc(r.apartment)}`:''}${r.status==='proxy'&&r.proxy_name?` → <strong style="color:var(--amber,#D97706)">Vekil: ${esc(r.proxy_name)}</strong>`:''}
-    </div>`).join('');
-    return `<div style="margin-top:8px;font-size:13px;">
-      <strong>Katılım:</strong> ✅ ${att.length} Katılıyor · ❌ ${dec.length} Katılmıyor · 🤝 ${prx.length} Vekil
-      ${rows ? `<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--muted);font-size:12.5px;">Listeyi göster</summary>${rows}</details>` : ''}
-    </div>`;
-  };
-  $content().innerHTML = `
-    <div class="page-head"><h2>Toplantılar</h2><div class="tools"><button class="btn" id="mt-add">+ Toplantı</button></div></div>
-    <div class="card" id="mt-list">${list.length ? list.map(m=>`
-      <div class="list-row"><div class="lr-body">
-        <div class="lr-title">${esc(m.title)}</div>
-        <div class="lr-meta">📅 ${dmyhm(m.meeting_date)}${m.location?` · 📍 ${esc(m.location)}`:''}</div>
-        ${m.description?`<div class="lr-text">${esc(m.description)}</div>`:''}
-        ${rsvpBlock(m)}
-      </div><button class="btn btn-sm btn-outline-red" data-del="${m.id}">Sil</button></div>`).join('') : '<p class="t-empty">Henüz toplantı yok</p>'}</div>`;
-  el('mt-add').addEventListener('click', () => {
-    openModal('Yeni Toplantı', `
-      <div class="field"><label>Başlık</label><input id="mt-title"></div>
-      <div class="field"><label>Tarih &amp; Saat</label><input id="mt-date" type="datetime-local"></div>
-      <div class="field"><label>Konum</label><input id="mt-loc" placeholder="Örn: Bina girişi"></div>
-      <div class="field"><label>Açıklama</label><textarea id="mt-desc" rows="2"></textarea></div>
-      <button class="btn btn-block" id="mt-save">Kaydet</button>`);
-    el('mt-save').addEventListener('click', async () => {
-      const title = el('mt-title').value.trim(), date = el('mt-date').value;
-      if (!title || !date) return toast('Başlık ve tarih girin', true);
-      el('mt-save').disabled = true;
-      const meetingDate = new Date(date);
-      const { data: meeting, error } = await supabase.from('meetings').insert({ building_id:bId(), admin_id:S.user.id, title,
-        meeting_date:meetingDate.toISOString(), location: el('mt-loc').value.trim()||null, description: el('mt-desc').value.trim()||null, is_active:true })
-        .select().single();
-      if (error) { toast(error.message, true); el('mt-save').disabled=false; return; }
-      // Mobil sohbete RSVP'li toplantı kartı düşür (toplantıdan 24 saat sonrasına kadar görünür)
-      await postMeetingToChat(meeting, meetingDate);
-      notifyBuilding('📅 Yeni Toplantı', `${title} — ${meetingDate.toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })}. Katılım durumunu sohbetten bildirin.`);
-      closeModal(); toast('Toplantı oluşturuldu ve sohbete eklendi'); renderMeetings();
-    });
-  });
-  el('mt-list').addEventListener('click', async (e) => {
-    const btn = e.target.closest('button[data-del]'); if (!btn) return;
-    if (!confirm('Toplantı silinsin mi?')) return;
-    await supabase.from('meetings').delete().eq('id', btn.dataset.del);
-    toast('Toplantı silindi'); renderMeetings();
-  });
-}
-
-// Web'den oluşturulan toplantıyı mobil sohbet akışına 'meeting' kartı olarak düşürür
-async function postMeetingToChat(meeting, meetingDate) {
-  try {
-    const adminName = `${S.profile?.name || ''} ${S.profile?.surname || ''}`.trim() || 'Yönetici';
-    const dateStr = meetingDate.toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
-    const message = `${meeting.description || ''}\n\n📅 Tarih: ${dateStr}${meeting.location ? `\n📍 Konum: ${meeting.location}` : ''}`.trim();
-    const expiresAt = new Date(Math.max(Date.now() + 48*60*60*1000, meetingDate.getTime() + 24*60*60*1000));
-    const { error } = await supabase.from('help_requests').insert({
-      building_id: bId(), sender_id: S.user.id, sender_name: adminName, sender_type: 'admin',
-      title: `📅 ${meeting.title}`, message, priority: 'high',
-      duration_minutes: Math.ceil((expiresAt.getTime() - Date.now()) / 60000),
-      expires_at: expiresAt.toISOString(), status: 'active',
-      is_auto_generated: true, type: 'meeting', related_id: meeting.id,
-    });
-    if (error) console.error('Toplantı sohbete eklenemedi:', error.message);
-  } catch (e) { console.error('Toplantı sohbete eklenemedi:', e); }
-}
-
-// Web'den yayınlanan duyuruyu mobil sohbet akışına düşürür (24 saat görünür)
+/* Duyuru sakinlerin sohbet akışına da düşsün (mobil ile aynı davranış). */
 async function postAnnouncementToChat(title, detail) {
   try {
     const adminName = `${S.profile?.name || ''} ${S.profile?.surname || ''}`.trim() || 'Yönetici';
     const expiresAt = new Date(Date.now() + 24*60*60*1000);
     const { error } = await supabase.from('help_requests').insert({
       building_id: bId(), sender_id: S.user.id, sender_name: adminName, sender_type: 'admin',
-      title: `📢 ${title}`, message: detail, priority: 'medium',
+      title: `\u{1F4E2} ${title}`, message: detail, priority: 'medium',
       duration_minutes: 1440, expires_at: expiresAt.toISOString(), status: 'active',
       is_auto_generated: true, type: 'standard',
     });
@@ -3027,255 +3202,626 @@ async function renderSettings() {
   });
 }
 
-/* ============ 11) RAPORLAR (PDF AKTARIM) ============ */
+/* ============ 11) BELGE MERKEZİ ============
+   Eskiden burada iki PDF butonu vardı (kasa + aidat) ve her biri kendi
+   jsPDF kodunu taşıyordu. Artık tüm belgeler panel-belge.js üzerinden aynı
+   antetle, aynı numaralandırmayla üretiliyor ve arşive düşüyor.
+   Modüle özel belgeler (ihtarname, hazirun, tutanak, devir teslim…) kendi
+   ekranlarında duruyor; burası dönemsel/toplu raporların yeri. */
 async function renderReports() {
   if (!needBuilding()) return;
   const b = activeBuilding();
   if (!b) return;
 
-  const currentYear = new Date().getFullYear();
-  const currentMonth = new Date().getMonth() + 1;
+  const yil = new Date().getFullYear();
+  const ay = new Date().getMonth() + 1;
+  const ayOpts = MONTHS.map((m, i) => `<option value="${i+1}" ${i+1 === ay ? 'selected' : ''}>${m}</option>`).join('');
+  const yilOpts = [yil-1, yil, yil+1].map(y => `<option value="${y}" ${y === yil ? 'selected' : ''}>${y}</option>`).join('');
 
   $content().innerHTML = `
-    <div class="page-head"><h2>Finansal Raporlar</h2></div>
-    
-    <div class="grid-2">
-      <!-- Kasa Raporu Kartı -->
-      <div class="card">
-        <h3 style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">📊 Kasa Gelir / Gider Raporu</h3>
-        <p class="muted" style="font-size: 13px; margin-bottom: 18px;">Belirleyeceğiniz tarih aralığındaki tüm kasa hareketlerini, gelir-gider dağılımını tablo olarak PDF formatında indirir.</p>
-        
-        <div class="grid-2" style="margin-bottom: 16px;">
-          <div class="field" style="margin: 0;">
-            <label>Başlangıç Tarihi</label>
-            <input type="date" id="rep-cash-start" value="${currentYear}-01-01" />
-          </div>
-          <div class="field" style="margin: 0;">
-            <label>Bitiş Tarihi</label>
-            <input type="date" id="rep-cash-end" value="${new Date().toISOString().split('T')[0]}" />
-          </div>
+    <div class="page-head"><h2>Belge Merkezi</h2>
+      <div class="tools"><button class="btn btn-ghost" id="rep-goto-archive">🗄 Arşive Git</button></div>
+    </div>
+    <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
+      Buradan üretilen her belge sıra numarası alır, imza alanlarıyla birlikte indirilir ve
+      <strong>Belgeler &amp; Devir</strong> arşivine kaydedilir. Böylece yönetici değişse bile
+      dönem boyunca üretilen tüm evrak tek yerde kalır.
+    </p>
+
+    <h3 class="rep-group">Mali Belgeler</h3>
+    <div class="rep-grid">
+      <div class="card rep-card">
+        <div class="rep-ico">📊</div>
+        <h3>Kasa Gelir–Gider Raporu</h3>
+        <p class="muted">Seçtiğiniz aralıktaki tüm kasa hareketleri, kategori dağılımı ve net durum.</p>
+        <div class="grid-2">
+          <div class="field" style="margin:0"><label>Başlangıç</label><input type="date" id="rep-cash-start" value="${yil}-01-01" /></div>
+          <div class="field" style="margin:0"><label>Bitiş</label><input type="date" id="rep-cash-end" value="${todayISO()}" /></div>
         </div>
-        
-        <button class="btn btn-block" id="btn-pdf-cash">Kasa Raporu PDF İndir</button>
+        <button class="btn btn-block" id="btn-rep-cash">Belge Oluştur</button>
       </div>
 
-      <!-- Aidat Borç Raporu Kartı -->
-      <div class="card">
-        <h3 style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">₺ Aidat Takip Raporu</h3>
-        <p class="muted" style="font-size: 13px; margin-bottom: 18px;">Seçeceğiniz ay ve yıla ait tüm dairelerin aidat borç durumlarını, ödeyen/ödemeyen listesini tablo olarak PDF formatında indirir.</p>
-        
-        <div class="grid-2" style="margin-bottom: 16px;">
-          <div class="field" style="margin: 0;">
-            <label>Ay</label>
-            <select id="rep-fee-month">
-              ${MONTHS.map((m, i) => `<option value="${i+1}" ${i+1 === currentMonth ? 'selected' : ''}>${m}</option>`).join('')}
-            </select>
-          </div>
-          <div class="field" style="margin: 0;">
-            <label>Yıl</label>
-            <select id="rep-fee-year">
-              ${[currentYear-1, currentYear, currentYear+1].map(y => `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`).join('')}
-            </select>
-          </div>
+      <div class="card rep-card">
+        <div class="rep-ico">₺</div>
+        <h3>Aidat Tahakkuk ve Tahsilat</h3>
+        <p class="muted">Seçtiğiniz ayda dairelerin aidat durumu, ödeyen/ödemeyen listesi ve tahsilat oranı.</p>
+        <div class="grid-2">
+          <div class="field" style="margin:0"><label>Ay</label><select id="rep-fee-month">${ayOpts}</select></div>
+          <div class="field" style="margin:0"><label>Yıl</label><select id="rep-fee-year">${yilOpts}</select></div>
         </div>
-        
-        <button class="btn btn-block" id="btn-pdf-fees">Aidat Durum PDF İndir</button>
+        <button class="btn btn-block" id="btn-rep-fees">Belge Oluştur</button>
+      </div>
+
+      <div class="card rep-card">
+        <div class="rep-ico">⚠️</div>
+        <h3>Borç ve Gecikme Raporu</h3>
+        <p class="muted">Tüm sitedeki ödenmemiş aidatlar, daire bazında gecikme tazminatıyla birlikte (KMK m.20).</p>
+        <button class="btn btn-block" id="btn-rep-debt">Belge Oluştur</button>
       </div>
     </div>
-  `;
 
-  el('btn-pdf-cash').onclick = downloadCashReportPDF;
-  el('btn-pdf-fees').onclick = downloadFeesReportPDF;
+    <h3 class="rep-group">Yönetim Belgeleri</h3>
+    <div class="rep-grid">
+      <div class="card rep-card">
+        <div class="rep-ico">🗓</div>
+        <h3>Yasal Yükümlülük Durumu</h3>
+        <p class="muted">Yönetim takvimindeki gecikmiş, yaklaşan ve tamamlanmış yükümlülüklerin dökümü.</p>
+        <button class="btn btn-block" id="btn-rep-tasks">Belge Oluştur</button>
+      </div>
+
+      <div class="card rep-card">
+        <div class="rep-ico">📦</div>
+        <h3>Demirbaş Sayım Listesi</h3>
+        <p class="muted">Sitedeki tüm demirbaşlar, garanti ve bakım durumlarıyla — devir teslimin eki.</p>
+        <button class="btn btn-block" id="btn-rep-assets">Belge Oluştur</button>
+      </div>
+
+      <div class="card rep-card">
+        <div class="rep-ico">🛠</div>
+        <h3>İş ve Arıza Dökümü</h3>
+        <p class="muted">Dönem içinde açılan arızalar, yapılan işler ve bunlara ödenen tutarlar.</p>
+        <div class="grid-2">
+          <div class="field" style="margin:0"><label>Başlangıç</label><input type="date" id="rep-job-start" value="${yil}-01-01" /></div>
+          <div class="field" style="margin:0"><label>Bitiş</label><input type="date" id="rep-job-end" value="${todayISO()}" /></div>
+        </div>
+        <button class="btn btn-block" id="btn-rep-jobs">Belge Oluştur</button>
+      </div>
+    </div>
+
+    <h3 class="rep-group">Yıllık</h3>
+    <div class="rep-grid">
+      <div class="card rep-card rep-card-wide">
+        <div class="rep-ico">📘</div>
+        <h3>Yıllık Faaliyet Raporu</h3>
+        <p class="muted">Genel kurula sunulan kapsamlı rapor: mali durum, tahsilat, borçlar, yapılan işler,
+        alınan kararlar, denetimler ve yükümlülükler tek belgede toplanır.</p>
+        <div class="field" style="max-width:200px"><label>Yıl</label><select id="rep-year-annual">${yilOpts}</select></div>
+        <button class="btn btn-block" id="btn-rep-annual">Faaliyet Raporunu Oluştur</button>
+      </div>
+    </div>`;
+
+  el('rep-goto-archive').onclick = () => navigate('archive');
+  el('btn-rep-cash').onclick   = (e) => belgeButonu(e.currentTarget, belgeKasaRaporu);
+  el('btn-rep-fees').onclick   = (e) => belgeButonu(e.currentTarget, belgeAidatRaporu);
+  el('btn-rep-debt').onclick   = (e) => belgeButonu(e.currentTarget, belgeBorcRaporu);
+  el('btn-rep-tasks').onclick  = (e) => belgeButonu(e.currentTarget, belgeYukumlulukRaporu);
+  el('btn-rep-assets').onclick = (e) => belgeButonu(e.currentTarget, belgeDemirbasRaporu);
+  el('btn-rep-jobs').onclick   = (e) => belgeButonu(e.currentTarget, belgeIsRaporu);
+  el('btn-rep-annual').onclick = (e) => belgeButonu(e.currentTarget, belgeFaaliyetRaporu);
 }
 
-// Türkçe karakterleri standart PDF fontları için güvenli hale getiren veya normalize eden yardımcı
-function cleanTR(str) {
-  return String(str || '')
-    .replace(/ı/g, 'i').replace(/İ/g, 'I')
-    .replace(/ş/g, 's').replace(/Ş/g, 'S')
-    .replace(/ğ/g, 'g').replace(/Ğ/g, 'G')
-    .replace(/ü/g, 'u').replace(/Ü/g, 'U')
-    .replace(/ö/g, 'o').replace(/Ö/g, 'O')
-    .replace(/ç/g, 'c').replace(/Ç/g, 'C');
+/* ---------- Ortak veri toplayıcı ----------
+   Borç hesabı üç yerde gerekiyor (Borç Takibi ekranı, borç raporu, faaliyet
+   raporu). Üçü aynı sayıyı göstersin diye kural tek yerde: vade ilgili ayın
+   1'i, gecikilen günler üzerinden aylık %5 tazminat (KMK m.20). */
+const GUN = 86400000;
+
+async function borcTablosuGetir() {
+  const [feeRes, aptRes] = await Promise.all([
+    supabase.from('monthly_fees').select('*').in('building_id', siteBIds()).eq('is_paid', false),
+    supabase.from('apartments').select('id, apartment_number, owner_name, building_id, user_id, username').in('building_id', siteBIds()),
+  ]);
+  const apts = occupiedOnly(sortByApartment(aptRes.data));
+  const aptById = new Map(apts.map(a => [a.id, a]));
+  const borclar = new Map();
+  for (const f of (feeRes.data || [])) {
+    const a = aptById.get(f.apartment_id); if (!a) continue;
+    const vade = new Date(f.year, f.month - 1, 1);
+    const gecikenGun = Math.max(0, Math.floor((Date.now() - vade.getTime()) / GUN));
+    const tazminat = Math.round((gecikenGun / 30) * 0.05 * Number(f.amount) * 100) / 100;
+    const cur = borclar.get(a.id) || { apt: a, anapara: 0, gecikme: 0, ay: 0, aylar: [] };
+    cur.anapara += Number(f.amount);
+    cur.gecikme += tazminat;
+    cur.ay += 1;
+    cur.aylar.push(`${MONTHS[f.month - 1]} ${f.year}`);
+    borclar.set(a.id, cur);
+  }
+  return [...borclar.values()].sort((x, y) => (y.anapara + y.gecikme) - (x.anapara + x.gecikme));
 }
 
-// 1. Kasa Raporu PDF İndirme
-async function downloadCashReportPDF() {
-  const start = el('rep-cash-start').value;
-  const end = el('rep-cash-end').value;
-  if (!start || !end) return toast('Lütfen tarih aralığı seçin', true);
+/* ---------- 1) Kasa gelir-gider ---------- */
+async function belgeKasaRaporu() {
+  const bas = el('rep-cash-start').value;
+  const bit = el('rep-cash-end').value;
+  if (!bas || !bit) throw new Error('Lütfen tarih aralığı seçin');
+  if (bas > bit) throw new Error('Başlangıç tarihi bitiş tarihinden sonra olamaz');
 
+  const { data, error } = await supabase.from('transactions').select('*')
+    .in('building_id', siteBIds())
+    .gte('created_at', bas + 'T00:00:00Z').lte('created_at', bit + 'T23:59:59Z')
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(error.message);
+
+  const txs = data || [];
+  const kesin = txs.filter(t => t.status === 'completed' || t.status === 'approved');
+  const gelirKat = {}, giderKat = {};
+  let gelir = 0, gider = 0;
+  for (const t of kesin) {
+    const tutar = Number(t.amount || 0);
+    const etiket = TX_CATEGORIES[t.category] || t.category;
+    if (t.type === 'income') { gelir += tutar; gelirKat[etiket] = (gelirKat[etiket] || 0) + tutar; }
+    else { gider += tutar; giderKat[etiket] = (giderKat[etiket] || 0) + tutar; }
+  }
+  const bekleyen = txs.filter(t => t.status === 'pending');
   const b = activeBuilding();
-  const btn = el('btn-pdf-cash');
-  btn.disabled = true;
-  btn.textContent = 'PDF Hazırlanıyor…';
+  const kasa = Number(S.site?.bank_balance ?? b?.bank_balance ?? 0)
+             + Number(S.site?.cash_balance ?? b?.cash_balance ?? 0)
+             + Number(S.site?.fund_balance ?? b?.fund_balance ?? 0);
 
-  try {
-    const { data: txs, error } = await supabase
-      .from('transactions')
-      .select('*')
+  return belgeUret({
+    tur: 'kasa_raporu', modul: 'transactions', kategori: 'rapor',
+    baslik: 'Kasa Gelir–Gider Raporu',
+    donem: `${tarih(bas)} – ${tarih(bit)}`,
+    dosyaAdi: `kasa-raporu-${bas}-${bit}`,
+    ozet: [
+      { etiket: 'Toplam Gelir', deger: para(gelir), renk: 'yesil' },
+      { etiket: 'Toplam Gider', deger: para(gider), renk: 'kirmizi' },
+      { etiket: 'Net Durum', deger: para(gelir - gider), renk: gelir - gider >= 0 ? 'yesil' : 'kirmizi' },
+      { etiket: 'Güncel Kasa', deger: para(kasa) },
+    ],
+    bolumler: [
+      Object.keys(gelirKat).length && {
+        tip: 'tablo', baslik: 'Gelirlerin Kategori Dağılımı',
+        kolonlar: [{ baslik: 'Kategori' }, { baslik: 'Tutar', hiza: 'right', genislik: 40 }],
+        satirlar: Object.entries(gelirKat).sort(([, x], [, y]) => y - x).map(([k, v]) => [k, para(v)]),
+        toplamSatiri: ['TOPLAM', para(gelir)],
+      },
+      Object.keys(giderKat).length && {
+        tip: 'tablo', baslik: 'Giderlerin Kategori Dağılımı',
+        kolonlar: [{ baslik: 'Kategori' }, { baslik: 'Tutar', hiza: 'right', genislik: 40 }],
+        satirlar: Object.entries(giderKat).sort(([, x], [, y]) => y - x).map(([k, v]) => [k, para(v)]),
+        toplamSatiri: ['TOPLAM', para(gider)],
+      },
+      {
+        tip: 'tablo', baslik: 'Hareket Dökümü',
+        kolonlar: [
+          { baslik: 'Tarih', genislik: 22 }, { baslik: 'Açıklama' },
+          { baslik: 'Kategori', genislik: 28 }, { baslik: 'Tutar', hiza: 'right', genislik: 30 },
+          { baslik: 'Durum', genislik: 24 },
+        ],
+        satirlar: txs.map(t => [
+          tarih(t.created_at),
+          t.description || '—',
+          TX_CATEGORIES[t.category] || t.category,
+          `${t.type === 'income' ? '+' : '−'}${para(t.amount)}`,
+          t.status === 'completed' || t.status === 'approved' ? 'Gerçekleşti'
+            : t.status === 'pending' ? 'Onay bekliyor' : 'Reddedildi',
+        ]),
+        not: bekleyen.length
+          ? `${bekleyen.length} işlem onay beklediği için gelir/gider toplamlarına dahil edilmemiştir.`
+          : null,
+      },
+    ].filter(Boolean),
+    imzalar: ['Yönetici', 'Denetçi'],
+  });
+}
+
+/* ---------- 2) Aidat tahakkuk ve tahsilat ---------- */
+async function belgeAidatRaporu() {
+  const ay = parseInt(el('rep-fee-month').value, 10);
+  const yil = parseInt(el('rep-fee-year').value, 10);
+  const b = activeBuilding();
+
+  const [aptRes, feeRes] = await Promise.all([
+    supabase.from('apartments').select('id, apartment_number, owner_name, user_id, username').eq('building_id', bId()),
+    supabase.from('monthly_fees').select('*').eq('building_id', bId()).eq('year', yil).eq('month', ay),
+  ]);
+  if (aptRes.error) throw new Error(aptRes.error.message);
+  if (feeRes.error) throw new Error(feeRes.error.message);
+
+  const apts = occupiedOnly(sortByApartment(aptRes.data));
+  const feeByApt = new Map((feeRes.data || []).map(f => [f.apartment_id, f]));
+
+  let odeyen = 0, tahakkuk = 0, tahsilat = 0;
+  const satirlar = apts.map(a => {
+    const f = feeByApt.get(a.id);
+    const tutar = f ? Number(f.amount || 0) : 0;
+    tahakkuk += tutar;
+    if (f?.is_paid) { odeyen++; tahsilat += tutar; }
+    return [
+      a.apartment_number,
+      a.owner_name || '—',
+      f ? para(tutar) : '—',
+      f ? (f.is_paid ? 'Ödendi' : 'Ödenmedi') : 'Tahakkuk yok',
+      f?.paid_date ? tarih(f.paid_date) : '—',
+    ];
+  });
+  const oran = apts.length ? Math.round((odeyen / apts.length) * 100) : 0;
+
+  return belgeUret({
+    tur: 'aidat_raporu', modul: 'fees', kategori: 'rapor',
+    baslik: 'Aidat Tahakkuk ve Tahsilat Raporu',
+    altBaslik: b?.name,
+    donem: `${MONTHS[ay - 1]} ${yil}`,
+    dosyaAdi: `aidat-raporu-${yil}-${String(ay).padStart(2, '0')}`,
+    binaId: bId(),
+    ozet: [
+      { etiket: 'Tahsilat Oranı', deger: `%${oran}`, renk: oran >= 80 ? 'yesil' : oran >= 50 ? 'sari' : 'kirmizi' },
+      { etiket: 'Ödeyen Daire', deger: `${odeyen} / ${apts.length}` },
+      { etiket: 'Tahakkuk', deger: para(tahakkuk) },
+      { etiket: 'Tahsil Edilen', deger: para(tahsilat), renk: 'yesil' },
+      { etiket: 'Kalan', deger: para(tahakkuk - tahsilat), renk: 'kirmizi' },
+    ],
+    bolumler: [
+      {
+        tip: 'tablo', baslik: 'Daire Bazında Durum',
+        kolonlar: [
+          { baslik: 'Daire', genislik: 20 }, { baslik: 'Kat Maliki / Sakin' },
+          { baslik: 'Aidat', hiza: 'right', genislik: 30 },
+          { baslik: 'Durum', genislik: 28 }, { baslik: 'Ödeme Tarihi', genislik: 28 },
+        ],
+        satirlar,
+        toplamSatiri: ['TOPLAM', `${apts.length} daire`, para(tahakkuk), `Tahsil: ${para(tahsilat)}`, ''],
+        not: 'Sakini bulunmayan (boş) daireler rapora dahil edilmemiştir; sahibi belli olmayan daireye borç yazılması hayali alacak üretir.',
+      },
+    ],
+    imzalar: ['Yönetici', 'Denetçi'],
+  });
+}
+
+/* ---------- 3) Borç ve gecikme ---------- */
+async function belgeBorcRaporu() {
+  const liste = await borcTablosuGetir();
+  const anapara = liste.reduce((s, d) => s + d.anapara, 0);
+  const gecikme = liste.reduce((s, d) => s + d.gecikme, 0);
+
+  return belgeUret({
+    tur: 'borc_raporu', modul: 'debts', kategori: 'rapor',
+    baslik: 'Ortak Gider Borç ve Gecikme Raporu',
+    donem: `${tarih(new Date())} itibarıyla`,
+    dosyaAdi: `borc-raporu-${todayISO()}`,
+    ozet: [
+      { etiket: 'Borçlu Daire', deger: String(liste.length), renk: liste.length ? 'kirmizi' : 'yesil' },
+      { etiket: 'Anapara', deger: para(anapara) },
+      { etiket: 'Gecikme Tazminatı', deger: para(gecikme), renk: 'kirmizi' },
+      { etiket: 'Genel Toplam', deger: para(anapara + gecikme) },
+    ],
+    bolumler: [
+      {
+        tip: 'kutu', renk: 'sari', baslik: 'Yasal dayanak — KMK m.20',
+        icerik: 'Kat maliki, ortak gider borcunu zamanında ödemezse gecikilen günler için aylık %5 hesabıyla gecikme tazminatı ödemekle yükümlüdür. Bu oran yönetim planıyla değiştirilemez. Aşağıdaki hesapta her aidatın vadesi, ilgili ayın 1. günü kabul edilmiştir.',
+      },
+      {
+        tip: 'tablo', baslik: 'Borçlu Daireler',
+        kolonlar: [
+          { baslik: 'Daire', genislik: 18 }, { baslik: 'Kat Maliki' },
+          { baslik: 'Ay', hiza: 'center', genislik: 14 },
+          { baslik: 'Anapara', hiza: 'right', genislik: 28 },
+          { baslik: 'Gecikme', hiza: 'right', genislik: 28 },
+          { baslik: 'Toplam', hiza: 'right', genislik: 30 },
+        ],
+        satirlar: liste.map(d => [
+          d.apt.apartment_number, d.apt.owner_name || '—', String(d.ay),
+          para(d.anapara), para(d.gecikme), para(d.anapara + d.gecikme),
+        ]),
+        toplamSatiri: ['TOPLAM', `${liste.length} daire`, '', para(anapara), para(gecikme), para(anapara + gecikme)],
+      },
+    ],
+    imzalar: ['Yönetici', 'Denetçi'],
+  });
+}
+
+/* ---------- 4) Yasal yükümlülük durumu ---------- */
+async function belgeYukumlulukRaporu() {
+  const { data, error } = await supabase.from('management_tasks').select('*')
+    .eq('site_id', sId()).order('due_date', { ascending: true });
+  if (error) throw new Error('Yönetim takvimi okunamadı: ' + error.message);
+
+  const hepsi = data || [];
+  const bekleyen = hepsi.filter(t => t.status === 'pending');
+  const gunFark = (d) => Math.ceil((new Date(d).getTime() - Date.now()) / GUN);
+  const gecikmis = bekleyen.filter(t => gunFark(t.due_date) < 0);
+  const yaklasan = bekleyen.filter(t => { const g = gunFark(t.due_date); return g >= 0 && g <= 30; });
+  const tamamlanan = hepsi.filter(t => t.status === 'done');
+
+  const satir = (t) => {
+    const g = gunFark(t.due_date);
+    return [
+      t.title,
+      t.legal_basis || '—',
+      tarih(t.due_date),
+      t.status === 'done' ? 'Tamamlandı'
+        : t.status === 'skipped' ? 'Atlandı'
+        : g < 0 ? `${Math.abs(g)} gün gecikti` : `${g} gün kaldı`,
+      t.assigned_to || '—',
+    ];
+  };
+  const kolonlar = [
+    { baslik: 'Yükümlülük' }, { baslik: 'Yasal Dayanak', genislik: 30 },
+    { baslik: 'Son Tarih', genislik: 24 }, { baslik: 'Durum', genislik: 28 },
+    { baslik: 'Sorumlu', genislik: 28 },
+  ];
+
+  return belgeUret({
+    tur: 'yukumluluk_raporu', modul: 'tasks', kategori: 'rapor',
+    baslik: 'Yasal Yükümlülük ve Periyodik Bakım Durumu',
+    donem: `${tarih(new Date())} itibarıyla`,
+    dosyaAdi: `yukumluluk-raporu-${todayISO()}`,
+    ozet: [
+      { etiket: 'Gecikmiş', deger: String(gecikmis.length), renk: gecikmis.length ? 'kirmizi' : 'yesil' },
+      { etiket: '30 Gün İçinde', deger: String(yaklasan.length), renk: yaklasan.length ? 'sari' : 'yesil' },
+      { etiket: 'Bekleyen Toplam', deger: String(bekleyen.length) },
+      { etiket: 'Tamamlanan', deger: String(tamamlanan.length), renk: 'yesil' },
+    ],
+    bolumler: [
+      gecikmis.length && {
+        tip: 'tablo', baslik: 'Gecikmiş Yükümlülükler', kolonlar, satirlar: gecikmis.map(satir),
+        not: 'Gecikmiş yasal yükümlülükler yöneticinin sorumluluğunu doğurabilir; öncelikle bunlar kapatılmalıdır.',
+      },
+      yaklasan.length && { tip: 'tablo', baslik: '30 Gün İçinde Süresi Dolacaklar', kolonlar, satirlar: yaklasan.map(satir) },
+      { tip: 'tablo', baslik: 'Tüm Kayıtlar', kolonlar, satirlar: hepsi.map(satir) },
+    ].filter(Boolean),
+    imzalar: ['Yönetici', 'Denetçi'],
+  });
+}
+
+/* ---------- 5) Demirbaş sayım listesi ---------- */
+async function belgeDemirbasRaporu() {
+  const { data, error } = await supabase.from('building_assets').select('*')
+    .in('building_id', siteBIds()).order('name');
+  if (error) throw new Error(error.message);
+  const liste = data || [];
+  const binaAdi = new Map(S.buildings.map(b => [b.id, b.name]));
+
+  const garantiDurum = (a) => {
+    if (!a.warranty_expiry) return '—';
+    const g = Math.ceil((new Date(a.warranty_expiry).getTime() - Date.now()) / GUN);
+    return g > 0 ? `${tarih(a.warranty_expiry)} (${g} gün)` : `${tarih(a.warranty_expiry)} — doldu`;
+  };
+  const garantisiSuren = liste.filter(a => a.warranty_expiry && new Date(a.warranty_expiry) >= new Date()).length;
+  const garantisiBiten = liste.filter(a => a.warranty_expiry && new Date(a.warranty_expiry) < new Date()).length;
+
+  return belgeUret({
+    tur: 'demirbas_listesi', modul: 'assets', kategori: 'tutanak',
+    baslik: 'Demirbaş Sayım Listesi',
+    donem: `${tarih(new Date())} itibarıyla`,
+    dosyaAdi: `demirbas-listesi-${todayISO()}`,
+    ozet: [
+      { etiket: 'Toplam Demirbaş', deger: String(liste.length) },
+      { etiket: 'Garantisi Süren', deger: String(garantisiSuren), renk: 'yesil' },
+      { etiket: 'Garantisi Dolan', deger: String(garantisiBiten), renk: garantisiBiten ? 'sari' : 'yesil' },
+    ],
+    bolumler: [
+      {
+        tip: 'tablo', baslik: 'Demirbaş Dökümü',
+        kolonlar: [
+          { baslik: 'Demirbaş' }, { baslik: 'Marka / Model', genislik: 34 },
+          { baslik: 'Seri No', genislik: 26 }, { baslik: 'Garanti', genislik: 34 },
+          { baslik: 'Son Bakım', genislik: 24 },
+        ],
+        satirlar: liste.map(a => [
+          S.buildings.length > 1 ? `${a.name} (${binaAdi.get(a.building_id) || '—'})` : a.name,
+          [a.brand, a.model].filter(Boolean).join(' ') || '—',
+          a.serial_number || '—',
+          garantiDurum(a),
+          a.last_maintenance_at ? tarih(a.last_maintenance_at) : 'Yapılmadı',
+        ]),
+        not: 'Bu liste yönetici devir tesliminin ekidir. Sayım sırasında fiilen bulunmayan demirbaşlar tutanağa ayrıca işlenmelidir.',
+      },
+    ],
+    imzalar: ['Teslim Eden', 'Teslim Alan', 'Denetçi'],
+  });
+}
+
+/* ---------- 6) İş ve arıza dökümü ---------- */
+async function belgeIsRaporu() {
+  const bas = el('rep-job-start').value;
+  const bit = el('rep-job-end').value;
+  if (!bas || !bit) throw new Error('Lütfen tarih aralığı seçin');
+
+  const [jobRes, maintRes] = await Promise.all([
+    supabase.from('building_jobs').select('*').in('building_id', siteBIds())
+      .gte('created_at', bas + 'T00:00:00Z').lte('created_at', bit + 'T23:59:59Z')
+      .order('created_at', { ascending: true }),
+    supabase.from('maintenance_requests').select('*, apartments:apartment_id(apartment_number)')
       .in('building_id', siteBIds())
-      .gte('created_at', start + 'T00:00:00Z')
-      .lte('created_at', end + 'T23:59:59Z')
-      .order('created_at', { ascending: true });
+      .gte('created_at', bas + 'T00:00:00Z').lte('created_at', bit + 'T23:59:59Z')
+      .order('created_at', { ascending: true }),
+  ]);
+  const isler = jobRes.data || [];
+  const arizalar = maintRes.data || [];
+  const tamamlanan = isler.filter(j => j.status === 'completed');
+  const harcama = tamamlanan.reduce((s, j) => s + Number(j.price || 0), 0);
 
-    if (error) throw new Error(error.message);
-
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-
-    // Başlık ve Bilgiler
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.text(cleanTR(b.name) + " - Kasa Raporu", 14, 20);
-    
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(`Tarih Araligi: ${start} / ${end}`, 14, 28);
-    doc.text(`Olusturulma Tarihi: ${new Date().toLocaleDateString('tr-TR')}`, 14, 34);
-
-    let totalIncome = 0;
-    let totalExpense = 0;
-
-    const rows = (txs || []).map(t => {
-      const amt = Number(t.amount || 0);
-      if (t.type === 'income') totalIncome += amt;
-      else totalExpense += amt;
-
-      return [
-        new Date(t.created_at).toLocaleDateString('tr-TR'),
-        cleanTR(t.description),
-        cleanTR(TX_CATEGORIES[t.category] || t.category),
-        t.type === 'income' ? `+${amt.toFixed(2)} TL` : `-${amt.toFixed(2)} TL`,
-        cleanTR(t.status === 'completed' || t.status === 'approved' ? 'Tamamlandi' : 'Onay Bekliyor')
-      ];
-    });
-
-    // Özet Tablosu
-    doc.autoTable({
-      startY: 40,
-      head: [['Toplam Gelir', 'Toplam Gider', 'Net Durum']],
-      body: [[
-        `${totalIncome.toFixed(2)} TL`,
-        `${totalExpense.toFixed(2)} TL`,
-        `${(totalIncome - totalExpense).toFixed(2)} TL`
-      ]],
-      theme: 'grid',
-      styles: { font: 'helvetica' }
-    });
-
-    // Detay Tablosu
-    doc.autoTable({
-      startY: doc.lastAutoTable.finalY + 10,
-      head: [['Tarih', 'Aciklama', 'Kategori', 'Tutar', 'Durum']],
-      body: rows,
-      theme: 'striped',
-      styles: { font: 'helvetica' },
-      headStyles: { fillColor: [43, 38, 32] }
-    });
-
-    doc.save(`kasa_raporu_${start}_${end}.pdf`);
-    toast('PDF başarıyla indirildi');
-  } catch (err) {
-    toast(err.message, true);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Kasa Raporu PDF İndir';
-  }
+  return belgeUret({
+    tur: 'is_raporu', modul: 'jobs', kategori: 'rapor',
+    baslik: 'İş ve Arıza Dökümü',
+    donem: `${tarih(bas)} – ${tarih(bit)}`,
+    dosyaAdi: `is-raporu-${bas}-${bit}`,
+    ozet: [
+      { etiket: 'Gelen Arıza', deger: String(arizalar.length) },
+      { etiket: 'Açılan İş', deger: String(isler.length) },
+      { etiket: 'Tamamlanan', deger: String(tamamlanan.length), renk: 'yesil' },
+      { etiket: 'Toplam Harcama', deger: para(harcama), renk: 'kirmizi' },
+    ],
+    bolumler: [
+      {
+        tip: 'tablo', baslik: 'Yapılan İşler',
+        kolonlar: [
+          { baslik: 'İş' }, { baslik: 'Sorumlu / Firma', genislik: 36 },
+          { baslik: 'Durum', genislik: 26 }, { baslik: 'Tutar', hiza: 'right', genislik: 30 },
+          { baslik: 'Tamamlanma', genislik: 26 },
+        ],
+        satirlar: isler.map(j => [
+          j.title, j.assigned_to || '—',
+          JOB_STATUS[j.status] || (j.is_active ? 'Planlandı' : 'Tamamlandı'),
+          para(j.price), j.completed_at ? tarih(j.completed_at) : '—',
+        ]),
+        toplamSatiri: ['TOPLAM', `${isler.length} iş`, `${tamamlanan.length} tamamlandı`, para(harcama), ''],
+      },
+      {
+        tip: 'tablo', baslik: 'Gelen Arıza Bildirimleri',
+        kolonlar: [
+          { baslik: 'Arıza' }, { baslik: 'Daire', genislik: 20 },
+          { baslik: 'Öncelik', genislik: 22 }, { baslik: 'Durum', genislik: 26 },
+          { baslik: 'Bildirim', genislik: 26 },
+        ],
+        satirlar: arizalar.map(r => [
+          r.title, r.apartments?.apartment_number || '—',
+          PRIORITIES[r.priority] || r.priority, MAINT_STATUS[r.status] || r.status,
+          tarih(r.created_at),
+        ]),
+      },
+    ],
+    imzalar: ['Yönetici'],
+  });
 }
 
-// 2. Aidat Raporu PDF İndirme
-async function downloadFeesReportPDF() {
-  const month = parseInt(el('rep-fee-month').value);
-  const year = parseInt(el('rep-fee-year').value);
-  const b = activeBuilding();
-  
-  const btn = el('btn-pdf-fees');
-  btn.disabled = true;
-  btn.textContent = 'PDF Hazırlanıyor…';
+/* ---------- 7) Yıllık faaliyet raporu ---------- */
+// Genel kurula sunulan belge: yılın mali durumu, tahsilat, borçlar, işler,
+// kararlar, denetimler ve yükümlülükler tek evrakta toplanır.
+async function belgeFaaliyetRaporu() {
+  const yil = parseInt(el('rep-year-annual').value, 10);
+  const bas = `${yil}-01-01`, bit = `${yil}-12-31`;
 
-  try {
-    const [aptRes, feeRes] = await Promise.all([
-      supabase.from('apartments').select('id, apartment_number, owner_name, user_id, username').eq('building_id', bId()),
-      supabase.from('monthly_fees').select('*').eq('building_id', bId()).eq('year', year).eq('month', month)
-    ]);
+  const [txRes, feeRes, jobRes, kararRes, denetimRes, gorevRes, kurulRes] = await Promise.all([
+    supabase.from('transactions').select('*').in('building_id', siteBIds())
+      .gte('created_at', bas + 'T00:00:00Z').lte('created_at', bit + 'T23:59:59Z'),
+    supabase.from('monthly_fees').select('*').in('building_id', siteBIds()).eq('year', yil),
+    supabase.from('building_jobs').select('*').in('building_id', siteBIds())
+      .gte('created_at', bas + 'T00:00:00Z').lte('created_at', bit + 'T23:59:59Z'),
+    supabase.from('building_decisions').select('*').in('building_id', siteBIds())
+      .gte('decision_date', bas).lte('decision_date', bit).order('decision_date'),
+    supabase.from('audit_reports').select('*').eq('site_id', sId()).order('period_end', { ascending: false }),
+    supabase.from('management_tasks').select('*').eq('site_id', sId()),
+    supabase.from('management_board').select('*').eq('site_id', sId()).eq('is_active', true),
+  ]);
 
-    if (aptRes.error) throw new Error(aptRes.error.message);
-    if (feeRes.error) throw new Error(feeRes.error.message);
+  const kesin = (txRes.data || []).filter(t => t.status === 'completed' || t.status === 'approved');
+  const gelir = kesin.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
+  const gider = kesin.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
 
-    const apts = occupiedOnly(sortByApartment(aptRes.data));  // boş daireler rapora girmez
-    const fees = feeRes.data || [];
-    const feeByApt = new Map(fees.map(f => [f.apartment_id, f]));
+  const fees = feeRes.data || [];
+  const tahakkuk = fees.reduce((s, f) => s + Number(f.amount), 0);
+  const tahsilat = fees.filter(f => f.is_paid).reduce((s, f) => s + Number(f.amount), 0);
+  const oran = tahakkuk ? Math.round((tahsilat / tahakkuk) * 100) : 0;
 
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
+  const isler = jobRes.data || [];
+  const tamamlanan = isler.filter(j => j.status === 'completed');
+  const borclar = await borcTablosuGetir();
+  const borcToplam = borclar.reduce((s, d) => s + d.anapara + d.gecikme, 0);
 
-    // Başlık ve Bilgiler
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.text(cleanTR(b.name) + " - Aidat Raporu", 14, 20);
-    
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(`Donem: ${MONTHS[month-1]} ${year}`, 14, 28);
-    doc.text(`Olusturulma Tarihi: ${new Date().toLocaleDateString('tr-TR')}`, 14, 34);
+  /* Aylık gelir-gider seyri — genel kurulda en çok sorulan tablo. */
+  const aylik = MONTHS.map((ad, i) => {
+    const ayIslem = kesin.filter(t => new Date(t.created_at).getMonth() === i);
+    const g = ayIslem.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0);
+    const h = ayIslem.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0);
+    return [ad, para(g), para(h), para(g - h)];
+  });
 
-    let paidCount = 0;
-    let totalExpected = 0;
-    let totalCollected = 0;
+  const gorevler = gorevRes.data || [];
+  const gecikmisGorev = gorevler.filter(t => t.status === 'pending' && new Date(t.due_date) < new Date());
+  const kurul = kurulRes.data || [];
 
-    const rows = apts.map(a => {
-      const f = feeByApt.get(a.id);
-      const isPaid = f ? f.is_paid : false;
-      const amt = f ? Number(f.amount || 0) : 0;
-
-      totalExpected += amt;
-      if (isPaid) {
-        paidCount++;
-        totalCollected += amt;
-      }
-
-      return [
-        cleanTR(a.apartment_number),
-        cleanTR(a.owner_name || '—'),
-        f ? `${amt.toFixed(2)} TL` : '—',
-        isPaid ? 'Odedi' : 'Bekliyor',
-        f?.paid_date ? new Date(f.paid_date).toLocaleDateString('tr-TR') : '—'
-      ];
-    });
-
-    // Özet Tablosu
-    doc.autoTable({
-      startY: 40,
-      head: [['Katilim Orani', 'Beklenen Tutar', 'Toplanan Tutar', 'Kalan Borc']],
-      body: [[
-        `${paidCount} / ${apts.length} Daire`,
-        `${totalExpected.toFixed(2)} TL`,
-        `${totalCollected.toFixed(2)} TL`,
-        `${(totalExpected - totalCollected).toFixed(2)} TL`
-      ]],
-      theme: 'grid',
-      styles: { font: 'helvetica' }
-    });
-
-    // Detay Tablosu
-    doc.autoTable({
-      startY: doc.lastAutoTable.finalY + 10,
-      head: [['Daire', 'Ev Sahibi / Sakin', 'Aidat Tutari', 'Durum', 'Odeme Tarihi']],
-      body: rows,
-      theme: 'striped',
-      styles: { font: 'helvetica' },
-      headStyles: { fillColor: [43, 38, 32] }
-    });
-
-    doc.save(`aidat_raporu_${month}_${year}.pdf`);
-    toast('PDF başarıyla indirildi');
-  } catch (err) {
-    toast(err.message, true);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Aidat Durum PDF İndir';
-  }
+  return belgeUret({
+    tur: 'faaliyet_raporu', modul: 'reports', kategori: 'rapor',
+    baslik: `${yil} Yılı Yönetim Faaliyet Raporu`,
+    altBaslik: 'Kat malikleri kuruluna sunulmak üzere',
+    donem: `01.01.${yil} – 31.12.${yil}`,
+    dosyaAdi: `faaliyet-raporu-${yil}`,
+    ozet: [
+      { etiket: 'Toplam Gelir', deger: para(gelir), renk: 'yesil' },
+      { etiket: 'Toplam Gider', deger: para(gider), renk: 'kirmizi' },
+      { etiket: 'Net Durum', deger: para(gelir - gider), renk: gelir - gider >= 0 ? 'yesil' : 'kirmizi' },
+      { etiket: 'Tahsilat Oranı', deger: `%${oran}`, renk: oran >= 80 ? 'yesil' : 'sari' },
+    ],
+    bolumler: [
+      {
+        tip: 'metin', baslik: '1. Giriş',
+        icerik: `Bu rapor, ${yil} yılı içinde site yönetimince yürütülen faaliyetleri, mali durumu ve `
+          + `yasal yükümlülüklerin yerine getirilme durumunu kat maliklerinin bilgisine sunmak üzere düzenlenmiştir.`,
+      },
+      kurul.length && {
+        tip: 'tablo', baslik: '2. Yönetim ve Denetim Kurulu',
+        kolonlar: [{ baslik: 'Ad Soyad' }, { baslik: 'Görev', genislik: 44 }, { baslik: 'Görev Başlangıcı', genislik: 34 }],
+        satirlar: kurul.map(m => [m.person_name, m.role, tarih(m.term_start)]),
+      },
+      {
+        tip: 'tablo', baslik: '3. Aylık Gelir–Gider Seyri',
+        kolonlar: [
+          { baslik: 'Ay', genislik: 32 }, { baslik: 'Gelir', hiza: 'right' },
+          { baslik: 'Gider', hiza: 'right' }, { baslik: 'Net', hiza: 'right' },
+        ],
+        satirlar: aylik,
+        toplamSatiri: ['YILLIK', para(gelir), para(gider), para(gelir - gider)],
+      },
+      {
+        tip: 'kv', baslik: '4. Aidat Tahakkuk ve Tahsilat',
+        satirlar: [
+          ['Yıllık tahakkuk', para(tahakkuk)],
+          ['Tahsil edilen', para(tahsilat)],
+          ['Tahsil edilemeyen', para(tahakkuk - tahsilat)],
+          ['Tahsilat oranı', `%${oran}`],
+        ],
+      },
+      borclar.length && {
+        tip: 'tablo', baslik: '5. Devreden Borçlar',
+        kolonlar: [
+          { baslik: 'Daire', genislik: 20 }, { baslik: 'Kat Maliki' },
+          { baslik: 'Ay', hiza: 'center', genislik: 14 },
+          { baslik: 'Toplam Borç', hiza: 'right', genislik: 34 },
+        ],
+        satirlar: borclar.map(d => [d.apt.apartment_number, d.apt.owner_name || '—', String(d.ay), para(d.anapara + d.gecikme)]),
+        toplamSatiri: ['TOPLAM', `${borclar.length} daire`, '', para(borcToplam)],
+        not: 'Gecikme tazminatı KMK m.20 uyarınca aylık %5 üzerinden hesaplanmıştır.',
+      },
+      {
+        tip: 'tablo', baslik: '6. Yıl İçinde Yapılan İşler',
+        kolonlar: [
+          { baslik: 'İş' }, { baslik: 'Sorumlu / Firma', genislik: 40 },
+          { baslik: 'Durum', genislik: 26 }, { baslik: 'Tutar', hiza: 'right', genislik: 30 },
+        ],
+        satirlar: isler.map(j => [j.title, j.assigned_to || '—', JOB_STATUS[j.status] || '—', para(j.price)]),
+        toplamSatiri: ['TOPLAM', `${isler.length} iş`, `${tamamlanan.length} tamamlandı`,
+          para(tamamlanan.reduce((s, j) => s + Number(j.price || 0), 0))],
+      },
+      (kararRes.data || []).length && {
+        tip: 'liste', baslik: '7. Yıl İçinde Alınan Kararlar',
+        maddeler: (kararRes.data || []).map(k => `${tarih(k.decision_date)} — ${k.title}`),
+      },
+      (denetimRes.data || []).length && {
+        tip: 'tablo', baslik: '8. Denetim Raporları',
+        kolonlar: [{ baslik: 'Dönem' }, { baslik: 'Denetçi', genislik: 44 }, { baslik: 'Sonuç', genislik: 34 }],
+        satirlar: (denetimRes.data || []).map(a => [
+          `${tarih(a.period_start)} – ${tarih(a.period_end)}`, a.auditor_name || '—', a.result || '—',
+        ]),
+      },
+      {
+        tip: 'kv', baslik: '9. Yasal Yükümlülükler',
+        satirlar: [
+          ['Takipteki yükümlülük', String(gorevler.length)],
+          ['Tamamlanan', String(gorevler.filter(t => t.status === 'done').length)],
+          ['Gecikmiş', String(gecikmisGorev.length)],
+        ],
+      },
+      gecikmisGorev.length && {
+        tip: 'kutu', renk: 'kirmizi', baslik: 'Dikkat',
+        icerik: `Rapor tarihi itibarıyla ${gecikmisGorev.length} yasal yükümlülük gecikmiş durumdadır: `
+          + gecikmisGorev.map(t => t.title).join(', ') + '.',
+      },
+    ].filter(Boolean),
+    imzalar: ['Yönetici', 'Denetçi', 'Kurul Üyesi'],
+  });
 }
 
 /* ============ 11b) ABONELİK (SİTE bazlı, web tabanlı ödeme) ============ */
@@ -3601,6 +4147,7 @@ async function renderDecisions() {
           ${d.content_url ? `<a class="decision-doc" href="${esc(d.content_url)}" target="_blank" rel="noopener">📄 Belgeyi aç</a>` : ''}
         </div>
         <div class="decision-actions">
+          <button class="btn btn-sm" data-act="belge" data-id="${d.id}">📄 Belge</button>
           <button class="btn btn-sm btn-ghost" data-act="edit" data-id="${d.id}">Düzenle</button>
           <button class="btn btn-sm btn-outline-red" data-act="del" data-id="${d.id}">Sil</button>
         </div>
@@ -3638,8 +4185,30 @@ async function renderDecisions() {
   el('decision-list').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-act]'); if (!btn) return;
     const rec = list.find(x => x.id === btn.dataset.id); if (!rec) return;
-    if (btn.dataset.act === 'edit') openDecisionModal(rec);
-    else window.deleteDecision(rec.id);
+    if (btn.dataset.act === 'edit') return openDecisionModal(rec);
+    if (btn.dataset.act === 'belge') return belgeButonu(btn, () => belgeUret({
+      tur: 'karar_belgesi', modul: 'decisions', kategori: 'karar',
+      baslik: 'Yönetim Kararı',
+      altBaslik: rec.title,
+      donem: tarih(rec.decision_date),
+      dosyaAdi: `karar-${String(rec.decision_date).slice(0, 10)}`,
+      iliskiliId: rec.id,
+      bolumler: [
+        { tip: 'kv', baslik: 'Karar Bilgileri', satirlar: [
+          ['Karar konusu', rec.title],
+          ['Karar tarihi', tarih(rec.decision_date)],
+          ...(rec.meeting_id ? [['Dayanak', 'Genel kurul tutanağı']] : []),
+        ] },
+        { tip: 'metin', baslik: 'Karar Metni', icerik: htmlDuzMetin(rec.description) || '—' },
+        { tip: 'kutu', baslik: 'Yasal dayanak — KMK m.32',
+          icerik: 'Kat malikleri kurulu kararları, 1\u2019den başlayıp sırayla giden sayfa numaraları taşıyan '
+            + 'her sayfası noter mührüyle tasdikli bir deftere yazılarak toplantıda bulunan bütün kat maliklerince '
+            + 'imzalanır. Karara aykırı oy verenler bu aykırılığın sebebini belirterek imza koyarlar. '
+            + 'Alınan kararlar, kat maliklerinin külli ve cüzi haleflerini de bağlar.' },
+      ],
+      imzalar: ['Yönetici', 'Kurul Üyesi', 'Kurul Üyesi'],
+    }));
+    window.deleteDecision(rec.id);
   });
 }
 

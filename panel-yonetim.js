@@ -11,9 +11,14 @@
    süreler/oranlar ekranlarda "varsayılan" olarak sunulur.
 ============================================================ */
 
+import { belgeUret, belgeButonu, belgeBaglantisi, htmlDuzMetin, para } from './panel-belge.js';
+
 let C = null;   // panel.js'ten gelen bağlam
 
 export function initYonetim(ctx) { C = ctx; }
+
+/* Resmî belgelerin ortak imza bloğu. */
+const YONETICI_IMZA = ['Yönetici', 'Denetçi'];
 
 /* ---------- ortak küçük yardımcılar ---------- */
 const DAY = 86400000;
@@ -370,6 +375,7 @@ export async function renderBudget() {
       </tr>`; }).join('') || '<tr><td colspan="5" class="t-empty">Daire kaydı yok</td></tr>'}</tbody></table>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
         <button class="btn btn-ghost" id="bud-csv">⬇ CSV İndir</button>
+        <button class="btn" id="bud-belge">📄 Tebliğ Belgesi</button>
         ${budget.status === 'draft' ? `<button class="btn" id="bud-notify">Kat Maliklerine Tebliğ Et</button>` : ''}
         ${budget.status === 'notified' ? `<button class="btn btn-green" id="bud-approve">Kesinleşti Olarak İşaretle</button>` : ''}
         ${budget.status === 'approved' ? `<button class="btn" id="bud-apply">Aidatlara Uygula</button>` : ''}
@@ -402,6 +408,60 @@ export async function renderBudget() {
       C.toast('Kalem silindi'); renderBudget();
     });
   });
+
+  /* Tebliğ belgesi — KMK m.37'ye göre kat maliklerine verilen, 7 günlük
+     itiraz süresini başlatan evrak. Aidat alacağının icra takibine dayanak
+     olabilmesi için tebliğin belgelenmiş olması gerekir. */
+  if (C.el('bud-belge')) C.el('bud-belge').onclick = (e) => belgeButonu(e.currentTarget, () => belgeUret({
+    tur: 'isletme_projesi', modul: 'budget', kategori: 'tutanak',
+    baslik: `${budgetYear} Yılı İşletme Projesi`,
+    altBaslik: 'Kat maliklerine tebliğ edilmek üzere',
+    donem: `01.01.${budgetYear} – 31.12.${budgetYear}`,
+    dosyaAdi: `isletme-projesi-${budgetYear}`,
+    iliskiliId: budget.id,
+    ozet: [
+      { etiket: 'Yıllık Gider', deger: para(totalExpense), renk: 'kirmizi' },
+      { etiket: 'Yıllık Gelir', deger: para(totalIncome), renk: 'yesil' },
+      { etiket: 'Dolu Daire', deger: String(apts.length) },
+      { etiket: 'Ort. Aylık Aidat',
+        deger: para(apts.length ? apts.reduce((t, a) => t + perApt(a).monthly, 0) / apts.length : 0) },
+    ],
+    bolumler: [
+      { tip: 'kutu', baslik: 'Yasal dayanak — KMK m.37',
+        icerik: 'Kat malikleri kurulunca kabul edilmiş işletme projesi yoksa yönetici, gelecek 12 ay için tahmini '
+          + 'gelir ve gider tutarlarını, tüm giderlerden her kat malikine düşecek payı ve ödeme zamanlarını gösteren '
+          + 'bir işletme projesi hazırlar. Proje kat maliklerine imzaları karşılığında veya taahhütlü mektupla '
+          + 'bildirilir. Bildirimden başlayarak yedi gün içinde itiraz edilmezse proje kesinleşir ve İcra ve İflas '
+          + 'Kanunu\u2019nun 68. maddesinin 1. fıkrasındaki belgelerden sayılır.' },
+      expense.length && { tip: 'tablo', baslik: 'Tahmini Gider Kalemleri',
+        kolonlar: [{ baslik: 'Kalem' }, { baslik: 'Dağıtım Esası', genislik: 34 }, { baslik: 'Yıllık Tutar', hiza: 'right', genislik: 36 }],
+        satirlar: expense.map(i => [i.name, i.share_basis === 'equal' ? 'Eşit' : 'Arsa payı', para(i.annual_amount)]),
+        toplamSatiri: ['TOPLAM GİDER', '', para(totalExpense)] },
+      income.length && { tip: 'tablo', baslik: 'Tahmini Gelir Kalemleri',
+        kolonlar: [{ baslik: 'Kalem' }, { baslik: 'Yıllık Tutar', hiza: 'right', genislik: 36 }],
+        satirlar: income.map(i => [i.name, para(i.annual_amount)]),
+        toplamSatiri: ['TOPLAM GELİR', para(totalIncome)] },
+      { tip: 'tablo', baslik: 'Bağımsız Bölümlere Düşen Paylar',
+        kolonlar: [
+          { baslik: 'Daire', genislik: 20 }, { baslik: 'Kat Maliki' },
+          { baslik: 'Arsa Payı', hiza: 'right', genislik: 26 },
+          { baslik: 'Yıllık Pay', hiza: 'right', genislik: 32 },
+          { baslik: 'Aylık Aidat', hiza: 'right', genislik: 32 },
+        ],
+        satirlar: apts.map(a => { const pp = perApt(a); return [
+          a.apartment_number, a.owner_name || '—',
+          a.land_share ? Number(a.land_share).toFixed(2) : '—',
+          para(pp.yearly), para(pp.monthly)]; }),
+        not: useShare
+          ? 'Paylar KMK m.20 uyarınca, kapıcı/kaloriferci/bahçıvan/bekçi giderleri eşit, diğer giderler arsa payı oranında dağıtılarak hesaplanmıştır.'
+          : 'Dairelere arsa payı girilmediği için tüm kalemler eşit dağıtılmıştır. Kanuna tam uygunluk için Daireler ekranından arsa paylarını giriniz.' },
+      { tip: 'metin', baslik: 'Ödeme ve İtiraz',
+        icerik: 'Yukarıda bağımsız bölüm bazında gösterilen aylık paylar, her ayın ilk günü muaccel olur. '
+          + 'İşbu projeye, tebliğ tarihinden itibaren yedi (7) gün içinde kat malikleri kuruluna itiraz edilebilir. '
+          + 'Süresinde itiraz edilmemesi hâlinde proje kesinleşir.' },
+    ].filter(Boolean),
+    imzalar: YONETICI_IMZA,
+  }));
 
   if (C.el('bud-csv')) C.el('bud-csv').onclick = () => {
     C.downloadCSV(`isletme-projesi-${budgetYear}.csv`,
@@ -526,6 +586,7 @@ export async function renderBoard() {
   C.$content().innerHTML = `
     <div class="page-head"><h2>Kurul & Denetim</h2>
       <div class="tools">
+        <button class="btn btn-ghost" id="board-belge">📄 Kurul Belgesi</button>
         <button class="btn btn-ghost" id="audit-add">+ Denetim Raporu</button>
         <button class="btn" id="board-add">+ Kurul Üyesi</button>
       </div>
@@ -567,12 +628,42 @@ export async function renderBoard() {
             </div>
             <div class="decision-actions">
               ${AUDIT_RESULTS[a.result] || ''}
+              <button class="btn btn-sm" data-audit-belge="${a.id}">📄 Belge</button>
               <button class="btn btn-sm btn-outline-red" data-audit-del="${a.id}">Sil</button>
             </div>
           </div>
           ${a.findings ? `<div class="decision-body rich-content">${a.findings}</div>` : ''}
         </div>`).join('') : '<div class="t-empty">Henüz denetim raporu yok</div>'}</div>
     </div>`;
+
+  C.el('board-belge').onclick = (e) => belgeButonu(e.currentTarget, () => belgeUret({
+    tur: 'kurul_belgesi', modul: 'board', kategori: 'tutanak',
+    baslik: 'Yönetim ve Denetim Kurulu Görev Belgesi',
+    donem: `${C.dmy(new Date())} itibarıyla`,
+    dosyaAdi: `kurul-belgesi-${C.todayISO()}`,
+    ozet: [
+      { etiket: 'Aktif Üye', deger: String(active.length) },
+      { etiket: 'Yönetici', deger: hasYonetici ? 'Atanmış' : 'Yok', renk: hasYonetici ? 'yesil' : 'kirmizi' },
+      { etiket: 'Denetçi', deger: hasDenetci ? 'Atanmış' : 'Yok', renk: hasDenetci ? 'yesil' : 'kirmizi' },
+    ],
+    bolumler: [
+      { tip: 'tablo', baslik: 'Görevli Kurul Üyeleri',
+        kolonlar: [
+          { baslik: 'Ad Soyad' }, { baslik: 'Görev', genislik: 40 },
+          { baslik: 'Daire', genislik: 18 }, { baslik: 'Görev Süresi', genislik: 46 },
+        ],
+        satirlar: members.map(m => [
+          m.person_name, BOARD_ROLES[m.role] || m.role, m.apartment_no || '—',
+          `${C.dmy(m.term_start)} → ${m.term_end ? C.dmy(m.term_end) : 'devam ediyor'}${m.is_active ? '' : ' (sona erdi)'}`,
+        ]) },
+      { tip: 'kutu', baslik: 'Yasal dayanak — KMK m.34 ve m.41',
+        icerik: 'Kat malikleri, ana gayrimenkulün yönetimini kendi aralarından veya dışarıdan seçecekleri bir kimseye '
+          + 'veya üç kişilik bir kurula verebilirler. Sekiz veya daha fazla bağımsız bölümü olan ana gayrimenkullerde '
+          + 'yönetici atanması mecburidir. Yöneticinin hesapları, kat malikleri kurulunca veya seçilecek denetçi '
+          + 'tarafından denetlenir.' },
+    ],
+    imzalar: YONETICI_IMZA,
+  }));
 
   C.el('board-add').onclick = () => openBoardModal(null);
   C.el('audit-add').onclick = () => openAuditModal();
@@ -588,6 +679,32 @@ export async function renderBoard() {
   });
 
   C.el('audit-list').addEventListener('click', async (e) => {
+    const bl = e.target.closest('[data-audit-belge]');
+    if (bl) {
+      const a = audits.find(x => x.id === bl.dataset.auditBelge); if (!a) return;
+      return belgeButonu(bl, () => belgeUret({
+        tur: 'denetim_raporu', modul: 'board', kategori: 'rapor',
+        baslik: 'Denetim Raporu',
+        altBaslik: `${C.dmy(a.period_start)} – ${C.dmy(a.period_end)} dönemi`,
+        donem: `${C.dmy(a.period_start)} – ${C.dmy(a.period_end)}`,
+        dosyaAdi: `denetim-raporu-${String(a.period_end).slice(0, 10)}`,
+        iliskiliId: a.id,
+        bolumler: [
+          { tip: 'kv', baslik: 'Denetim Bilgileri', satirlar: [
+            ['Denetim dönemi', `${C.dmy(a.period_start)} – ${C.dmy(a.period_end)}`],
+            ['Denetçi', a.auditor_name || '—'],
+            ['Sonuç', a.result || '—'],
+          ] },
+          { tip: 'kutu', baslik: 'Yasal dayanak — KMK m.41',
+            icerik: 'Kat malikleri kurulu, yöneticinin bu görevdeki tutumunu her zaman denetleyebilir ve haklı bir '
+              + 'sebebin çıkması hâlinde onu her zaman değiştirebilir. Hesapların denetlenmesi için yönetim planında '
+              + 'belli bir zaman konulmamışsa, bu denetim her üç ayda bir yapılır.' },
+          a.findings && { tip: 'metin', baslik: 'Denetim Bulguları', icerik: htmlDuzMetin(a.findings) },
+        ].filter(Boolean),
+        imzalar: [{ unvan: 'Denetçi', ad: a.auditor_name || '' }, { unvan: 'Yönetici' }],
+      }));
+    }
+
     const b = e.target.closest('[data-audit-del]'); if (!b) return;
     if (!confirm('Denetim raporu silinsin mi?')) return;
     const { error } = await C.supabase.from('audit_reports').delete().eq('id', b.dataset.auditDel);
@@ -713,6 +830,12 @@ export async function renderAssembly() {
             <div class="decision-actions">
               <button class="btn btn-sm btn-ghost" data-act="hazirun" data-id="${m.id}">Hazirun</button>
               <button class="btn btn-sm btn-ghost" data-act="edit" data-id="${m.id}">Düzenle</button>
+              <button class="btn btn-sm" data-act="cagri" data-id="${m.id}">📄 Çağrı</button>
+              ${m.minutes ? `<button class="btn btn-sm" data-act="tutanak" data-id="${m.id}">📄 Tutanak</button>` : ''}
+              ${m.announced_at
+                ? `<span class="badge b-green" title="${C.dmyhm(m.announced_at)}">Duyuruldu</span>`
+                : `<button class="btn btn-sm btn-ghost" data-act="duyur" data-id="${m.id}">📢 Sakinlere Duyur</button>`}
+              ${m.minutes ? `<button class="btn btn-sm btn-ghost" data-act="karar" data-id="${m.id}">📜 Karar Defterine İşle</button>` : ''}
             </div>
           </div>
           ${m.agenda ? `<div class="decision-body"><strong style="font-size:13px;">Gündem</strong>
@@ -724,12 +847,152 @@ export async function renderAssembly() {
     </div>`;
 
   C.el('gk-add').onclick = () => openMeetingModal(null);
-  C.el('gk-list').addEventListener('click', (e) => {
+  C.el('gk-list').addEventListener('click', async (e) => {
     const b = e.target.closest('button[data-act]'); if (!b) return;
     const rec = list.find(x => x.id === b.dataset.id); if (!rec) return;
-    if (b.dataset.act === 'edit') return openMeetingModal(rec);
-    if (b.dataset.act === 'hazirun') return openAttendance(rec);
+    const act = b.dataset.act;
+
+    if (act === 'edit') return openMeetingModal(rec);
+    if (act === 'hazirun') return openAttendance(rec);
+    if (act === 'cagri') return belgeButonu(b, () => toplantiCagrisiBelgesi(rec));
+    if (act === 'tutanak') return belgeButonu(b, () => tutanakBelgesi(rec));
+    if (act === 'duyur') return toplantiyiDuyur(rec, b);
+    if (act === 'karar') return tutanagiKararDefterineIsle(rec, b);
   });
+}
+
+/* Toplantı çağrısı — KMK m.29'a göre gündemi ve yeri bildiren, kat maliklerine
+   önceden ulaştırılması gereken yazı. */
+async function toplantiCagrisiBelgesi(m) {
+  const KIND = { olagan: 'Olağan Genel Kurul', olaganustu: 'Olağanüstü Genel Kurul', bilgilendirme: 'Bilgilendirme Toplantısı' };
+  return belgeUret({
+    tur: 'toplanti_cagrisi', modul: 'assembly', kategori: 'tutanak',
+    baslik: 'Genel Kurul Toplantı Çağrısı',
+    altBaslik: m.title,
+    donem: C.dmyhm(m.meeting_date),
+    dosyaAdi: `toplanti-cagrisi-${String(m.meeting_date).slice(0, 10)}`,
+    iliskiliId: m.id, binaId: m.building_id,
+    bolumler: [
+      { tip: 'kv', baslik: 'Toplantı Bilgileri', satirlar: [
+        ['Toplantı türü', KIND[m.meeting_kind] || 'Toplantı'],
+        ['Tarih ve saat', C.dmyhm(m.meeting_date)],
+        ['Yer', m.location || '—'],
+        ['Çağrı sırası', m.is_second_call ? 'İkinci toplantı' : 'İlk toplantı'],
+      ] },
+      { tip: 'metin', icerik:
+        `Sayın Kat Maliki, sitemizin ${KIND[m.meeting_kind] || 'toplantısı'} yukarıda belirtilen tarih, saat ve `
+        + 'yerde yapılacaktır. Toplantıya katılımınızı, katılamamanız hâlinde vekâletname ile temsilci '
+        + 'göndermenizi rica ederiz.' },
+      m.agenda && { tip: 'metin', baslik: 'Gündem', icerik: htmlDuzMetin(m.agenda) },
+      { tip: 'kutu', baslik: 'Toplantı ve karar yeter sayısı — KMK m.30',
+        icerik: m.is_second_call
+          ? 'İlk toplantıda yeter sayı sağlanamadığından işbu ikinci toplantı yapılmaktadır. İkinci toplantıda '
+            + 'yeter sayı aranmaz; kararlar, toplantıya katılan kat maliklerinin salt çoğunluğuyla alınır.'
+          : 'Kat malikleri kurulu, kat maliklerinin sayı ve arsa payı bakımından yarıdan fazlasıyla toplanır ve '
+            + 'oy çokluğuyla karar verir. İlk toplantıda yeter sayı sağlanamazsa ikinci toplantı, en geç on beş gün '
+            + 'sonra yapılır ve katılanların salt çoğunluğuyla karar alınır.' },
+    ].filter(Boolean),
+    imzalar: [{ unvan: 'Site Yönetimi' }],
+  });
+}
+
+/* Tutanak — toplantıda alınan kararların resmî kaydı; hazirun cetveli
+   üzerinden yeter sayı bilgisi de belgeye işlenir. */
+async function tutanakBelgesi(m) {
+  const [aptRes, attRes] = await Promise.all([
+    C.supabase.from('apartments').select('id, apartment_number, owner_name, land_share, user_id, username').in('building_id', C.siteBIds()),
+    C.supabase.from('meeting_attendance').select('*').eq('meeting_id', m.id),
+  ]);
+  const apts = C.occupiedOnly(C.sortByApartment(aptRes.data));
+  const katilim = (attRes.data || []).filter(a => a.attended);
+  const toplamPay = apts.reduce((t, a) => t + (Number(a.land_share) || 0), 0);
+  const katilanPay = katilim.reduce((t, a) => t + (Number(a.land_share) || 0), 0);
+  const yeterli = m.is_second_call
+    || (apts.length > 0 && katilim.length > apts.length / 2
+        && (toplamPay > 0 ? katilanPay > toplamPay / 2 : true));
+
+  return belgeUret({
+    tur: 'toplanti_tutanagi', modul: 'assembly', kategori: 'tutanak',
+    baslik: 'Genel Kurul Toplantı Tutanağı',
+    altBaslik: m.title,
+    donem: C.dmyhm(m.meeting_date),
+    dosyaAdi: `tutanak-${String(m.meeting_date).slice(0, 10)}`,
+    iliskiliId: m.id, binaId: m.building_id,
+    ozet: [
+      { etiket: 'Toplam Daire', deger: String(apts.length) },
+      { etiket: 'Katılan', deger: String(katilim.length) },
+      { etiket: 'Katılan Arsa Payı', deger: toplamPay > 0 ? `${katilanPay.toFixed(2)} / ${toplamPay.toFixed(2)}` : '—' },
+      { etiket: 'Yeter Sayı', deger: yeterli ? 'Sağlandı' : 'Sağlanamadı', renk: yeterli ? 'yesil' : 'kirmizi' },
+    ],
+    bolumler: [
+      { tip: 'kv', baslik: 'Toplantı Bilgileri', satirlar: [
+        ['Tarih ve saat', C.dmyhm(m.meeting_date)],
+        ['Yer', m.location || '—'],
+        ['Çağrı sırası', m.is_second_call ? 'İkinci toplantı' : 'İlk toplantı'],
+      ] },
+      m.agenda && { tip: 'metin', baslik: 'Gündem', icerik: htmlDuzMetin(m.agenda) },
+      { tip: 'metin', baslik: 'Alınan Kararlar', icerik: htmlDuzMetin(m.minutes) || 'Tutanak metni girilmemiştir.' },
+      katilim.length && { tip: 'tablo', baslik: 'Hazirun (Katılanlar)',
+        kolonlar: [
+          { baslik: 'Daire', genislik: 20 }, { baslik: 'Kat Maliki' },
+          { baslik: 'Arsa Payı', hiza: 'right', genislik: 26 }, { baslik: 'Vekâleten', genislik: 40 },
+        ],
+        satirlar: katilim.map(a => [a.apartment_no, a.owner_name || '—',
+          a.land_share ? Number(a.land_share).toFixed(2) : '—', a.proxy_name || '—']) },
+      !yeterli && { tip: 'kutu', renk: 'kirmizi', baslik: 'Yeter sayı sağlanamadı',
+        icerik: 'KMK m.30 uyarınca ilk toplantıda kat maliklerinin sayı ve arsa payı bakımından yarıdan fazlasının '
+          + 'katılımı aranır. Yeter sayı sağlanamadığından ikinci toplantı çağrısı yapılmalıdır.' },
+    ].filter(Boolean),
+    imzalar: ['Divan Başkanı', 'Kâtip Üye', 'Yönetici'],
+  });
+}
+
+/* Toplantıyı sakinlerin sohbet akışına duyurur. Bu özellik eskiden hiçbir
+   menüden erişilemeyen ölü "Toplantılar" ekranındaydı; Genel Kurul'a taşındı. */
+async function toplantiyiDuyur(m, btn) {
+  if (!confirm('Toplantı, sakinlerin sohbet akışına duyurulacak ve bildirim gönderilecek. Onaylıyor musunuz?')) return;
+  btn.disabled = true;
+  try {
+    const adminName = `${C.S.profile?.name || ''} ${C.S.profile?.surname || ''}`.trim() || 'Yönetici';
+    const mesaj = `\u{1F4C5} ${C.dmyhm(m.meeting_date)}\n`
+      + (m.location ? `\u{1F4CD} ${m.location}\n` : '')
+      + (m.agenda ? `\nGündem:\n${htmlDuzMetin(m.agenda)}` : '');
+    const { error } = await C.supabase.from('help_requests').insert({
+      building_id: C.bId(), sender_id: C.S.user.id, sender_name: adminName, sender_type: 'admin',
+      title: `\u{1F4C5} ${m.title}`, message: mesaj, priority: 'medium',
+      duration_minutes: 10080, expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),
+      status: 'active', is_auto_generated: true, type: 'standard',
+    });
+    if (error) throw new Error(error.message);
+    await C.supabase.from('meetings').update({ announced_at: new Date().toISOString() }).eq('id', m.id);
+    if (C.notifyBuilding) C.notifyBuilding('\u{1F4C5} Genel Kurul', `${m.title} — ${C.dmyhm(m.meeting_date)}`);
+    C.toast('Toplantı sakinlere duyuruldu');
+    renderAssembly();
+  } catch (err) { C.toast(err.message, true); btn.disabled = false; }
+}
+
+/* Tutanaktaki kararları Karar Defteri'ne aktarır. İki ekran aynı kararı ayrı
+   ayrı tutuyordu; artık tutanak kaynak, karar defteri kaydı ona bağlanıyor. */
+async function tutanagiKararDefterineIsle(m, btn) {
+  const { data: mevcut } = await C.supabase.from('building_decisions')
+    .select('id').eq('meeting_id', m.id).maybeSingle();
+  if (mevcut) return C.toast('Bu toplantının kararı zaten karar defterinde kayıtlı', true);
+  if (!confirm('Toplantı tutanağı Karar Defteri\u2019ne yeni bir karar kaydı olarak işlenecek. Devam edilsin mi?')) return;
+
+  btn.disabled = true;
+  try {
+    const { error } = await C.supabase.from('building_decisions').insert({
+      building_id: m.building_id || C.bId(),
+      meeting_id: m.id,
+      title: m.title,
+      description: m.minutes,
+      decision_date: String(m.meeting_date).slice(0, 10),
+      created_by: C.S.user.id,
+    });
+    if (error) throw new Error(error.message);
+    C.toast('Karar defterine işlendi');
+    C.navigate('decisions');
+  } catch (err) { C.toast(err.message, true); btn.disabled = false; }
 }
 
 function openMeetingModal(rec) {
@@ -807,7 +1070,10 @@ async function openAttendance(meeting) {
       <table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th class="t-right">Arsa Payı</th><th>Katılım</th><th>Vekalet</th></tr></thead>
       <tbody id="haz-body">${rows || '<tr><td colspan="5" class="t-empty">Daire kaydı yok</td></tr>'}</tbody></table>
     </div>
-    <button class="btn btn-block" id="m-save" style="margin-top:14px;">Hazirun Cetvelini Kaydet</button>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn" id="m-save" style="flex:1">Hazirun Cetvelini Kaydet</button>
+      <button class="btn btn-ghost" id="haz-belge" type="button">📄 Cetveli Belgele</button>
+    </div>
   `, async () => {
     const rowsOut = apts.map(a => {
       const box = document.querySelector(`input[data-apt="${CSS.escape(a.apartment_number)}"]`);
@@ -847,6 +1113,58 @@ async function openAttendance(meeting) {
   };
   const host = C.el('haz-body');
   if (host) { host.addEventListener('change', updateQuorum); updateQuorum(); }
+
+  /* Cetveli belgeye dökerken ekrandaki işaretlerin son hâli kullanılır;
+     böylece kaydetmeden önce de çıktı alınabilir. */
+  const hazBtn = C.el('haz-belge');
+  if (hazBtn) hazBtn.onclick = () => belgeButonu(hazBtn, () => {
+    const satirlar = apts.map(a => {
+      const box = document.querySelector(`input[data-apt="${CSS.escape(a.apartment_number)}"]`);
+      const proxy = document.querySelector(`input[data-proxy="${CSS.escape(a.apartment_number)}"]`);
+      return [a.apartment_number, a.owner_name || '—',
+        a.land_share ? Number(a.land_share).toFixed(2) : '—',
+        box?.checked ? 'Katıldı' : 'Katılmadı',
+        proxy?.value.trim() || '—'];
+    });
+    const katilan = satirlar.filter(r => r[3] === 'Katıldı').length;
+    const toplamPay = apts.reduce((t, a) => t + (Number(a.land_share) || 0), 0);
+    const katilanPay = apts.reduce((t, a) => {
+      const box = document.querySelector(`input[data-apt="${CSS.escape(a.apartment_number)}"]`);
+      return t + (box?.checked ? (Number(a.land_share) || 0) : 0);
+    }, 0);
+    const yeterli = meeting.is_second_call
+      || (apts.length > 0 && katilan > apts.length / 2 && (toplamPay > 0 ? katilanPay > toplamPay / 2 : true));
+
+    return belgeUret({
+      tur: 'hazirun_cetveli', modul: 'assembly', kategori: 'tutanak',
+      baslik: 'Hazirun Cetveli',
+      altBaslik: meeting.title,
+      donem: C.dmyhm(meeting.meeting_date),
+      dosyaAdi: `hazirun-${String(meeting.meeting_date).slice(0, 10)}`,
+      iliskiliId: meeting.id, binaId: meeting.building_id,
+      ozet: [
+        { etiket: 'Toplam Daire', deger: String(apts.length) },
+        { etiket: 'Katılan', deger: String(katilan) },
+        { etiket: 'Arsa Payı', deger: toplamPay > 0 ? `${katilanPay.toFixed(2)} / ${toplamPay.toFixed(2)}` : '—' },
+        { etiket: 'Yeter Sayı', deger: yeterli ? 'Sağlandı' : 'Sağlanamadı', renk: yeterli ? 'yesil' : 'kirmizi' },
+      ],
+      bolumler: [
+        { tip: 'tablo', baslik: 'Katılım Listesi',
+          kolonlar: [
+            { baslik: 'Daire', genislik: 20 }, { baslik: 'Kat Maliki' },
+            { baslik: 'Arsa Payı', hiza: 'right', genislik: 24 },
+            { baslik: 'Katılım', genislik: 26 }, { baslik: 'Vekâleten', genislik: 36 },
+          ],
+          satirlar,
+          not: 'İmza sütunu için bu cetvel çıktı alınarak toplantıda kat maliklerine imzalatılır.' },
+        { tip: 'kutu', baslik: 'Yeter sayı — KMK m.30',
+          icerik: meeting.is_second_call
+            ? 'İkinci toplantıda yeter sayı aranmaz; kararlar katılanların salt çoğunluğuyla alınır.'
+            : 'Kat malikleri kurulu, kat maliklerinin sayı ve arsa payı bakımından yarıdan fazlasıyla toplanır.' },
+      ],
+      imzalar: ['Divan Başkanı', 'Kâtip Üye', 'Yönetici'],
+    });
+  });
 }
 
 /* ============================================================
@@ -896,7 +1214,10 @@ export async function renderDebts() {
 
   C.$content().innerHTML = `
     <div class="page-head"><h2>Borç Takibi</h2>
-      <div class="tools"><button class="btn btn-ghost" id="debt-csv">⬇ CSV İndir</button></div>
+      <div class="tools">
+        <button class="btn btn-ghost" id="debt-csv">⬇ CSV İndir</button>
+        <button class="btn" id="debt-belge">📄 Borç Raporu</button>
+      </div>
     </div>
     <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
       KMK m.20 — Ortak gider borcunu ödemeyen kat maliki, gecikilen günler için <strong>aylık %5</strong>
@@ -921,7 +1242,10 @@ export async function renderDebts() {
         <td class="t-right">${C.TL(d.principal)}</td>
         <td class="t-right" style="color:var(--red)">${C.TL(d.late)}</td>
         <td class="t-right"><strong>${C.TL(d.principal + d.late)}</strong></td>
-        <td class="t-right"><button class="btn btn-sm btn-ghost" data-notice="${d.apt.id}">İhtar Kaydı Aç</button></td>
+        <td class="t-right" style="white-space:nowrap">
+          <button class="btn btn-sm btn-ghost" data-notice="${d.apt.id}">İhtar Kaydı Aç</button>
+          <button class="btn btn-sm" data-ihtarname="${d.apt.id}">📄 İhtarname</button>
+        </td>
       </tr>`).join('') : '<tr><td colspan="7" class="t-empty">Ödenmemiş aidat yok 🎉</td></tr>'}</tbody></table>
     </div>
 
@@ -944,6 +1268,33 @@ export async function renderDebts() {
       </tr>`).join('') : '<tr><td colspan="6" class="t-empty">Henüz takip kaydı yok</td></tr>'}</tbody></table>
     </div>`;
 
+  C.el('debt-belge').onclick = (e) => belgeButonu(e.currentTarget, () => belgeUret({
+    tur: 'borc_raporu', modul: 'debts', kategori: 'rapor',
+    baslik: 'Ortak Gider Borç ve Gecikme Raporu',
+    donem: `${C.dmy(new Date())} itibarıyla`,
+    dosyaAdi: `borc-raporu-${C.todayISO()}`,
+    ozet: [
+      { etiket: 'Borçlu Daire', deger: String(list.length), renk: list.length ? 'kirmizi' : 'yesil' },
+      { etiket: 'Anapara', deger: para(totalPrincipal) },
+      { etiket: 'Gecikme Tazminatı', deger: para(totalLate), renk: 'kirmizi' },
+      { etiket: 'Genel Toplam', deger: para(totalPrincipal + totalLate) },
+    ],
+    bolumler: [{
+      tip: 'tablo', baslik: 'Borçlu Daireler',
+      kolonlar: [
+        { baslik: 'Daire', genislik: 18 }, { baslik: 'Kat Maliki' },
+        { baslik: 'Ay', hiza: 'center', genislik: 14 },
+        { baslik: 'Anapara', hiza: 'right', genislik: 28 },
+        { baslik: 'Gecikme', hiza: 'right', genislik: 28 },
+        { baslik: 'Toplam', hiza: 'right', genislik: 30 },
+      ],
+      satirlar: list.map(d => [d.apt.apartment_number, d.apt.owner_name || '—', String(d.months),
+        para(d.principal), para(d.late), para(d.principal + d.late)]),
+      toplamSatiri: ['TOPLAM', `${list.length} daire`, '', para(totalPrincipal), para(totalLate), para(totalPrincipal + totalLate)],
+    }],
+    imzalar: YONETICI_IMZA,
+  }));
+
   C.el('debt-csv').onclick = () => {
     C.downloadCSV(`borc-listesi-${C.todayISO()}.csv`,
       ['Daire', 'Ev Sahibi', 'Ay Sayısı', 'Anapara', 'Gecikme Tazminatı', 'Toplam'],
@@ -952,7 +1303,76 @@ export async function renderDebts() {
     C.toast('İndirildi');
   };
 
+  /* İhtarname — icra takibine dayanak olacak resmî yazı. Belge üretilirken
+     takip kaydı yoksa açılır, varsa aşaması 'ihtar'a çekilir; böylece
+     ekrandaki liste ile üretilen evrak birbirini tutar. */
   C.el('debt-body').addEventListener('click', async (e) => {
+    const ih = e.target.closest('[data-ihtarname]');
+    if (ih) {
+      const d = debts.get(ih.dataset.ihtarname); if (!d) return;
+      return belgeButonu(ih, async () => {
+        let kayit = notices.find(n => n.apartment_id === d.apt.id && n.stage !== 'closed');
+        if (!kayit) {
+          const { data, error } = await C.supabase.from('debt_notices').insert({
+            site_id: C.sId(), building_id: d.apt.building_id, apartment_id: d.apt.id,
+            apartment_no: d.apt.apartment_number, owner_name: d.apt.owner_name,
+            principal: d.principal, late_fee: d.late, stage: 'ihtar',
+            sent_at: new Date().toISOString(),
+          }).select().single();
+          if (error) throw new Error(error.message);
+          kayit = data;
+        } else if (kayit.stage === 'reminder') {
+          await C.supabase.from('debt_notices')
+            .update({ stage: 'ihtar', principal: d.principal, late_fee: d.late, sent_at: new Date().toISOString() })
+            .eq('id', kayit.id);
+        }
+
+        const sonuc = await belgeUret({
+          tur: 'ihtarname', modul: 'debts', kategori: 'ihtar',
+          baslik: 'İhtarname',
+          altBaslik: `Daire ${d.apt.apartment_number} — ${d.apt.owner_name || 'Kat Maliki'}`,
+          donem: `${C.dmy(new Date())} itibarıyla`,
+          dosyaAdi: `ihtarname-daire-${d.apt.apartment_number}`,
+          iliskiliId: kayit.id, binaId: d.apt.building_id,
+          ozet: [
+            { etiket: 'Gecikmiş Ay', deger: String(d.months) },
+            { etiket: 'Anapara', deger: para(d.principal) },
+            { etiket: 'Gecikme Tazminatı', deger: para(d.late), renk: 'kirmizi' },
+            { etiket: 'Toplam Borç', deger: para(d.principal + d.late), renk: 'kirmizi' },
+          ],
+          bolumler: [
+            { tip: 'kv', baslik: 'Muhatap', satirlar: [
+              ['Bağımsız bölüm', `Daire ${d.apt.apartment_number}`],
+              ['Kat maliki / sakin', d.apt.owner_name || '—'],
+            ] },
+            { tip: 'metin', baslik: 'Konu', icerik:
+              'Yukarıda bilgileri yazılı bağımsız bölüme ait ortak gider (aidat) borcunuz, işbu ihtarnamenin '
+              + `düzenlendiği tarih itibarıyla ${d.months} aydır ödenmemiştir. Toplam borcunuz gecikme tazminatı `
+              + `dahil ${para(d.principal + d.late)} tutarındadır.` },
+            { tip: 'kutu', renk: 'kirmizi', baslik: 'Yasal dayanak — KMK m.20',
+              icerik: 'Kat maliki, ortak gider borcunu zamanında ödemezse gecikilen günler için aylık %5 hesabıyla '
+                + 'gecikme tazminatı ödemekle yükümlüdür. Ödeme yapılmaması hâlinde yönetici, kat malikleri kurulu '
+                + 'kararına gerek olmaksızın icra takibi yapabilir ve dava açabilir. Ayrıca ödenmeyen ortak gider '
+                + 'alacağı, bağımsız bölüm üzerinde kanuni ipotek hakkı doğurur.' },
+            { tip: 'tablo', baslik: 'Borcun Dökümü',
+              kolonlar: [{ baslik: 'Kalem' }, { baslik: 'Tutar', hiza: 'right', genislik: 44 }],
+              satirlar: [
+                ['Ödenmemiş aidat anaparası', para(d.principal)],
+                ['Gecikme tazminatı (KMK m.20, aylık %5)', para(d.late)],
+              ],
+              toplamSatiri: ['GENEL TOPLAM', para(d.principal + d.late)] },
+            { tip: 'metin', baslik: 'İhtar', icerik:
+              'İşbu ihtarnamenin tarafınıza tebliğinden itibaren yedi (7) gün içinde yukarıda dökümü verilen borcun '
+              + 'tamamının site yönetimi hesabına ödenmesini, aksi hâlde hakkınızda yasal yollara başvurulacağını, '
+              + 'doğacak icra masrafları ve vekâlet ücretinin tarafınıza ait olacağını ihtaren bildiririz.' },
+          ],
+          imzalar: [{ unvan: 'Site Yönetimi' }],
+        });
+        renderDebts();
+        return sonuc;
+      });
+    }
+
     const b = e.target.closest('[data-notice]'); if (!b) return;
     const d = debts.get(b.dataset.notice); if (!d) return;
     const { error } = await C.supabase.from('debt_notices').insert({
@@ -998,7 +1418,11 @@ export async function renderArchive() {
   ]);
   if (docRes.error && migrationUyarisi(docRes.error)) return;
 
-  const docs = docRes.data || [];
+  /* Panelin ürettiği belgeler ile yöneticinin elle yüklediklerini ayır;
+     ikisi farklı iş akışı, aynı listede karışınca arşiv okunmaz oluyor. */
+  const tumDocs = docRes.data || [];
+  const uretilen = tumDocs.filter(d => d.generated);
+  const docs = tumDocs.filter(d => !d.generated);
   const contracts = conRes.data || [];
   const handovers = hoRes.data || [];
   const expiringSoon = contracts.filter(c => c.is_active && c.end_date && daysUntil(c.end_date) <= 60);
@@ -1035,7 +1459,23 @@ export async function renderArchive() {
     </div>
 
     <div class="card">
-      <h3>Belge Arşivi</h3>
+      <h3>Panelin Ürettiği Belgeler</h3>
+      <p class="muted" style="font-size:12.5px;margin:-4px 0 12px;">
+        Aidat raporundan ihtarnameye, tutanaktan devir teslime kadar panelde üretilen her belge
+        sıra numarasıyla burada saklanır.</p>
+      <table><thead><tr><th>Belge No</th><th>Belge</th><th>Tür</th><th>Dönem</th><th>Tarih</th><th></th></tr></thead>
+      <tbody id="gen-body">${uretilen.length ? uretilen.map(d => `<tr>
+        <td><strong>${C.esc(d.doc_no || '—')}</strong></td>
+        <td>${C.esc(d.title)}</td>
+        <td>${DOC_CATEGORIES[d.category] || d.category}</td>
+        <td>${C.esc(d.period || '—')}</td>
+        <td>${C.dmy(d.created_at)}</td>
+        <td class="t-right"><button class="btn btn-sm btn-ghost" data-gen-open="${C.esc(d.storage_path || '')}">Aç</button></td>
+      </tr>`).join('') : '<tr><td colspan="6" class="t-empty">Henüz belge üretilmemiş. Belge Merkezi ya da ilgili ekranlardan üretebilirsiniz.</td></tr>'}</tbody></table>
+    </div>
+
+    <div class="card">
+      <h3>Elle Yüklenen Belgeler</h3>
       <table><thead><tr><th>Belge</th><th>Tür</th><th>Tarih</th><th>Geçerlilik</th><th></th></tr></thead>
       <tbody id="doc-body">${docs.length ? docs.map(d => {
         const exp = d.expires_at ? daysUntil(d.expires_at) : null;
@@ -1063,12 +1503,71 @@ export async function renderArchive() {
                 Kasa: ${C.TL(h.cash_balance || 0)} · Banka: ${C.TL(h.bank_balance || 0)}</div>
             </div>
             <div class="decision-actions">
+              <button class="btn btn-sm" data-ho-belge="${h.id}">📄 Tutanak</button>
               <button class="btn btn-sm btn-outline-red" data-ho-del="${h.id}">Sil</button>
             </div>
           </div>
           ${h.items ? `<div class="decision-body rich-content">${h.items}</div>` : ''}
         </div>`).join('') : '<div class="t-empty">Devir teslim kaydı yok</div>'}</div>
     </div>`;
+
+  /* Depodaki belgeler özel bucket'ta; açmak için kısa ömürlü imzalı bağlantı üretilir. */
+  const genHost = C.el('gen-body');
+  if (genHost) genHost.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-gen-open]'); if (!b) return;
+    const yol = b.getAttribute('data-gen-open');
+    if (!yol) return C.toast('Bu belgenin dosyası arşivde bulunamadı', true);
+    b.disabled = true;
+    try {
+      window.open(await belgeBaglantisi(yol), '_blank', 'noopener');
+    } catch (err) { C.toast('Belge açılamadı: ' + err.message, true); }
+    finally { b.disabled = false; }
+  });
+
+  const hoHost = C.el('ho-list');
+  if (hoHost) hoHost.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-ho-belge]'); if (!b) return;
+    const h = handovers.find(x => x.id === b.dataset.hoBelge); if (!h) return;
+    belgeButonu(b, () => belgeUret({
+      tur: 'devir_teslim', modul: 'archive', kategori: 'tutanak',
+      baslik: 'Yönetici Devir Teslim Tutanağı',
+      altBaslik: `${h.from_name || '—'} → ${h.to_name || '—'}`,
+      donem: C.dmy(h.handover_date),
+      dosyaAdi: `devir-teslim-${String(h.handover_date).slice(0, 10)}`,
+      iliskiliId: h.id,
+      ozet: [
+        { etiket: 'Devir Tarihi', deger: C.dmy(h.handover_date) },
+        { etiket: 'Banka Bakiyesi', deger: para(h.bank_balance || 0) },
+        { etiket: 'Kasa (Nakit)', deger: para(h.cash_balance || 0) },
+        { etiket: 'Toplam', deger: para(Number(h.bank_balance || 0) + Number(h.cash_balance || 0)) },
+      ],
+      bolumler: [
+        { tip: 'kv', baslik: 'Taraflar', satirlar: [
+          ['Devreden yönetici', h.from_name || '—'],
+          ['Devralan yönetici', h.to_name || '—'],
+          ['Devir tarihi', C.dmy(h.handover_date)],
+        ] },
+        { tip: 'metin', icerik:
+          'İşbu tutanak, site yöneticiliği görevinin devri sırasında teslim edilen kasa mevcudu, defterler, '
+          + 'belgeler ve demirbaşların tespiti amacıyla taraflar arasında düzenlenmiştir.' },
+        { tip: 'tablo', baslik: 'Teslim Edilen Kasa Mevcudu',
+          kolonlar: [{ baslik: 'Kalem' }, { baslik: 'Tutar', hiza: 'right', genislik: 44 }],
+          satirlar: [['Banka hesabı', para(h.bank_balance || 0)], ['Nakit kasa', para(h.cash_balance || 0)]],
+          toplamSatiri: ['TOPLAM', para(Number(h.bank_balance || 0) + Number(h.cash_balance || 0))] },
+        h.items && { tip: 'metin', baslik: 'Teslim Edilen Defter, Belge ve Demirbaşlar', icerik: htmlDuzMetin(h.items) },
+        { tip: 'kutu', baslik: 'Yasal dayanak — KMK m.36 ve m.39',
+          icerik: 'Yönetici, kat malikleri kurulunun istediği zaman hesap vermekle yükümlüdür ve her takvim yılının '
+            + 'birinci ayı içinde işletme defterine göre hesap özetini kat maliklerine verir. Görev süresi sona eren '
+            + 'yönetici, elindeki defter ve belgeleri yeni yöneticiye devretmekle yükümlüdür.' },
+        { tip: 'metin', baslik: 'Beyan',
+          icerik: 'Yukarıda dökümü verilen kasa mevcudu, defter ve belgeler eksiksiz olarak teslim edilmiş ve '
+            + 'teslim alınmıştır. İşbu tutanak taraflarca okunarak imza altına alınmıştır.' },
+      ].filter(Boolean),
+      imzalar: [{ unvan: 'Devreden Yönetici', ad: h.from_name || '' },
+                { unvan: 'Devralan Yönetici', ad: h.to_name || '' },
+                { unvan: 'Denetçi' }],
+    }));
+  });
 
   C.el('doc-add').onclick = () => openDocModal();
   C.el('con-add').onclick = () => openContractModal();
