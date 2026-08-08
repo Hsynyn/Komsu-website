@@ -119,6 +119,16 @@ const todayISO = () => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
+/* Bir tarihe ay ekler (periyodik bakım ve tekrarlı görevlerin sonraki
+   dönemini hesaplarken kullanılıyor). Bildirimi burada: modulBaglami bu
+   sabiti dosyanın başında okuyor. */
+const ayEkle = (tarihStr, ay) => {
+  const d = new Date(tarihStr);
+  d.setMonth(d.getMonth() + (Number(ay) || 0));
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
 /* ---------- Basit zengin metin editörü (karar defteri) ----------
    Word benzeri ama sadece gerçekten kullanılan biçimler: kalın, italik,
    altı çizili, başlık, madde/numaralı liste. Harici kütüphane yok. */
@@ -861,7 +871,7 @@ const modulBaglami = {
   bId, sId, siteBIds, needBuilding, navigate, activeBuilding,
   richEditorHTML, bindRichEditor, richValue,
   todayISO, downloadCSV, sortByApartment, occupiedOnly, isOccupied, notifyBuilding,
-  MONTHS,
+  MONTHS, adjustBalance, notifyUser, refreshBuilding, ayEkle,
 };
 initYonetim(modulBaglami);
 initBelge(modulBaglami);
@@ -2178,9 +2188,16 @@ let feeState = { year: new Date().getFullYear(), month: new Date().getMonth()+1 
 async function renderFees() {
   if (!needBuilding()) return;
   const { year, month } = feeState;
-  const [aptRes, feeRes] = await Promise.all([
+  /* Seçili ayın yanı sıra TÜM ödenmemiş aylar da çekiliyor: bir dairenin
+     geçmiş borcu, o ayın satırına bakarken görünmüyordu ve Borç Takibi ile
+     Aidat Takibi farklı tablo gösteriyordu. İki ekran artık aynı veriden
+     besleniyor. İşletme projesi de okunuyor ki aidatın nereden geldiği belli olsun. */
+  const [aptRes, feeRes, borcRes, budRes] = await Promise.all([
     supabase.from('apartments').select('id, apartment_number, owner_name, user_id, username').eq('building_id', bId()),
     supabase.from('monthly_fees').select('*').eq('building_id', bId()).eq('year', year).eq('month', month),
+    supabase.from('monthly_fees').select('apartment_id, amount, year, month')
+      .eq('building_id', bId()).eq('is_paid', false),
+    supabase.from('operating_budgets').select('id, status, year').eq('site_id', sId()).eq('year', year).maybeSingle(),
   ]);
   // Yer tutucu (boş) daireler aidat hesabına GİRMEZ; sahibi bilinmeyen
   // daireye borç yazmak hayali alacak üretir.
@@ -2191,6 +2208,18 @@ async function renderFees() {
   const feeByApt = new Map(fees.map(f => [f.apartment_id, f]));
   const paid = fees.filter(f => f.is_paid); const totalPaid = paid.reduce((s,f)=>s+Number(f.amount),0);
   const totalExpected = fees.reduce((s,f)=>s+Number(f.amount),0);
+
+  /* Daire bazında toplam ödenmemiş borç (tüm dönemler). Gecikme tazminatı
+     burada hesaplanmıyor — o Borç Takibi'nin işi; burada anapara gösterilir. */
+  const borcByApt = new Map();
+  for (const f of (borcRes.data || [])) {
+    const cur = borcByApt.get(f.apartment_id) || { ay: 0, tutar: 0 };
+    cur.ay += 1; cur.tutar += Number(f.amount);
+    borcByApt.set(f.apartment_id, cur);
+  }
+  const borcluDaire = apts.filter(a => borcByApt.has(a.id)).length;
+  const borcToplam = apts.reduce((t, a) => t + (borcByApt.get(a.id)?.tutar || 0), 0);
+  const proje = budRes.error ? null : budRes.data;
 
   const monthOpts = MONTHS.map((m,i)=>`<option value="${i+1}" ${i+1===month?'selected':''}>${m}</option>`).join('');
   const years = [year-2,year-1,year,year+1].filter((v,i,a)=>a.indexOf(v)===i);
@@ -2208,10 +2237,15 @@ async function renderFees() {
                   data-uid="${a.user_id||''}" ${f.is_paid ? 'checked' : ''}>
            <span>${f.is_paid ? 'Ödendi' : 'Ödendi olarak işaretle'}</span>
          </label>`;
+    const borc = borcByApt.get(a.id);
+    // Birden fazla ay borçluysa uyar; tek ay borç zaten "Bekliyor" rozetinde görünüyor
+    const borcRozeti = borc && borc.ay > 1
+      ? `<span class="badge b-red" title="Tüm dönemler dahil ödenmemiş toplam">${borc.ay} ay · ${TL(borc.tutar)}</span>`
+      : '';
     return `<tr>
-      <td><strong>${esc(a.apartment_number)}</strong></td>
+      <td><strong>${esc(a.apartment_number)}</strong> ${borcRozeti}</td>
       <td>${esc(a.owner_name || '—')}</td>
-      <td>${f ? TL(f.amount) : '—'}</td>
+      <td>${f ? TL(f.amount) : '—'}${f?.budget_id ? '<div class="muted" style="font-size:11px">işletme projesinden</div>' : ''}</td>
       <td>${f ? `<span class="badge ${f.is_paid?'b-green':'b-amber'}">${f.is_paid?'Ödendi':'Bekliyor'}</span>` : '<span class="badge b-gray">Kayıt yok</span>'}</td>
       <td>${f?.paid_date ? dmy(f.paid_date) : '—'}</td>
       <td class="t-right">${payCell}</td>
@@ -2223,15 +2257,26 @@ async function renderFees() {
       <div class="tools">
         <select class="mini" id="fee-month">${monthOpts}</select>
         <select class="mini" id="fee-year">${yearOpts}</select>
+        <button class="btn btn-ghost" id="fee-goto-debts">⚠️ Borç Takibi</button>
       </div>
     </div>
     <div class="stat-grid">
       <div class="stat"><div class="val">${paid.length}/${apts.length}</div><div class="lbl">Ödeyen Daire</div></div>
-      <div class="stat"><div class="val">${TL(totalPaid)}</div><div class="lbl">Toplanan</div></div>
-      <div class="stat"><div class="val">${TL(totalExpected-totalPaid)}</div><div class="lbl">Bekleyen</div></div>
+      <div class="stat"><div class="val">${TL(totalPaid)}</div><div class="lbl">Bu Ay Toplanan</div></div>
+      <div class="stat"><div class="val">${TL(totalExpected-totalPaid)}</div><div class="lbl">Bu Ay Bekleyen</div></div>
+      <div class="stat"><div class="val" style="color:${borcToplam ? 'var(--red)' : 'var(--green)'}">${TL(borcToplam)}</div>
+        <div class="lbl">Toplam Borç (${borcluDaire} daire)</div></div>
     </div>
     <div class="card">
       <h3>Tüm Dairelere ${MONTHS[month-1]} ${year} Aidatı Uygula</h3>
+      ${proje ? `<div class="info-banner" style="margin:0 0 14px;">
+        ${proje.status === 'approved'
+          ? `✅ <strong>${year} işletme projesi kesinleşti.</strong> Aidatı buradan elle girmek yerine projeden uygulamak,
+             gider paylarını KMK m.20'ye göre daire daire hesaplar.`
+          : `📊 <strong>${year} işletme projesi ${proje.status === 'notified' ? 'tebliğ edildi' : 'taslak halinde'}.</strong>
+             Kesinleştikten sonra aidatları oradan uygulayabilirsiniz.`}
+        <button class="btn btn-sm" id="fee-goto-budget" style="margin-left:8px;">İşletme Projesine Git →</button>
+      </div>` : ''}
       <div class="grid-2">
         <div class="field" style="margin:0"><input id="bulk-amt" inputmode="decimal" placeholder="Örn: 1500"></div>
         <button class="btn" id="bulk-apply">Uygula</button>
@@ -2245,15 +2290,27 @@ async function renderFees() {
   el('fee-month').addEventListener('change', e => { feeState.month = +e.target.value; renderFees(); });
   el('fee-year').addEventListener('change', e => { feeState.year = +e.target.value; renderFees(); });
 
+  el('fee-goto-debts').onclick = () => navigate('debts');
+  if (el('fee-goto-budget')) el('fee-goto-budget').onclick = () => navigate('budget');
+
   el('bulk-apply').addEventListener('click', async () => {
     const amt = parseFloat(String(el('bulk-amt').value).replace(',','.'));
     if (isNaN(amt) || amt <= 0) return toast('Geçerli bir tutar girin', true);
+
+    /* İşletme projesinden gelen tutarı elle ezmek, kanuna göre hesaplanmış
+       daire paylarını bozar; yönetici bunu bilerek yapmalı. */
+    const projedenGelen = apts.filter(a => feeByApt.get(a.id)?.budget_id && !feeByApt.get(a.id)?.is_paid).length;
+    if (projedenGelen && !confirm(
+      `${projedenGelen} dairenin bu ayki aidatı işletme projesinden hesaplanmış durumda.\n\n` +
+      `Sabit ${TL(amt)} uygularsanız, KMK m.20'ye göre arsa payı/eşit dağıtımla bulunan tutarların yerine ` +
+      `herkese aynı tutar yazılacak. Devam edilsin mi?`)) return;
     el('bulk-apply').disabled = true;
     try {
       for (const a of apts) {
         const f = feeByApt.get(a.id);
         if (!f) await supabase.from('monthly_fees').insert({ apartment_id:a.id, building_id:bId(), year, month, amount:amt, is_paid:false });
-        else if (!f.is_paid) await supabase.from('monthly_fees').update({ amount:amt }).eq('id', f.id);
+        // Elle girilen tutar artık projeden gelmiyor; damgayı kaldır ki kaynak doğru görünsün
+        else if (!f.is_paid) await supabase.from('monthly_fees').update({ amount:amt, budget_id:null }).eq('id', f.id);
       }
       notifyBuilding('💰 Yeni Aidat', `${MONTHS[month-1]} ${year} aidatı ${TL(amt)} olarak tanımlandı.`);
       toast('Aidatlar uygulandı'); renderFees();
@@ -2928,7 +2985,36 @@ function openJobPaymentModal(job) {
           .eq('related_id', job.id).eq('status', 'pending').eq('category', 'job');
       }
 
-      // 3) Sohbetteki iş kartını kaldır + sakinlere bildirim
+      // 3) İş takvimden doğduysa oradaki görevi de kapat ve bir sonraki dönemi aç;
+      //    aksi hâlde yapılmış bakım takvimde "gecikmiş" görünmeye devam ediyordu.
+      if (job.task_id) {
+        try {
+          const { data: gorev } = await supabase.from('management_tasks')
+            .select('*').eq('id', job.task_id).maybeSingle();
+          if (gorev && gorev.status === 'pending') {
+            await supabase.from('management_tasks').update({
+              status: 'done', completed_at: new Date().toISOString(), completed_by: S.user.id,
+            }).eq('id', gorev.id);
+
+            if (gorev.asset_id) {
+              // Demirbaş bakımıysa sonraki dönem demirbaş kaydından hesaplanır
+              const { data: asset } = await supabase.from('building_assets')
+                .update({ last_maintenance_at: todayISO() }).eq('id', gorev.asset_id).select().single();
+              if (asset) await demirbasGoreviniEsitle(asset);
+            } else if (gorev.recurrence_months) {
+              await supabase.from('management_tasks').insert({
+                site_id: gorev.site_id, building_id: gorev.building_id,
+                title: gorev.title, description: gorev.description, category: gorev.category,
+                legal_basis: gorev.legal_basis, assigned_to: gorev.assigned_to,
+                due_date: ayEkle(gorev.due_date, gorev.recurrence_months),
+                recurrence_months: gorev.recurrence_months, source: gorev.source,
+              });
+            }
+          }
+        } catch (e) { console.warn('Bağlı görev kapatılamadı:', e.message); }
+      }
+
+      // 4) Sohbetteki iş kartını kaldır + sakinlere bildirim
       await supabase.from('help_requests').delete().in('building_id', siteBIds()).eq('related_id', job.id);
       notifyBuilding('✅ İş Tamamlandı', state.paid && amount > 0
         ? `"${job.title}" tamamlandı. Ödenen tutar: ${TL(amount)}`
@@ -3998,6 +4084,43 @@ async function renderSubscription() {
   });
 }
 
+/* ---- Demirbaş bakımı ile Yönetim Takvimi arasındaki tek yön ----
+   Periyodik bakım eskiden üç ayrı yerde tutulabiliyordu (demirbaş kaydı,
+   iş kaydı, yönetim takvimi) ve üçü birbirinden habersizdi. Artık takvim
+   tek kaynak: demirbaşa periyot girilince takvimde görev açılır, bakım
+   yapılınca görev kapanıp bir sonraki dönem otomatik oluşur. */
+/* 0020/0021 uygulanmamışsa demirbaş yine kaydedilsin; sadece takvim bağı kurulmaz. */
+const takvimYok = (err) =>
+  !!err && /does not exist|schema cache|column .* of relation/i.test(err.message || '');
+
+async function demirbasGoreviniEsitle(asset) {
+  if (!asset || !sId()) return;
+  const ay = Number(asset.maintenance_interval_months) || 0;
+
+  const { data: acik, error: okuErr } = await supabase.from('management_tasks')
+    .select('id').eq('asset_id', asset.id).eq('status', 'pending').maybeSingle();
+  if (okuErr) { if (takvimYok(okuErr)) return; throw new Error(okuErr.message); }
+
+  // Periyot kaldırıldıysa takvimde asılı kalan görevi de kaldır
+  if (!ay) {
+    if (acik) await supabase.from('management_tasks').delete().eq('id', acik.id);
+    return;
+  }
+
+  const taban = asset.last_maintenance_at ? String(asset.last_maintenance_at).slice(0, 10) : todayISO();
+  const payload = {
+    site_id: sId(), building_id: asset.building_id,
+    title: `${asset.name} — periyodik bakım`,
+    description: [asset.brand, asset.model].filter(Boolean).join(' ') || null,
+    category: 'bakim', source: 'asset', asset_id: asset.id,
+    due_date: ayEkle(taban, ay), recurrence_months: ay,
+  };
+  const { error } = acik
+    ? await supabase.from('management_tasks').update(payload).eq('id', acik.id)
+    : await supabase.from('management_tasks').insert(payload);
+  if (error && !takvimYok(error)) throw new Error(error.message);
+}
+
 /* ============ 12) DEMİRBAŞLAR (building_assets) ============ */
 async function renderAssets() {
   if (!needBuilding()) return;
@@ -4012,6 +4135,13 @@ async function renderAssets() {
     return;
   }
 
+  /* Sonraki bakım tarihi artık burada değil, Yönetim Takvimi'nde tutuluyor;
+     iki ekranın farklı tarih göstermemesi için oradan okunuyor. */
+  const gorevRes = await supabase.from('management_tasks')
+    .select('id, asset_id, due_date').eq('site_id', sId()).eq('status', 'pending')
+    .not('asset_id', 'is', null);
+  const gorevByAsset = new Map((gorevRes.error ? [] : gorevRes.data || []).map(g => [g.asset_id, g]));
+
   const rows = (assets || []).map(a => {
     // Garanti kalan gün hesabı
     let warrantyText = 'Belirtilmemiş';
@@ -4024,6 +4154,15 @@ async function renderAssets() {
     // Son bakım tarihi
     const lastMaint = a.last_maintenance_at ? dmy(a.last_maintenance_at) : 'Bakım yapılmadı';
 
+    // Sonraki bakım tarihi takvimdeki açık görevden okunuyor — iki ekran
+    // farklı tarih göstermesin diye burada ayrıca hesaplanmıyor.
+    const gorev = gorevByAsset.get(a.id);
+    const kalanGun = gorev ? Math.ceil((new Date(gorev.due_date).getTime() - Date.now()) / 86400000) : null;
+    const sonraki = gorev
+      ? `<strong>${dmy(gorev.due_date)}</strong> <span class="badge ${kalanGun < 0 ? 'b-red' : kalanGun <= 30 ? 'b-amber' : 'b-gray'}">${
+          kalanGun < 0 ? `${Math.abs(kalanGun)} gün gecikti` : `${kalanGun} gün`}</span>`
+      : (a.maintenance_interval_months ? '<strong>—</strong>' : '<strong>Periyot tanımsız</strong>');
+
     return `
       <div class="asset-card">
         <span class="badge ${warrantyText.includes('Bitti') ? 'b-red' : 'b-green'} asset-badge">${warrantyText}</span>
@@ -4032,8 +4171,9 @@ async function renderAssets() {
         <p class="muted" style="font-size: 13px;">Seri No: <strong>${esc(a.serial_number || '—')}</strong></p>
         <p class="muted" style="font-size: 13px; margin-top: 10px;">Son Bakım: <strong>${lastMaint}</strong></p>
         <p class="muted" style="font-size: 13px;">Bakım Aralığı: <strong>${a.maintenance_interval_months || '—'} ayda bir</strong></p>
-        
-        <div style="margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end;">
+        <p class="muted" style="font-size: 13px;">Sonraki Bakım: ${sonraki}</p>
+
+        <div style="margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
           <button class="btn btn-sm btn-ghost" onclick="window.editAssetMaintenance('${a.id}')">🔧 Bakım Yapıldı</button>
           <button class="btn btn-sm btn-outline-red" onclick="window.deleteAsset('${a.id}')">Sil</button>
         </div>
@@ -4044,8 +4184,15 @@ async function renderAssets() {
   $content().innerHTML = `
     <div class="page-head">
       <h2>Bina Demirbaşları</h2>
-      <div class="tools"><button class="btn" id="asset-add">+ Yeni Demirbaş</button></div>
+      <div class="tools">
+        <button class="btn btn-ghost" id="asset-goto-tasks">🗓 Bakım Takvimi</button>
+        <button class="btn" id="asset-add">+ Yeni Demirbaş</button>
+      </div>
     </div>
+    <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
+      Bakım aralığı girilen her demirbaş için <strong>Yönetim Takvimi'nde</strong> otomatik bir bakım görevi açılır.
+      "Bakım Yapıldı" dediğinizde görev kapanır ve bir sonraki dönem takvime yazılır — aynı bakımı iki yere girmenize gerek yok.
+    </p>
     
     <div class="asset-grid">
       ${rows || '<div class="card" style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--muted);">Bina için kayıtlı demirbaş bulunamadı.</div>'}
@@ -4053,15 +4200,36 @@ async function renderAssets() {
   `;
 
   el('asset-add').onclick = openAddAssetModal;
+  el('asset-goto-tasks').onclick = () => navigate('tasks');
 }
 
 // Demirbaş Bakım Tarihi Güncelleme
 window.editAssetMaintenance = async function(id) {
   if (!confirm('Bu demirbaş için bugün bakım yapıldığını onaylıyor musunuz?')) return;
-  const today = new Date().toISOString().split('T')[0];
-  const { error } = await supabase.from('building_assets').update({ last_maintenance_at: today }).eq('id', id);
-  if (error) toast(error.message, true);
-  else { toast('Bakım kaydı güncellendi'); renderAssets(); }
+  const { data: asset, error } = await supabase.from('building_assets')
+    .update({ last_maintenance_at: todayISO() }).eq('id', id).select().single();
+  if (error) return toast(error.message, true);
+
+  // Takvimdeki açık bakım görevini kapat, bir sonraki periyodu aç
+  let takvimMesaji = '';
+  try {
+    const { data: gorev, error: gErr } = await supabase.from('management_tasks')
+      .select('id').eq('asset_id', id).eq('status', 'pending').maybeSingle();
+    if (!gErr) {
+      if (gorev) {
+        await supabase.from('management_tasks').update({
+          status: 'done', completed_at: new Date().toISOString(), completed_by: S.user.id,
+        }).eq('id', gorev.id);
+      }
+      await demirbasGoreviniEsitle(asset);
+      if (asset.maintenance_interval_months) {
+        takvimMesaji = `, sonraki bakım ${dmy(ayEkle(todayISO(), asset.maintenance_interval_months))} tarihine yazıldı`;
+      }
+    }
+  } catch (e) { console.warn('Bakım görevi güncellenemedi:', e.message); }
+
+  toast(`Bakım kaydedildi${takvimMesaji}`);
+  renderAssets();
 };
 
 // Demirbaş Silme
@@ -4096,15 +4264,22 @@ function openAddAssetModal() {
 
     if (!name) throw new Error('Demirbaş adı zorunludur.');
 
-    const { error } = await supabase.from('building_assets').insert({
+    const { data: asset, error } = await supabase.from('building_assets').insert({
       building_id: bId(),
       name, brand, model, serial_number: serial,
       warranty_expiry: warranty,
       maintenance_interval_months: interval
-    });
+    }).select().single();
 
     if (error) throw new Error(error.message);
-    toast('Demirbaş başarıyla eklendi');
+
+    // Bakım periyodu varsa takvimde görevini aç (tek kaynak: Yönetim Takvimi)
+    try { await demirbasGoreviniEsitle(asset); }
+    catch (e) { console.warn('Bakım görevi açılamadı:', e.message); }
+
+    toast(interval
+      ? `Demirbaş eklendi, ${interval} aylık bakımı takvime yazıldı`
+      : 'Demirbaş başarıyla eklendi');
   });
 }
 

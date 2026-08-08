@@ -105,14 +105,17 @@ export async function renderTasks() {
         : `<span class="badge b-gray">${d} gün</span>`;
     return `<tr>
       <td><strong>${cat.icon} ${C.esc(t.title)}</strong>
+        ${t.source === 'asset' ? '<span class="badge b-gray" title="Demirbaş kaydından otomatik oluştu">📦 Demirbaş</span>' : ''}
+        ${t.job_id ? '<span class="badge b-blue" title="Bu görev için iş kaydı açıldı">🛠 İşe dönüştürüldü</span>' : ''}
         ${t.legal_basis ? `<div class="muted" style="font-size:12px">${C.esc(t.legal_basis)}</div>` : ''}
         ${t.description ? `<div class="muted" style="font-size:12px">${C.esc(t.description)}</div>` : ''}</td>
       <td>${cat.label}</td>
       <td>${C.dmy(t.due_date)}</td>
       <td>${t.recurrence_months ? `${t.recurrence_months} ayda bir` : 'Tek seferlik'}</td>
       <td>${durum}</td>
-      <td class="t-right">
+      <td class="t-right" style="white-space:nowrap">
         ${t.status === 'pending' ? `<button class="btn btn-sm btn-green" data-act="done" data-id="${t.id}">Yapıldı</button>` : ''}
+        ${t.status === 'pending' && !t.job_id ? `<button class="btn btn-sm" data-act="job" data-id="${t.id}">🛠 İşe Dönüştür</button>` : ''}
         <button class="btn btn-sm btn-ghost" data-act="edit" data-id="${t.id}">Düzenle</button>
         <button class="btn btn-sm btn-outline-red" data-act="del" data-id="${t.id}">Sil</button>
       </td>
@@ -173,6 +176,11 @@ export async function renderTasks() {
 
     if (b.dataset.act === 'edit') return openTaskModal(rec);
 
+    /* Görevi iş kaydına çevir — takvim "ne zaman yapılmalı", İş Takibi
+       "kim yapıyor, kaça mal oldu" sorusunu yanıtlar. İş tamamlanınca
+       buradaki görev de kapanır; aynı bakımı iki yerde kapatmak gerekmez. */
+    if (b.dataset.act === 'job') return openTaskToJobModal(rec);
+
     if (b.dataset.act === 'del') {
       if (!confirm('Bu görev silinsin mi?')) return;
       const { error: e3 } = await C.supabase.from('management_tasks').delete().eq('id', rec.id);
@@ -186,6 +194,25 @@ export async function renderTasks() {
         await C.supabase.from('management_tasks')
           .update({ status: 'done', completed_at: new Date().toISOString(), completed_by: C.S.user.id })
           .eq('id', rec.id);
+
+        /* Demirbaş kaynaklı görevse demirbaşın son bakım tarihi de güncellenir;
+           yoksa Demirbaşlar ekranı hâlâ eski tarihi gösteriyordu. */
+        if (rec.asset_id) {
+          await C.supabase.from('building_assets')
+            .update({ last_maintenance_at: C.todayISO() }).eq('id', rec.asset_id);
+          if (rec.recurrence_months) {
+            await C.supabase.from('management_tasks').insert({
+              site_id: rec.site_id, building_id: rec.building_id,
+              title: rec.title, description: rec.description, category: rec.category,
+              source: 'asset', asset_id: rec.asset_id,
+              due_date: addMonths(C.todayISO(), rec.recurrence_months),
+              recurrence_months: rec.recurrence_months,
+            });
+          }
+          C.toast('Bakım kaydedildi, sonraki dönem takvime yazıldı');
+          return renderTasks();
+        }
+
         // Tekrarlı görev: bir sonraki dönem için yenisini aç
         if (rec.recurrence_months) {
           await C.supabase.from('management_tasks').insert({
@@ -202,6 +229,52 @@ export async function renderTasks() {
         renderTasks();
       } catch (err) { C.toast(err.message, true); b.disabled = false; }
     }
+  });
+}
+
+/* Takvimdeki görevi İş Takibi kaydına bağlar. building_jobs.task_id sayesinde
+   iş tamamlandığında görev de kapanır (panel.js → openJobPaymentModal). */
+function openTaskToJobModal(rec) {
+  C.openModal('İşe Dönüştür', `
+    <p class="muted" style="font-size:13px;margin-bottom:14px;">
+      <strong>${C.esc(rec.title)}</strong><br>
+      Son tarih: ${C.dmy(rec.due_date)}${rec.legal_basis ? ` · ${C.esc(rec.legal_basis)}` : ''}
+    </p>
+    <div class="field"><label>Sorumlu Kişi / Firma *</label>
+      <input id="tj-assignee" placeholder="Örn: Öz Asansör Ltd." value="${C.esc(rec.assigned_to || '')}" /></div>
+    <div class="grid-2">
+      <div class="field"><label>Planlanan Ücret (₺)</label><input id="tj-price" inputmode="decimal" value="0" /></div>
+      <div class="field"><label>Termin Tarihi</label><input id="tj-due" type="date" value="${C.esc(rec.due_date || C.todayISO())}" /></div>
+    </div>
+    <p class="muted" style="font-size:12.5px;margin-bottom:14px;">
+      Buradaki ücret plandır. İş tamamlanırken gerçekte ödenen tutar sorulur, kasaya o tutar işlenir
+      ve bu takvim görevi otomatik kapanır.</p>
+    <button class="btn btn-block" id="m-save">İşi Oluştur</button>
+  `, async () => {
+    const assignee = C.el('tj-assignee').value.trim();
+    if (!assignee) throw new Error('Sorumlu kişi zorunludur.');
+    const price = num(C.el('tj-price').value);
+    const due = C.el('tj-due').value;
+
+    const { data: isKaydi, error } = await C.supabase.from('building_jobs').insert({
+      building_id: rec.building_id || C.bId(),
+      title: rec.title,
+      description: [rec.legal_basis, rec.description].filter(Boolean).join(' — ') || null,
+      interval: 'custom', interval_days: 0,
+      assigned_to: assignee, price,
+      next_due_date: due ? new Date(due).toISOString() : null,
+      is_active: true, status: 'planned', created_by: C.S.user.id,
+      task_id: rec.id,
+    }).select().single();
+    if (error) throw new Error(error.message);
+
+    const { error: bagErr } = await C.supabase.from('management_tasks')
+      .update({ job_id: isKaydi.id }).eq('id', rec.id);
+    if (bagErr) console.warn('Görev–iş bağı kurulamadı:', bagErr.message);
+
+    if (C.notifyBuilding) C.notifyBuilding('🔧 Yeni İş', `"${rec.title}" işi planlandı.`);
+    C.toast('İş oluşturuldu, İş Takibi ekranına eklendi');
+    C.navigate('jobs');
   });
 }
 
@@ -501,11 +574,15 @@ export async function renderBudget() {
         for (let m = startMonth; m <= 12; m++) {
           const { data: ex } = await C.supabase.from('monthly_fees').select('id, is_paid')
             .eq('apartment_id', a.id).eq('year', budgetYear).eq('month', m).maybeSingle();
+          /* budget_id damgası: aidatın elle mi yoksa işletme projesinden mi
+             geldiği Aidat Takibi ekranında görünsün, iki yol birbirini
+             sessizce ezmesin. */
           if (!ex) {
             await C.supabase.from('monthly_fees').insert({
-              apartment_id: a.id, building_id: a.building_id, year: budgetYear, month: m, amount: amt, is_paid: false });
+              apartment_id: a.id, building_id: a.building_id, year: budgetYear, month: m,
+              amount: amt, is_paid: false, budget_id: budget.id });
           } else if (!ex.is_paid) {
-            await C.supabase.from('monthly_fees').update({ amount: amt }).eq('id', ex.id);
+            await C.supabase.from('monthly_fees').update({ amount: amt, budget_id: budget.id }).eq('id', ex.id);
           }
         }
       }
@@ -1243,6 +1320,7 @@ export async function renderDebts() {
         <td class="t-right" style="color:var(--red)">${C.TL(d.late)}</td>
         <td class="t-right"><strong>${C.TL(d.principal + d.late)}</strong></td>
         <td class="t-right" style="white-space:nowrap">
+          <button class="btn btn-sm btn-green" data-tahsil="${d.apt.id}">💰 Tahsilat</button>
           <button class="btn btn-sm btn-ghost" data-notice="${d.apt.id}">İhtar Kaydı Aç</button>
           <button class="btn btn-sm" data-ihtarname="${d.apt.id}">📄 İhtarname</button>
         </td>
@@ -1307,6 +1385,12 @@ export async function renderDebts() {
      takip kaydı yoksa açılır, varsa aşaması 'ihtar'a çekilir; böylece
      ekrandaki liste ile üretilen evrak birbirini tutar. */
   C.el('debt-body').addEventListener('click', async (e) => {
+    const th = e.target.closest('[data-tahsil]');
+    if (th) {
+      const d = debts.get(th.dataset.tahsil); if (!d) return;
+      return openTahsilatModal(d);
+    }
+
     const ih = e.target.closest('[data-ihtarname]');
     if (ih) {
       const d = debts.get(ih.dataset.ihtarname); if (!d) return;
@@ -1399,6 +1483,78 @@ export async function renderDebts() {
     if (error) return C.toast(error.message, true);
     C.toast('Silindi'); renderDebts();
   });
+}
+
+/* Borçlu dairenin ödenmemiş aylarını tek ekranda tahsil eder.
+   Önceden bunun için Aidat Takibi'nde ay ay gezip tek tek işaretlemek
+   gerekiyordu; iki ekran da aynı monthly_fees satırlarına bakıyor. */
+async function openTahsilatModal(d) {
+  const { data, error } = await C.supabase.from('monthly_fees').select('*')
+    .eq('apartment_id', d.apt.id).eq('is_paid', false)
+    .order('year').order('month');
+  if (error) return C.toast(error.message, true);
+  const aylar = data || [];
+  if (!aylar.length) return C.toast('Bu daireye ait ödenmemiş aidat kaydı yok');
+
+  C.openModal(`Tahsilat — Daire ${d.apt.apartment_number}`, `
+    <p class="muted" style="font-size:13px;margin-bottom:14px;">
+      ${C.esc(d.apt.owner_name || 'Kat maliki')} · Ödemesi alınan ayları işaretleyin.
+      İşaretlenen tutar <strong>site kasasına gelir olarak</strong> işlenir.
+    </p>
+    <div style="max-height:44vh;overflow-y:auto;margin-bottom:14px;">
+      <table><thead><tr><th></th><th>Dönem</th><th class="t-right">Tutar</th></tr></thead>
+      <tbody id="th-body">${aylar.map(f => `<tr>
+        <td style="width:34px"><input type="checkbox" data-fee="${f.id}" data-amt="${f.amount}" checked></td>
+        <td>${C.MONTHS[f.month - 1]} ${f.year}</td>
+        <td class="t-right">${para(f.amount)}</td>
+      </tr>`).join('')}</tbody></table>
+    </div>
+    <div class="info-banner" id="th-ozet" style="margin:0 0 14px;"></div>
+    <button class="btn btn-block" id="m-save">Tahsilatı Kaydet</button>
+  `, async () => {
+    const secili = [...document.querySelectorAll('#th-body input[data-fee]:checked')];
+    if (!secili.length) throw new Error('En az bir dönem seçin.');
+    const toplam = secili.reduce((t, c) => t + Number(c.dataset.amt), 0);
+
+    for (const c of secili) {
+      const { error: uErr } = await C.supabase.from('monthly_fees').update({
+        is_paid: true, paid_by: C.S.user.id, paid_date: new Date().toISOString(),
+      }).eq('id', c.dataset.fee);
+      if (uErr) throw new Error(uErr.message);
+
+      await C.adjustBalance({
+        amount: Number(c.dataset.amt), operation: 'add',
+        description: `Aidat ödemesi - Daire ${d.apt.apartment_number}`,
+        category: 'fee', walletType: 'bank', relatedId: c.dataset.fee,
+      });
+    }
+
+    // Borcun tamamı kapandıysa açık takip kaydını da kapat
+    if (secili.length === aylar.length) {
+      await C.supabase.from('debt_notices')
+        .update({ stage: 'closed' })
+        .eq('apartment_id', d.apt.id).neq('stage', 'closed');
+    }
+
+    if (d.apt.user_id && C.notifyUser) {
+      C.notifyUser(d.apt.user_id, '✅ Aidat Ödemesi Alındı',
+        `${secili.length} aylık aidatınız (${para(toplam)}) ödendi olarak işaretlendi.`);
+    }
+    if (C.refreshBuilding) await C.refreshBuilding();
+    C.toast(`${para(toplam)} tahsil edildi, kasaya eklendi`);
+    renderDebts();
+  });
+
+  // Seçim değiştikçe toplam güncellensin
+  const ozetle = () => {
+    const secili = [...document.querySelectorAll('#th-body input[data-fee]:checked')];
+    const toplam = secili.reduce((t, c) => t + Number(c.dataset.amt), 0);
+    const kutu = C.el('th-ozet');
+    if (kutu) kutu.innerHTML = `Seçilen: <strong>${secili.length} dönem</strong> · Tahsil edilecek: <strong>${para(toplam)}</strong>`
+      + (secili.length === aylar.length ? ' — borç tamamen kapanacak' : '');
+  };
+  const host = C.el('th-body');
+  if (host) { host.addEventListener('change', ozetle); ozetle(); }
 }
 
 /* ============================================================
