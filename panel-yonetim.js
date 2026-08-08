@@ -1813,18 +1813,52 @@ function openContractModal() {
   });
 }
 
-function openHandoverModal() {
+/* Devir teslim tutanağı, panelin zaten bildiği verilerle açılır: mevcut
+   yöneticinin adı, site kasa/banka bakiyesi ve teslim edilecek kalemlerin
+   sayımı. Önceden bütün bunlar boş geliyordu ve yönetici, panelde duran
+   rakamları başka ekranlardan bulup elle yazmak zorundaydı. */
+async function openHandoverModal() {
+  const mevcutYonetici = `${C.S.profile?.name || ''} ${C.S.profile?.surname || ''}`.trim();
+  const banka = Number(C.S.site?.bank_balance ?? 0);
+  const nakit = Number(C.S.site?.cash_balance ?? 0);
+  const fon   = Number(C.S.site?.fund_balance ?? 0);
+
+  const say = (q) => Promise.resolve(q).then(r => (r.error ? null : r.count)).catch(() => null);
+  const [demirbas, belge, sozlesme, karar, toplanti] = await Promise.all([
+    say(C.supabase.from('building_assets').select('id', { count: 'exact', head: true }).in('building_id', C.siteBIds())),
+    say(C.supabase.from('documents').select('id', { count: 'exact', head: true }).eq('site_id', C.sId())),
+    say(C.supabase.from('contracts').select('id', { count: 'exact', head: true }).eq('site_id', C.sId()).eq('is_active', true)),
+    say(C.supabase.from('building_decisions').select('id', { count: 'exact', head: true }).in('building_id', C.siteBIds())),
+    say(C.supabase.from('meetings').select('id', { count: 'exact', head: true }).in('building_id', C.siteBIds())),
+  ]);
+
+  const satir = (etiket, adet, ek = '') =>
+    adet == null ? '' : `<li>${etiket}: <strong>${adet} adet</strong>${ek}</li>`;
+  const hazirListe = `<ul>
+    ${satir('Demirbaş', demirbas, ' (sayım listesi ektedir)')}
+    ${satir('Arşivdeki belge', belge)}
+    ${satir('Yürürlükteki sözleşme', sozlesme)}
+    ${satir('Karar defteri kaydı', karar)}
+    ${satir('Genel kurul tutanağı', toplanti)}
+    <li>Banka hesap cüzdanı / internet bankacılığı erişimi</li>
+    <li>Ortak alan anahtarları ve güvenlik kodları</li>
+  </ul>`;
+
   C.openModal('Devir Teslim Tutanağı', `
+    <div class="info-banner" style="margin:0 0 14px;">
+      Kasa bakiyeleri ve teslim listesi panelden otomatik dolduruldu; gerekirse düzeltebilirsiniz.
+      ${fon > 0 ? `<br>Ayrıca <strong>${para(fon)}</strong> fon bakiyesi var — teslim listesine eklemeyi unutmayın.` : ''}
+    </div>
     <div class="grid-2">
-      <div class="field"><label>Devreden</label><input id="h-from" placeholder="Önceki yönetici" /></div>
+      <div class="field"><label>Devreden</label><input id="h-from" placeholder="Önceki yönetici" value="${C.esc(mevcutYonetici)}" /></div>
       <div class="field"><label>Devralan</label><input id="h-to" placeholder="Yeni yönetici" /></div>
     </div>
     <div class="grid-2">
       <div class="field"><label>Devir Tarihi *</label><input id="h-date" type="date" value="${C.todayISO()}" /></div>
-      <div class="field"><label>Kasa Bakiyesi (₺)</label><input id="h-cash" inputmode="decimal" /></div>
+      <div class="field"><label>Kasa Bakiyesi (₺)</label><input id="h-cash" inputmode="decimal" value="${nakit || ''}" /></div>
     </div>
-    <div class="field"><label>Banka Bakiyesi (₺)</label><input id="h-bank" inputmode="decimal" /></div>
-    <div class="field"><label>Teslim Edilenler</label>${C.richEditorHTML('h-items', '')}</div>
+    <div class="field"><label>Banka Bakiyesi (₺)</label><input id="h-bank" inputmode="decimal" value="${banka || ''}" /></div>
+    <div class="field"><label>Teslim Edilenler</label>${C.richEditorHTML('h-items', hazirListe)}</div>
     <button class="btn btn-block" id="m-save">Tutanağı Kaydet</button>
   `, async () => {
     const date = C.el('h-date').value;
@@ -1839,7 +1873,8 @@ function openHandoverModal() {
       items: C.richValue('h-items') || null,
     });
     if (error) throw new Error(error.message);
-    C.toast('Devir teslim tutanağı kaydedildi');
+    C.toast('Devir teslim tutanağı kaydedildi — "📄 Tutanak" ile imzalı belgesini üretebilirsiniz');
+    renderArchive();
   });
   C.bindRichEditor('h-items');
 }

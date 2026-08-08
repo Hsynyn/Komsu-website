@@ -441,10 +441,12 @@ select.mini { padding: 8px 11px; border: 2px solid var(--line); border-radius: 1
   position: relative;
 }
 
+/* Garanti rozeti mutlak konumluyken uzun demirbaş adlarının üstüne biniyordu
+   ("Yangın Söndürme Sistemi" gibi). Akışa alındı: başlığın üstünde kendi
+   satırında durur, hiçbir ad uzunluğunda çakışmaz. */
 .asset-badge {
-  position: absolute;
-  top: 16px;
-  right: 16px;
+  display: inline-block;
+  margin-bottom: 10px;
 }
 
 .decision-list {

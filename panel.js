@@ -1107,7 +1107,7 @@ async function renderDashboard() {
      olabilir; o sorgular hata verirse pano yine de çalışsın. */
   const sessiz = (p) => Promise.resolve(p).then(r => (r.error ? { data: null } : r)).catch(() => ({ data: null }));
 
-  const [txRes, maintRes, jobRes, feeRes, taskRes, conRes, auditRes, budRes] = await Promise.all([
+  const [txRes, maintRes, jobRes, feeRes, taskRes, conRes, auditRes, budRes, gkRes] = await Promise.all([
     sessiz(supabase.from('transactions').select('id, amount, type, status, description')
       .in('building_id', siteBIds()).eq('status', 'pending')),
     sessiz(supabase.from('maintenance_requests').select('id, priority, status')
@@ -1122,6 +1122,8 @@ async function renderDashboard() {
     sessiz(supabase.from('audit_reports').select('period_end').eq('site_id', sId())
       .order('period_end', { ascending: false }).limit(1)),
     sessiz(supabase.from('operating_budgets').select('status, year').eq('site_id', sId()).eq('year', yil).maybeSingle()),
+    sessiz(supabase.from('meetings').select('id, title, meeting_date, meeting_kind, minutes, announced_at')
+      .in('building_id', siteBIds()).order('meeting_date', { ascending: false }).limit(20)),
   ]);
 
   /* --- KPI --- */
@@ -1262,6 +1264,49 @@ async function renderDashboard() {
       detay: 'Kat maliklerine tebliğ edilmeden kesinleşmez; tebliğden sonra 7 günlük itiraz süresi işler.',
       eylem: 'İşletme projesine git',
     });
+  }
+
+  /* Genel kurul: KMK m.29 olağan toplantıyı yılda bir zorunlu kılar.
+     Panelde toplantı kaydı vardı ama "yaptın mı, duyurdun mu, tutanağı
+     girdin mi" sorusunu hiçbir ekran sormuyordu. */
+  const toplantilar = gkRes.data || [];
+  if (gkRes.data) {
+    const simdi = Date.now();
+    const yaklasan = toplantilar
+      .filter(m => new Date(m.meeting_date).getTime() > simdi)
+      .sort((a, b) => new Date(a.meeting_date) - new Date(b.meeting_date));
+    const duyurulmamis = yaklasan.filter(m => !m.announced_at);
+    const tutanaksiz = toplantilar.filter(m =>
+      new Date(m.meeting_date).getTime() < simdi && !m.minutes
+      && gun(m.meeting_date) > -365);
+    const buYilOlagan = toplantilar.some(m =>
+      m.meeting_kind === 'olagan' && new Date(m.meeting_date).getFullYear() === yil);
+
+    if (duyurulmamis.length) {
+      uyarilar.push({
+        seviye: 'kirmizi', ikon: '📅', bolum: 'assembly',
+        baslik: `${duyurulmamis.length} toplantı henüz sakinlere duyurulmadı`,
+        detay: duyurulmamis.map(m => `${m.title} (${dmy(m.meeting_date)}, ${gun(m.meeting_date)} gün kaldı)`).join(' · '),
+        eylem: 'Genel kurula git',
+      });
+    }
+    if (tutanaksiz.length) {
+      uyarilar.push({
+        seviye: 'sari', ikon: '📝', bolum: 'assembly',
+        baslik: `${tutanaksiz.length} toplantının tutanağı girilmemiş`,
+        detay: tutanaksiz.slice(0, 3).map(m => `${m.title} (${dmy(m.meeting_date)})`).join(' · ')
+          + ' — tutanak olmadan kararlar karar defterine işlenemez.',
+        eylem: 'Genel kurula git',
+      });
+    }
+    if (!buYilOlagan && !yaklasan.some(m => m.meeting_kind === 'olagan')) {
+      uyarilar.push({
+        seviye: 'bilgi', ikon: '📅', bolum: 'assembly',
+        baslik: `${yil} yılı olağan genel kurulu henüz planlanmamış`,
+        detay: 'KMK m.29 — olağan toplantı yılda bir kez, yönetim planında belirtilen ayda yapılır.',
+        eylem: 'Toplantı oluştur',
+      });
+    }
   }
 
   alertHost.innerHTML = uyarilar.length ? `
@@ -2180,7 +2225,7 @@ async function renderApartments() {
       if (error) return toast(error.message, true);
       toast('Daire silindi'); renderApartments();
     }
-  }, { once: true });
+  });
 }
 
 /* ============ 3) AİDAT ============ */
@@ -2458,8 +2503,13 @@ async function renderTransactions() {
     <div id="tx-list">${filtered.length ? filtered.map(txCard).join('')
       : `<div class="card"><p class="t-empty">${MONTHS[month-1]} ${year} için ${tab==='income'?'gelir':tab==='expense'?'gider':'işlem'} yok</p></div>`}</div>
 
-    <button class="btn btn-block" id="share-report" style="margin-top:16px;">📊 ${MONTHS[month-1]} ${year} Raporunu Paylaş</button>
-    <p class="muted" style="font-size:12.5px;margin-top:8px;text-align:center;">Rapor, sohbet ekranına gönderilir; tüm sakinler görebilir.</p>`;
+    <div class="grid-2" style="margin-top:16px;">
+      <button class="btn" id="share-report">📊 ${MONTHS[month-1]} ${year} Raporunu Paylaş</button>
+      <button class="btn btn-ghost" id="tx-belge">📄 Resmî Belge Oluştur</button>
+    </div>
+    <p class="muted" style="font-size:12.5px;margin-top:8px;text-align:center;">
+      Soldaki buton raporu sohbete gönderir, tüm sakinler görür.
+      Sağdaki, imza alanlı ve numaralı PDF üretip <strong>arşive</strong> kaydeder.</p>`;
 
   el('tx-add').addEventListener('click', openTxModal);
   el('month-prev').addEventListener('click', () => {
@@ -2480,6 +2530,63 @@ async function renderTransactions() {
     catch (err) { toast(err.message, true); btn.disabled = false; }
   });
   el('share-report').addEventListener('click', () => shareMonthlyReport(inMonth, bank));
+
+  /* Sohbete gönderilen özet ile arşivlenen resmî belge aynı aydan beslenir;
+     böylece sakinlerin gördüğü rakamla dosyadaki belge birbirini tutar. */
+  el('tx-belge').onclick = (e) => belgeButonu(e.currentTarget, () => {
+    const kesin = inMonth.filter(t => t.status === 'completed' || t.status === 'approved');
+    const gelirKat = {}, giderKat = {};
+    let gelir = 0, gider = 0;
+    for (const t of kesin) {
+      const tutar = Number(t.amount || 0);
+      const etiket = TX_CATEGORIES[t.category] || t.category;
+      if (t.type === 'income') { gelir += tutar; gelirKat[etiket] = (gelirKat[etiket] || 0) + tutar; }
+      else { gider += tutar; giderKat[etiket] = (giderKat[etiket] || 0) + tutar; }
+    }
+    const bekleyenAy = inMonth.filter(t => t.status === 'pending');
+
+    return belgeUret({
+      tur: 'kasa_aylik_raporu', modul: 'transactions', kategori: 'rapor',
+      baslik: 'Aylık Kasa Raporu',
+      donem: `${MONTHS[month-1]} ${year}`,
+      dosyaAdi: `kasa-raporu-${year}-${String(month).padStart(2, '0')}`,
+      ozet: [
+        { etiket: 'Gelir', deger: para(gelir), renk: 'yesil' },
+        { etiket: 'Gider', deger: para(gider), renk: 'kirmizi' },
+        { etiket: 'Ay Net', deger: para(gelir - gider), renk: gelir - gider >= 0 ? 'yesil' : 'kirmizi' },
+        { etiket: 'Ana Kasa Bakiyesi', deger: para(bank) },
+      ],
+      bolumler: [
+        Object.keys(gelirKat).length && {
+          tip: 'tablo', baslik: 'Gelir Dağılımı',
+          kolonlar: [{ baslik: 'Kategori' }, { baslik: 'Tutar', hiza: 'right', genislik: 40 }],
+          satirlar: Object.entries(gelirKat).sort(([, x], [, y]) => y - x).map(([k, v]) => [k, para(v)]),
+          toplamSatiri: ['TOPLAM', para(gelir)] },
+        Object.keys(giderKat).length && {
+          tip: 'tablo', baslik: 'Gider Dağılımı',
+          kolonlar: [{ baslik: 'Kategori' }, { baslik: 'Tutar', hiza: 'right', genislik: 40 }],
+          satirlar: Object.entries(giderKat).sort(([, x], [, y]) => y - x).map(([k, v]) => [k, para(v)]),
+          toplamSatiri: ['TOPLAM', para(gider)] },
+        {
+          tip: 'tablo', baslik: 'Hareket Dökümü',
+          kolonlar: [
+            { baslik: 'Tarih', genislik: 22 }, { baslik: 'Açıklama' },
+            { baslik: 'Kategori', genislik: 28 }, { baslik: 'Tutar', hiza: 'right', genislik: 30 },
+            { baslik: 'Durum', genislik: 24 },
+          ],
+          satirlar: inMonth.map(t => [
+            tarih(t.created_at), t.description || '—',
+            TX_CATEGORIES[t.category] || t.category,
+            `${t.type === 'income' ? '+' : '−'}${para(t.amount)}`,
+            t.status === 'completed' || t.status === 'approved' ? 'Gerçekleşti'
+              : t.status === 'pending' ? 'Onay bekliyor' : 'Reddedildi',
+          ]),
+          not: bekleyenAy.length
+            ? `${bekleyenAy.length} işlem onay beklediği için toplamlara dahil edilmemiştir.` : null },
+      ].filter(Boolean),
+      imzalar: ['Yönetici', 'Denetçi'],
+    });
+  });
 }
 
 // Aylık finansal raporu sohbete gönder — mobil generateMonthlyReport ile aynı format
@@ -3082,7 +3189,13 @@ async function renderRules() {
   }).join('');
 
   $content().innerHTML = `
-    <div class="page-head"><h2>Site Kuralları</h2><div class="tools"><button class="btn" id="rule-add">+ Yeni Kural</button></div></div>
+    <div class="page-head"><h2>Site Kuralları</h2>
+      <div class="tools">
+        ${list.length ? `<button class="btn btn-ghost" id="rule-duyur">📢 Sakinlere Duyur</button>
+        <button class="btn btn-ghost" id="rule-belge">📄 Kural Kitapçığı</button>` : ''}
+        <button class="btn" id="rule-add">+ Yeni Kural</button>
+      </div>
+    </div>
     <div class="card" id="rule-list">${list.length ? ruleCards : '<p class="t-empty">Henüz kural yok — aşağıdaki hazır şablonlardan seçerek başlayabilirsiniz</p>'}</div>
     <div class="card" id="tpl-list">
       <h3>⚡ Hızlı Şablonlar <span class="muted" style="font-weight:600;font-size:13px;">(${RULE_TEMPLATES.length} hazır kural — seçip düzenleyebilirsiniz)</span></h3>
@@ -3090,6 +3203,61 @@ async function renderRules() {
     </div>`;
 
   el('rule-add').addEventListener('click', () => openRuleModal(null));
+
+  /* Kurallar şimdiye kadar yalnızca ekranda duruyordu: ne ilan panosuna
+     asılacak bir çıktısı ne de sakinlere bildirimi vardı. */
+  if (el('rule-belge')) el('rule-belge').onclick = (e) => belgeButonu(e.currentTarget, () => belgeUret({
+    tur: 'kural_kitapcigi', modul: 'rules', kategori: 'diger',
+    baslik: 'Site Yönetim Kuralları',
+    donem: `${dmy(new Date())} itibarıyla`,
+    dosyaAdi: `site-kurallari-${todayISO()}`,
+    ozet: [
+      { etiket: 'Toplam Kural', deger: String(list.length) },
+      { etiket: 'Kritik', deger: String(list.filter(r => r.priority === 'critical').length), renk: 'kirmizi' },
+      { etiket: 'Bilgi', deger: String(list.filter(r => r.priority !== 'critical').length) },
+    ],
+    bolumler: [
+      { tip: 'metin', icerik:
+        'Aşağıdaki kurallar, ana gayrimenkulün ortak yerlerinin kullanımına ve kat maliklerinin '
+        + 'birbirine karşı yükümlülüklerine ilişkin olup tüm kat malikleri, kiracılar ve '
+        + 'oturma hakkı sahiplerini bağlar.' },
+      ...RULE_CATEGORIES.map(cat => {
+        const grup = list.filter(r => r.category === cat.id);
+        if (!grup.length) return null;
+        return {
+          tip: 'tablo', baslik: `${cat.icon} ${cat.name}`,
+          kolonlar: [{ baslik: 'Kural', genislik: 52 }, { baslik: 'Açıklama' }, { baslik: 'Öncelik', genislik: 22 }],
+          satirlar: grup.map(r => [r.title, r.description || '—', r.priority === 'critical' ? 'Kritik' : 'Bilgi']),
+        };
+      }).filter(Boolean),
+      { tip: 'kutu', baslik: 'Yasal dayanak — KMK m.18 ve m.19',
+        icerik: 'Kat malikleri, gerek bağımsız bölümlerini gerek eklentileri ve ortak yerleri kullanırken '
+          + 'doğruluk kaidelerine uymak, özellikle birbirini rahatsız etmemek, birbirinin haklarını '
+          + 'çiğnememek ve yönetim planı hükümlerine uymakla karşılıklı olarak yükümlüdürler. '
+          + 'Bu yükümlülük, bağımsız bölümlerde kiracı olarak veya başka bir sıfatla oturanlar için de geçerlidir.' },
+    ],
+    imzalar: [{ unvan: 'Site Yönetimi' }],
+  }));
+
+  if (el('rule-duyur')) el('rule-duyur').onclick = async (e) => {
+    const btn = e.currentTarget;
+    const kritik = list.filter(r => r.priority === 'critical');
+    if (!confirm(`Site kuralları sakinlerin sohbet akışına gönderilecek ve bildirim yapılacak.\n\n`
+      + `${list.length} kural (${kritik.length} kritik). Onaylıyor musunuz?`)) return;
+    btn.disabled = true;
+    try {
+      const metin = RULE_CATEGORIES.map(cat => {
+        const grup = list.filter(r => r.category === cat.id);
+        if (!grup.length) return '';
+        return `${cat.icon} ${cat.name.toLocaleUpperCase('tr-TR')}\n`
+          + grup.map(r => `• ${r.title}${r.priority === 'critical' ? ' (!)' : ''}\n  ${r.description || ''}`).join('\n');
+      }).filter(Boolean).join('\n\n');
+      await postAnnouncementToChat('Site Kuralları', metin);
+      notifyBuilding('📋 Site Kuralları', `${list.length} kural sohbet ekranında paylaşıldı.`);
+      toast('Kurallar sakinlere duyuruldu');
+    } catch (err) { toast(err.message, true); }
+    finally { btn.disabled = false; }
+  };
 
   el('tpl-list').addEventListener('click', (e) => {
     const chip = e.target.closest('button[data-tpl]'); if (!chip) return;
@@ -4175,6 +4343,7 @@ async function renderAssets() {
 
         <div style="margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
           <button class="btn btn-sm btn-ghost" onclick="window.editAssetMaintenance('${a.id}')">🔧 Bakım Yapıldı</button>
+          <button class="btn btn-sm btn-ghost" data-asset-edit="${a.id}">Düzenle</button>
           <button class="btn btn-sm btn-outline-red" onclick="window.deleteAsset('${a.id}')">Sil</button>
         </div>
       </div>
@@ -4194,13 +4363,23 @@ async function renderAssets() {
       "Bakım Yapıldı" dediğinizde görev kapanır ve bir sonraki dönem takvime yazılır — aynı bakımı iki yere girmenize gerek yok.
     </p>
     
-    <div class="asset-grid">
+    <div class="asset-grid" id="asset-grid">
       ${rows || '<div class="card" style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--muted);">Bina için kayıtlı demirbaş bulunamadı.</div>'}
     </div>
   `;
 
-  el('asset-add').onclick = openAddAssetModal;
+  el('asset-add').onclick = () => openAssetModal(null);
   el('asset-goto-tasks').onclick = () => navigate('tasks');
+
+  /* Düzenleme olmadığı için yanlış girilen bakım periyodunu düzeltmenin tek
+     yolu demirbaşı silip yeniden eklemekti; bu, takvimdeki bakım geçmişini de
+     siliyordu. Dinleyici her render'da yeniden oluşan grid'e bağlanıyor —
+     kalıcı #content'e bağlansaydı her çizimde bir dinleyici daha birikirdi. */
+  el('asset-grid').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-asset-edit]'); if (!b) return;
+    const rec = (assets || []).find(x => x.id === b.dataset.assetEdit);
+    if (rec) openAssetModal(rec);
+  });
 }
 
 // Demirbaş Bakım Tarihi Güncelleme
@@ -4240,20 +4419,25 @@ window.deleteAsset = async function(id) {
   else { toast('Demirbaş silindi'); renderAssets(); }
 };
 
-// Demirbaş Ekleme Modalı
-function openAddAssetModal() {
-  openModal('Yeni Demirbaş Ekle', `
-    <div class="field"><label>Demirbaş Adı *</label><input id="a-name" placeholder="Örn: Asansör A Blok" required /></div>
+// Demirbaş Ekleme / Düzenleme Modalı (rec === null ise yeni kayıt)
+function openAssetModal(rec) {
+  const duzenle = !!rec;
+  const v = (alan, varsayilan = '') => (duzenle && rec[alan] != null ? esc(String(rec[alan])) : varsayilan);
+  openModal(duzenle ? 'Demirbaşı Düzenle' : 'Yeni Demirbaş Ekle', `
+    <div class="field"><label>Demirbaş Adı *</label><input id="a-name" placeholder="Örn: Asansör A Blok" value="${v('name')}" required /></div>
     <div class="grid-2">
-      <div class="field"><label>Marka</label><input id="a-brand" placeholder="Örn: Otis" /></div>
-      <div class="field"><label>Model</label><input id="a-model" placeholder="Örn: Gen2" /></div>
+      <div class="field"><label>Marka</label><input id="a-brand" placeholder="Örn: Otis" value="${v('brand')}" /></div>
+      <div class="field"><label>Model</label><input id="a-model" placeholder="Örn: Gen2" value="${v('model')}" /></div>
     </div>
-    <div class="field"><label>Seri Numarası</label><input id="a-serial" placeholder="Seri no veya parça no" /></div>
+    <div class="field"><label>Seri Numarası</label><input id="a-serial" placeholder="Seri no veya parça no" value="${v('serial_number')}" /></div>
     <div class="grid-2">
-      <div class="field"><label>Garanti Bitiş Tarihi</label><input id="a-warranty" type="date" /></div>
-      <div class="field"><label>Bakım Aralığı (Ay)</label><input id="a-interval" type="number" min="1" max="24" value="6" /></div>
+      <div class="field"><label>Garanti Bitiş Tarihi</label><input id="a-warranty" type="date" value="${duzenle && rec.warranty_expiry ? String(rec.warranty_expiry).slice(0,10) : ''}" /></div>
+      <div class="field"><label>Bakım Aralığı (Ay)</label><input id="a-interval" type="number" min="1" max="24" value="${v('maintenance_interval_months', '6')}" /></div>
     </div>
-    <button class="btn btn-block" id="m-save">Kaydet</button>
+    <p class="muted" style="font-size:12.5px;margin-bottom:14px;">
+      Bakım aralığını değiştirirseniz <strong>Yönetim Takvimi'ndeki açık bakım görevi</strong> de yeni periyoda göre güncellenir.
+      Boş bırakırsanız takvimden kaldırılır.</p>
+    <button class="btn btn-block" id="m-save">${duzenle ? 'Kaydet' : 'Ekle'}</button>
   `, async () => {
     const name = el('a-name').value.trim();
     const brand = el('a-brand').value.trim() || null;
@@ -4264,22 +4448,25 @@ function openAddAssetModal() {
 
     if (!name) throw new Error('Demirbaş adı zorunludur.');
 
-    const { data: asset, error } = await supabase.from('building_assets').insert({
-      building_id: bId(),
+    const payload = {
       name, brand, model, serial_number: serial,
       warranty_expiry: warranty,
-      maintenance_interval_months: interval
-    }).select().single();
+      maintenance_interval_months: interval,
+    };
+    const { data: asset, error } = duzenle
+      ? await supabase.from('building_assets').update(payload).eq('id', rec.id).select().single()
+      : await supabase.from('building_assets').insert({ building_id: bId(), ...payload }).select().single();
 
     if (error) throw new Error(error.message);
 
-    // Bakım periyodu varsa takvimde görevini aç (tek kaynak: Yönetim Takvimi)
+    // Periyot eklendi/değişti/kaldırıldı — takvimdeki görevi buna göre eşitle
     try { await demirbasGoreviniEsitle(asset); }
-    catch (e) { console.warn('Bakım görevi açılamadı:', e.message); }
+    catch (e) { console.warn('Bakım görevi eşitlenemedi:', e.message); }
 
-    toast(interval
-      ? `Demirbaş eklendi, ${interval} aylık bakımı takvime yazıldı`
-      : 'Demirbaş başarıyla eklendi');
+    toast(duzenle
+      ? (interval ? `Demirbaş güncellendi, bakım takvimi ${interval} aya ayarlandı` : 'Demirbaş güncellendi')
+      : (interval ? `Demirbaş eklendi, ${interval} aylık bakımı takvime yazıldı` : 'Demirbaş eklendi'));
+    renderAssets();
   });
 }
 
@@ -4319,6 +4506,8 @@ async function renderDecisions() {
         </div>
         <div class="decision-head">
           <h3>${esc(d.title)}</h3>
+          ${d.meeting_id ? `<button class="decision-doc linklike" data-act="toplanti" data-id="${d.id}"
+              style="border:none;background:none;padding:0;cursor:pointer;">📅 Genel kurul tutanağından</button>` : ''}
           ${d.content_url ? `<a class="decision-doc" href="${esc(d.content_url)}" target="_blank" rel="noopener">📄 Belgeyi aç</a>` : ''}
         </div>
         <div class="decision-actions">
@@ -4361,6 +4550,7 @@ async function renderDecisions() {
     const btn = e.target.closest('button[data-act]'); if (!btn) return;
     const rec = list.find(x => x.id === btn.dataset.id); if (!rec) return;
     if (btn.dataset.act === 'edit') return openDecisionModal(rec);
+    if (btn.dataset.act === 'toplanti') return navigate('assembly');
     if (btn.dataset.act === 'belge') return belgeButonu(btn, () => belgeUret({
       tur: 'karar_belgesi', modul: 'decisions', kategori: 'karar',
       baslik: 'Yönetim Kararı',
