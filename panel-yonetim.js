@@ -105,6 +105,7 @@ export async function renderTasks() {
         : `<span class="badge b-gray">${d} gün</span>`;
     return `<tr>
       <td><strong>${cat.icon} ${C.esc(t.title)}</strong>
+        ${C.kapsamRozeti(t.scope, t.building_id)}
         ${t.source === 'asset' ? '<span class="badge b-gray" title="Demirbaş kaydından otomatik oluştu">📦 Demirbaş</span>' : ''}
         ${t.job_id ? '<span class="badge b-blue" title="Bu görev için iş kaydı açıldı">🛠 İşe dönüştürüldü</span>' : ''}
         ${t.legal_basis ? `<div class="muted" style="font-size:12px">${C.esc(t.legal_basis)}</div>` : ''}
@@ -299,6 +300,14 @@ function openTaskModal(rec) {
       <div class="field"><label>Sorumlu</label>
         <input id="t-who" placeholder="Örn: Yönetici" value="${isEdit ? C.esc(rec.assigned_to || '') : ''}" /></div>
     </div>
+    ${!C.cokBloklu() ? '' : `<div class="field"><label>Bu yükümlülük hangi kapsamda?</label>
+      <select id="t-scope">
+        <option value="">Tüm Site (sigorta, yönetim planı gibi)</option>
+        ${C.S.buildings.map(b => `<option value="${b.id}" ${isEdit && rec.scope === 'building' && rec.building_id === b.id ? 'selected' : ''}>${C.esc(b.name)}</option>`).join('')}
+      </select>
+      <p class="muted" style="font-size:12.5px;margin-top:6px">
+        Bloğa özel yükümlülükler (asansör muayenesi gibi) yalnızca o bloğun listesinde sayılır;
+        site geneli olanlar her blokta görünür.</p></div>`}
     <div class="field"><label>Yasal Dayanak (opsiyonel)</label>
       <input id="t-legal" placeholder="Örn: KMK m.41" value="${isEdit ? C.esc(rec.legal_basis || '') : ''}" /></div>
     <div class="field"><label>Açıklama</label>
@@ -310,6 +319,8 @@ function openTaskModal(rec) {
     const title = C.el('t-title').value.trim();
     const due = C.el('t-due').value;
     if (!title || !due) throw new Error('Görev adı ve son tarih zorunludur.');
+    // Kapsam: boş seçim = tüm site, blok id = yalnızca o blok (mobil gorevEkle ile aynı)
+    const hedefBlok = C.el('t-scope')?.value || null;
     const payload = {
       title,
       category: C.el('t-cat').value,
@@ -319,6 +330,8 @@ function openTaskModal(rec) {
       legal_basis: C.el('t-legal').value.trim() || null,
       description: C.el('t-desc').value.trim() || null,
       evidence_url: C.el('t-url').value.trim() || null,
+      building_id: hedefBlok || C.bId(),
+      scope: hedefBlok ? 'building' : 'site',
     };
     const { error } = isEdit
       ? await C.supabase.from('management_tasks').update(payload).eq('id', rec.id)
@@ -1313,7 +1326,7 @@ export async function renderDebts() {
       <h3>Borçlu Daireler</h3>
       <table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th class="t-right">Ay</th><th class="t-right">Anapara</th><th class="t-right">Gecikme</th><th class="t-right">Toplam</th><th></th></tr></thead>
       <tbody id="debt-body">${list.length ? list.map(d => `<tr>
-        <td><strong>${C.esc(d.apt.apartment_number)}</strong></td>
+        <td><strong>${C.esc(d.apt.apartment_number)}</strong>${C.blokRozeti(d.apt.building_id)}</td>
         <td>${C.esc(d.apt.owner_name || '—')}</td>
         <td class="t-right">${d.months}</td>
         <td class="t-right">${C.TL(d.principal)}</td>
@@ -1496,10 +1509,11 @@ async function openTahsilatModal(d) {
   const aylar = data || [];
   if (!aylar.length) return C.toast('Bu daireye ait ödenmemiş aidat kaydı yok');
 
-  C.openModal(`Tahsilat — Daire ${d.apt.apartment_number}`, `
+  C.openModal(`Tahsilat — ${C.daireEtiketi(d.apt.building_id, d.apt.apartment_number)}`, `
     <p class="muted" style="font-size:13px;margin-bottom:14px;">
       ${C.esc(d.apt.owner_name || 'Kat maliki')} · Ödemesi alınan ayları işaretleyin.
-      İşaretlenen tutar <strong>site kasasına gelir olarak</strong> işlenir.
+      İşaretlenen tutar <strong>site kasasına gelir olarak</strong> işlenir${
+        C.cokBloklu() ? ` ve <strong>${C.esc(C.blokAdi(d.apt.building_id))}</strong> defterine yazılır` : ''}.
     </p>
     <div style="max-height:44vh;overflow-y:auto;margin-bottom:14px;">
       <table><thead><tr><th></th><th>Dönem</th><th class="t-right">Tutar</th></tr></thead>
@@ -1522,10 +1536,13 @@ async function openTahsilatModal(d) {
       }).eq('id', c.dataset.fee);
       if (uErr) throw new Error(uErr.message);
 
+      /* Para dairenin KENDİ bloğunun defterine yazılır; ekranda hangi blok
+         seçili olduğunun önemi yok (mobildeki tahsilEt ile aynı kural). */
       await C.adjustBalance({
         amount: Number(c.dataset.amt), operation: 'add',
         description: `Aidat ödemesi - Daire ${d.apt.apartment_number}`,
         category: 'fee', walletType: 'bank', relatedId: c.dataset.fee,
+        buildingId: d.apt.building_id, scope: 'building',
       });
     }
 

@@ -233,6 +233,37 @@ const sId = () => S.site?.id || null;
 // Ortak (site geneli) sorgular için: sitedeki tüm bina id'leri
 const siteBIds = () => (S.buildings.length ? S.buildings.map(b => b.id) : [S.activeBuildingId].filter(Boolean));
 
+/* ---------- Blok kimliği ----------
+   Çok bloklu sitede daire numaraları tekrar eder: "Daire 3" hem A hem B
+   Blok'ta vardır. Yönetici bir borcu, arızayı ya da tahsilatı okurken hangi
+   binadan bahsedildiğini görmek zorunda; aksi halde yanlış daireden para
+   ister. Mobil taraftaki blockService.ts ile aynı sözleşme. */
+const cokBloklu = () => S.buildings.length > 1;
+const blokAdi = (buildingId) => S.buildings.find(b => b.id === buildingId)?.name || '';
+/** "A Blok · Daire 3" (tek bloklu sitede yalnızca "Daire 3") */
+const daireEtiketi = (buildingId, no) => {
+  const daire = `Daire ${no}`;
+  if (!cokBloklu()) return daire;
+  const ad = blokAdi(buildingId);
+  return ad ? `${ad} · ${daire}` : daire;
+};
+/** Kaydın kapsam etiketi: site geneli mi, tek blok mu? */
+const kapsamEtiketi = (scope, buildingId) => {
+  if (!cokBloklu()) return '';
+  return (!scope || scope === 'site') ? 'Tüm Site' : (blokAdi(buildingId) || 'Blok');
+};
+/** Listelerde kullanılan küçük blok rozeti (tek bloklu sitede boş döner) */
+const blokRozeti = (buildingId) => {
+  if (!cokBloklu()) return '';
+  const ad = blokAdi(buildingId);
+  return ad ? `<span class="blok-rozet">${esc(ad)}</span>` : '';
+};
+const kapsamRozeti = (scope, buildingId) => {
+  if (!cokBloklu()) return '';
+  const siteGeneli = !scope || scope === 'site';
+  return `<span class="blok-rozet${siteGeneli ? ' blok-rozet-site' : ''}">${esc(kapsamEtiketi(scope, buildingId))}</span>`;
+};
+
 // Aktif (ücretli ve süresi geçmemiş) abonelik var mı?
 const isSubscribed = () => {
   const s = S.site || activeBuilding();
@@ -869,6 +900,7 @@ el('hamburger').addEventListener('click', () => {
 const modulBaglami = {
   supabase, S, el, $content, esc, TL, dmy, dmyhm, toast, openModal, closeModal,
   bId, sId, siteBIds, needBuilding, navigate, activeBuilding,
+  cokBloklu, blokAdi, daireEtiketi, kapsamEtiketi, blokRozeti, kapsamRozeti,
   richEditorHTML, bindRichEditor, richValue,
   todayISO, downloadCSV, sortByApartment, occupiedOnly, isOccupied, notifyBuilding,
   MONTHS, adjustBalance, notifyUser, refreshBuilding, ayEkle,
@@ -968,9 +1000,18 @@ function needBuilding() {
 }
 
 /* ============ Mali yardımcılar (mobil ile aynı davranış) ============ */
-async function adjustBalance({ amount, operation, description, category='other', walletType='bank', relatedId=null }) {
-  // Kasa SİTE ortaktır: adjust_building_balance sunucuda site kasasını günceller
-  // ve tüm binalara yansıtır. Onay eşiği site kaydından okunur.
+/**
+ * Kasa hareketi.
+ *
+ * Kasa SİTE ortaktır (adjust_building_balance sunucuda site kasasını günceller
+ * ve binalara yansıtır), ama her hareket bir BLOĞA yazılır: `buildingId`
+ * paranın hangi bloğun defterine gireceğini belirler, `scope` ise hareketin
+ * tüm siteyi mi yoksa tek bloğu mu ilgilendirdiğini söyler. Çağıran taraf
+ * ilgili kaydın kendi bloğunu geçmelidir — aksi halde B Blok'tan alınan
+ * tahsilat aktif blok neyse onun defterine düşer.
+ */
+async function adjustBalance({ amount, operation, description, category='other', walletType='bank', relatedId=null, buildingId=null, scope='site' }) {
+  const hedefBlok = buildingId || bId();
   const ab = activeBuilding();
   const threshold = Number(S.site?.approval_threshold ?? ab?.approval_threshold ?? 5000);
   // Onay eşiği HARCAMALAR için vardır. Aidat iptali bir harcama değil, daha
@@ -982,11 +1023,11 @@ async function adjustBalance({ amount, operation, description, category='other',
   const status = needsApproval ? 'pending' : 'completed';
   if (operation === 'add' || !needsApproval) {
     const delta = operation === 'add' ? amount : -amount;
-    const { error } = await supabase.rpc('adjust_building_balance', { p_building_id: bId(), p_wallet: walletType, p_delta: delta });
+    const { error } = await supabase.rpc('adjust_building_balance', { p_building_id: hedefBlok, p_wallet: walletType, p_delta: delta });
     if (error) throw new Error(error.message);
   }
   const { error: e2 } = await supabase.from('transactions').insert({
-    building_id: bId(), type: operation === 'add' ? 'income' : 'expense', amount, description, category,
+    building_id: hedefBlok, scope, type: operation === 'add' ? 'income' : 'expense', amount, description, category,
     wallet_type: walletType, related_id: relatedId, status,
     approved_by: needsApproval ? null : S.user.id, approved_at: needsApproval ? null : new Date().toISOString(), created_by: S.user.id,
   });
@@ -1202,7 +1243,7 @@ async function renderDashboard() {
     uyarilar.push({
       seviye: borcToplam > tahakkuk ? 'kirmizi' : 'sari', ikon: '⚠️', bolum: 'debts',
       baslik: `${borclar.length} dairenin ödenmemiş aidat borcu var`,
-      detay: `En yüksek borç: Daire ${enBuyuk.apt.apartment_number} — ${TL(enBuyuk.anapara + enBuyuk.gecikme)} `
+      detay: `En yüksek borç: ${daireEtiketi(enBuyuk.apt.building_id, enBuyuk.apt.apartment_number)} — ${TL(enBuyuk.anapara + enBuyuk.gecikme)} `
         + `(${enBuyuk.ay} ay). İhtar kaydı açıp ihtarname üretebilirsiniz.`,
       eylem: 'Borç takibine git',
     });
@@ -2384,8 +2425,11 @@ async function renderFees() {
     box.disabled = true;
     try {
       await supabase.from('monthly_fees').update({ is_paid: !on, paid_by: !on ? S.user.id : null, paid_date: !on ? new Date().toISOString() : null }).eq('id', box.dataset.id);
+      // Aidat daima bir daireye aittir: geliri o dairenin bloğunun defterine yazılır
       await adjustBalance({ amount: amt, operation: !on ? 'add' : 'subtract',
-        description: `${!on?'Aidat ödemesi':'Aidat iptali'} - Daire ${box.dataset.no} - ${year}/${month}`, category:'fee', walletType:'bank', relatedId: box.dataset.id });
+        description: `${!on?'Aidat ödemesi':'Aidat iptali'} - Daire ${box.dataset.no} - ${year}/${month}`,
+        category:'fee', walletType:'bank', relatedId: box.dataset.id,
+        buildingId: bId(), scope: 'building' });
       if (!on && box.dataset.uid) {
         notifyUser(box.dataset.uid, '✅ Aidat Onaylandı', `${MONTHS[month-1]} ${year} ayı aidatınız ödendi olarak işaretlendi.`);
       }
@@ -2434,12 +2478,41 @@ async function renderTransactions() {
     s === 'approved' ? '<span class="badge b-green">Onaylandı</span>' :
     s === 'rejected' ? '<span class="badge b-red">Reddedildi</span>' : '';
 
+  /* Blok defteri: kasa ortak ama her hareket bir bloğa yazılır. Blok bazlı
+     gider yapılan sitede "B Blok bu ay ne topladı, ne harcadı" sorusunun
+     cevabı burada; mobildeki getBlokDefteri ile aynı hesap. */
+  const blokDefteriKarti = (aydakiler) => {
+    if (!cokBloklu()) return '';
+    const kova = new Map(S.buildings.map(b => [b.id, { ad: b.name, gelir: 0, gider: 0 }]));
+    for (const t of aydakiler) {
+      const d = kova.get(t.building_id); if (!d) continue;
+      if (t.status === 'rejected' || t.status === 'pending') continue;
+      if (t.type === 'income') d.gelir += Number(t.amount) || 0;
+      else d.gider += Number(t.amount) || 0;
+    }
+    const satirlar = [...kova.values()];
+    if (!satirlar.some(d => d.gelir || d.gider)) return '';
+    return `<div class="card">
+      <h3>Blok Defteri — ${MONTHS[month-1]} ${year}</h3>
+      <table><thead><tr><th>Blok</th><th class="t-right">Gelir</th><th class="t-right">Gider</th><th class="t-right">Net</th></tr></thead>
+      <tbody>${satirlar.map(d => `<tr>
+        <td><strong>${esc(d.ad)}</strong></td>
+        <td class="t-right" style="color:var(--green)">${TL(d.gelir)}</td>
+        <td class="t-right" style="color:var(--red)">${TL(d.gider)}</td>
+        <td class="t-right"><strong style="color:${d.gelir - d.gider >= 0 ? 'var(--green)' : 'var(--red)'}">${TL(d.gelir - d.gider)}</strong></td>
+      </tr>`).join('')}</tbody></table>
+      <p class="muted" style="font-size:12.5px;margin-top:10px;">
+        Kasa site ortaktır; bu tablo paranın hangi bloğun hesabına yazıldığını gösterir.
+        Bloğa özel giderler yalnızca o bloğun defterinde görünür.</p>
+    </div>`;
+  };
+
   const txCard = (t) => `
     <div class="tx-card">
       <div class="tx-icon ${t.type}">${t.type === 'income' ? '↙' : '↗'}</div>
       <div class="tx-info">
         <div class="tx-desc">${esc(t.description)}</div>
-        <div class="tx-cat">${WALLET_CATEGORY_LABELS[t.category] || t.category}</div>
+        <div class="tx-cat">${WALLET_CATEGORY_LABELS[t.category] || t.category}${kapsamRozeti(t.scope, t.building_id)}</div>
         <div class="tx-date">${dmyhm(t.created_at)}</div>
       </div>
       <div class="tx-right">
@@ -2478,7 +2551,7 @@ async function renderTransactions() {
       <div id="pending-body">${pending.map(t => `
         <div class="pending-row">
           <div style="flex:1"><strong>${esc(t.description)}</strong>
-            <div class="muted" style="font-size:12px">${dmy(t.created_at)} · ${WALLET_CATEGORY_LABELS[t.category]||t.category}</div></div>
+            <div class="muted" style="font-size:12px">${dmy(t.created_at)} · ${WALLET_CATEGORY_LABELS[t.category]||t.category}${kapsamRozeti(t.scope, t.building_id)}</div></div>
           <div class="tx-amount expense" style="margin-right:12px">${TL(t.amount)}</div>
           <button class="btn btn-sm btn-green" data-act="ok" data-id="${t.id}">Onayla</button>
           <button class="btn btn-sm btn-outline-red" data-act="no" data-id="${t.id}">Reddet</button>
@@ -2493,6 +2566,8 @@ async function renderTransactions() {
         <button class="month-btn" id="month-next">›</button>
       </div>
     </div>
+
+    ${blokDefteriKarti(inMonth)}
 
     <div class="seg-tabs" id="tx-tabs">
       <button class="seg ${tab==='all'?'active':''}" data-tab="all">Tümü</button>
@@ -2651,7 +2726,8 @@ async function approveTx(id, approved) {
   if (!tx || tx.status !== 'pending') throw new Error('İşlem zaten sonuçlanmış');
   await supabase.from('transactions').update({ status: approved?'approved':'rejected', approved_by:S.user.id, approved_at:new Date().toISOString() }).eq('id', id);
   if (approved && tx.type === 'expense') {
-    const { error } = await supabase.rpc('adjust_building_balance', { p_building_id: bId(), p_wallet: tx.wallet_type, p_delta: -Number(tx.amount) });
+    // Onaylanan gider, işlemin KENDİ bloğundan düşülür (aktif blok değil)
+    const { error } = await supabase.rpc('adjust_building_balance', { p_building_id: tx.building_id || bId(), p_wallet: tx.wallet_type, p_delta: -Number(tx.amount) });
     if (error) throw new Error(error.message);
   }
   await refreshBuilding();
@@ -2660,10 +2736,23 @@ async function approveTx(id, approved) {
 // türe göre kategori çipleri, tutar, açıklama, not. Kasa: Ana Kasa (bank).
 function openTxModal() {
   const ab = activeBuilding();
-  const state = { type: 'expense', category: '' };
+  // hedefBlok null = tüm site; blok id = yalnızca o bloğun defteri
+  const state = { type: 'expense', category: '', hedefBlok: null };
 
   const catChips = () => (state.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES)
     .map(c => `<button type="button" class="cat-chip ${state.category===c.value?'active':''}" data-cat="${c.value}">${c.label}</button>`).join('');
+
+  /* Kapsam: bloğa özel harcama (B Blok çatı tamiri) o bloğun defterine
+     yazılır; site geneli harcama (bahçe, güvenlik) tüm siteye aittir. */
+  const kapsamAlani = () => !cokBloklu() ? '' : `
+    <div class="field"><label>Bu işlem hangi kapsamda?</label>
+      <div class="cat-grid" id="m-scope">
+        <button type="button" class="cat-chip active" data-blok="">Tüm Site</button>
+        ${S.buildings.map(b => `<button type="button" class="cat-chip" data-blok="${b.id}">${esc(b.name)}</button>`).join('')}
+      </div>
+      <p class="muted" style="font-size:12.5px;margin-top:6px" id="m-scope-info">
+        Tüm siteyi ilgilendiren ortak gelir/gider olarak kaydedilir.</p>
+    </div>`;
 
   openModal('Yeni İşlem', `
     <div class="field"><label>İşlem Türü</label>
@@ -2672,6 +2761,7 @@ function openTxModal() {
         <button type="button" class="seg active" data-type="expense">📤 Gider</button>
       </div>
     </div>
+    ${kapsamAlani()}
     <div class="field"><label>Tutar (₺)</label><input id="m-amt" inputmode="decimal" placeholder="0,00"></div>
     <div class="field"><label>Kategori</label><div class="cat-grid" id="m-cats">${catChips()}</div></div>
     <div class="field"><label>Açıklama</label><input id="m-desc" placeholder="Örn: Asansör bakımı"></div>
@@ -2690,6 +2780,15 @@ function openTxModal() {
     state.category = chip.dataset.cat;
     el('m-cats').querySelectorAll('.cat-chip').forEach(c => c.classList.toggle('active', c === chip));
   });
+  el('m-scope')?.addEventListener('click', (e) => {
+    const chip = e.target.closest('button[data-blok]'); if (!chip) return;
+    state.hedefBlok = chip.dataset.blok || null;
+    el('m-scope').querySelectorAll('.cat-chip').forEach(c => c.classList.toggle('active', c === chip));
+    const bilgi = el('m-scope-info');
+    if (bilgi) bilgi.textContent = state.hedefBlok
+      ? `Yalnızca ${blokAdi(state.hedefBlok)} defterine yazılır; o bloğun aidat hesabında görünür.`
+      : 'Tüm siteyi ilgilendiren ortak gelir/gider olarak kaydedilir.';
+  });
 
   el('m-save').addEventListener('click', async () => {
     const amt = parseFloat(String(el('m-amt').value).replace(',','.'));
@@ -2699,7 +2798,8 @@ function openTxModal() {
     el('m-save').disabled = true;
     try {
       const { needsApproval } = await adjustBalance({ amount:amt, operation: state.type==='income'?'add':'subtract',
-        description:desc, category:state.category, walletType:'bank' });
+        description:desc, category:state.category, walletType:'bank',
+        buildingId: state.hedefBlok || bId(), scope: state.hedefBlok ? 'building' : 'site' });
       const notes = el('m-notes').value.trim();
       if (notes) {
         // Son eklenen işleme notu iliştir (adjustBalance not alanını yazmıyor)
@@ -2741,6 +2841,7 @@ async function renderAnnouncements() {
             ${dmy(a.created_at)}
             ${isNew(a.created_at) ? '<span class="badge b-green">YENİ</span>' : ''}
             <span class="board-badge ${i < 4 ? '' : 'off'}">${i < 4 ? '📍 Panoda' : 'Panoda değil'}</span>
+            ${kapsamRozeti(a.scope, a.building_id)}
           </div>
           <div class="lr-text">${esc(a.detail)}</div>
         </div>
@@ -2748,16 +2849,38 @@ async function renderAnnouncements() {
       </div>`).join('') : '<div class="card"><p class="t-empty">Henüz duyuru yok</p></div>'}</div>`;
 
   el('ann-add').addEventListener('click', () => {
+    // Bloğa özel duyuru yalnızca o bloğun sakinlerine görünür ve bildirim gider
+    const annState = { hedefBlok: null };
     openModal('Yeni Duyuru', `
       <div class="field"><label>Başlık</label><input id="a-title"></div>
       <div class="field"><label>Detay</label><textarea id="a-detail" rows="4"></textarea></div>
+      ${!cokBloklu() ? '' : `<div class="field"><label>Duyuru kime gidecek?</label>
+        <div class="cat-grid" id="a-scope">
+          <button type="button" class="cat-chip active" data-blok="">Tüm Site</button>
+          ${S.buildings.map(b => `<button type="button" class="cat-chip" data-blok="${b.id}">${esc(b.name)}</button>`).join('')}
+        </div>
+        <p class="muted" style="font-size:12.5px;margin-top:6px" id="a-scope-info">
+          Sitedeki tüm sakinler görür ve bildirim alır.</p></div>`}
       <p class="muted" style="font-size:12.5px;margin-bottom:14px;">Yeni duyuru panonun en üstünde yayınlanır ve mobil sohbete düşer.</p>
       <button class="btn btn-block" id="a-save">Yayınla</button>`);
+    el('a-scope')?.addEventListener('click', (e) => {
+      const chip = e.target.closest('button[data-blok]'); if (!chip) return;
+      annState.hedefBlok = chip.dataset.blok || null;
+      el('a-scope').querySelectorAll('.cat-chip').forEach(c => c.classList.toggle('active', c === chip));
+      const bilgi = el('a-scope-info');
+      if (bilgi) bilgi.textContent = annState.hedefBlok
+        ? `Yalnızca ${blokAdi(annState.hedefBlok)} sakinleri görür ve bildirim alır.`
+        : 'Sitedeki tüm sakinler görür ve bildirim alır.';
+    });
     el('a-save').addEventListener('click', async () => {
       const title = el('a-title').value.trim(), detail = el('a-detail').value.trim();
       if (!title || !detail) return toast('Başlık ve detay girin', true);
       el('a-save').disabled = true;
-      const { error } = await supabase.from('announcements').insert({ building_id:bId(), admin_id:S.user.id, title, detail, is_active:true });
+      const { error } = await supabase.from('announcements').insert({
+        building_id: annState.hedefBlok || bId(),
+        scope: annState.hedefBlok ? 'building' : 'site',
+        admin_id: S.user.id, title, detail, is_active: true,
+      });
       if (error) { toast(error.message, true); el('a-save').disabled=false; return; }
       await postAnnouncementToChat(title, detail); // mobil sohbete de düşsün
       notifyBuilding(`📢 ${title}`, detail); // sakinlere push
@@ -2829,7 +2952,7 @@ async function renderMaintenance() {
               <span class="badge ${r.priority==='high'?'b-red':r.priority==='medium'?'b-amber':'b-green'}">${PRIORITIES[r.priority]||r.priority}</span>
               <span class="badge b-gray">${MAINT_STATUS[r.status]||r.status}</span>
             </div>
-            <div class="lr-meta">🏠 Daire ${esc(r.apartments?.apartment_number||'—')} · ${dmyhm(r.created_at)}</div>
+            <div class="lr-meta">🏠 ${esc(daireEtiketi(r.building_id, r.apartments?.apartment_number || '—'))} · ${dmyhm(r.created_at)}</div>
           </div>
         </div>
         <div class="lr-text">${esc(r.description || '')}</div>
@@ -2875,9 +2998,13 @@ function openFaultToJobModal(r) {
     el('fj-save').disabled = true;
     try {
       const aptNo = r.apartments?.apartment_number || 'Bilinmiyor';
-      const description = `Bu arıza Daire ${aptNo} tarafından bildirildi.\n\n${r.description || ''}`.trim();
+      const description = `Bu arıza ${daireEtiketi(r.building_id, aptNo)} tarafından bildirildi.\n\n${r.description || ''}`.trim();
+      /* Arızadan doğan iş, arızanın geldiği bloğa yazılır; masrafı o bloğun
+         defterine düşsün (mobil fault-detail ile aynı kural). */
       const { error: jobError } = await supabase.from('building_jobs').insert({
-        building_id: bId(), title: r.title, description,
+        building_id: r.building_id || bId(),
+        scope: cokBloklu() ? 'building' : 'site',
+        title: r.title, description,
         interval: 'custom', interval_days: 0, assigned_to: assignee, price,
         next_due_date: due ? new Date(due).toISOString() : null,
         is_active: true, status: 'planned', created_by: S.user.id,
@@ -2907,7 +3034,7 @@ async function renderJobs() {
     <div class="page-head"><h2>İş Takibi</h2><div class="tools"><button class="btn" id="job-add">+ İş Ekle</button></div></div>
     <div class="card"><table><thead><tr><th>İş</th><th>Sorumlu</th><th>Ücret</th><th>Durum</th><th></th></tr></thead>
       <tbody id="job-body">${list.length ? list.map(j=>`<tr>
-        <td><strong>${esc(j.title)}</strong><div class="muted" style="font-size:12px">${esc(j.description||'')}</div></td>
+        <td><strong>${esc(j.title)}</strong>${kapsamRozeti(j.scope, j.building_id)}<div class="muted" style="font-size:12px">${esc(j.description||'')}</div></td>
         <td>${esc(j.assigned_to||'—')}</td><td>${TL(j.price)}</td><td>${badge(j)}</td>
         <td class="t-right" style="white-space:nowrap">
           <select class="mini" data-status="${j.id}"><option value="">Durum…</option><option value="in_progress">Başlat</option><option value="completed">Tamamla</option><option value="cancelled">İptal</option></select>
@@ -2915,21 +3042,42 @@ async function renderJobs() {
           <button class="btn btn-sm btn-outline-red" data-del="${j.id}">Sil</button>
         </td></tr>`).join('') : '<tr><td colspan="5" class="t-empty">Henüz iş yok</td></tr>'}</tbody></table></div>`;
   el('job-add').addEventListener('click', () => {
+    // İşin kapsamı: bloğa özel iş, ücreti o bloğun defterine yazılır
+    const jobState = { hedefBlok: null };
     openModal('Yeni İş', `
       <div class="field"><label>İş Adı</label><input id="j-title" placeholder="Örn: Asansör bakımı"></div>
       <div class="field"><label>Açıklama</label><textarea id="j-desc" rows="2"></textarea></div>
+      ${!cokBloklu() ? '' : `<div class="field"><label>Bu iş hangi blok için?</label>
+        <div class="cat-grid" id="j-scope">
+          <button type="button" class="cat-chip active" data-blok="">Tüm Site</button>
+          ${S.buildings.map(b => `<button type="button" class="cat-chip" data-blok="${b.id}">${esc(b.name)}</button>`).join('')}
+        </div>
+        <p class="muted" style="font-size:12.5px;margin-top:6px" id="j-scope-info">
+          Tüm siteyi ilgilendiren ortak iş olarak kaydedilir.</p></div>`}
       <div class="grid-2">
         <div class="field"><label>Sorumlu Kişi/Firma</label><input id="j-assignee"></div>
         <div class="field"><label>Ücret (₺)</label><input id="j-price" inputmode="decimal" value="0"></div>
       </div>
       <p class="muted" style="font-size:12.5px;margin-bottom:14px">Buradaki ücret plandır; iş <strong>tamamlanırken</strong> gerçekte ödenen tutar sorulur ve kasaya o tutar işlenir.</p>
       <button class="btn btn-block" id="j-save">Kaydet</button>`);
+    el('j-scope')?.addEventListener('click', (e) => {
+      const chip = e.target.closest('button[data-blok]'); if (!chip) return;
+      jobState.hedefBlok = chip.dataset.blok || null;
+      el('j-scope').querySelectorAll('.cat-chip').forEach(c => c.classList.toggle('active', c === chip));
+      const bilgi = el('j-scope-info');
+      if (bilgi) bilgi.textContent = jobState.hedefBlok
+        ? `İşin ücreti yalnızca ${blokAdi(jobState.hedefBlok)} defterine gider olarak yazılır.`
+        : 'Tüm siteyi ilgilendiren ortak iş olarak kaydedilir.';
+    });
     el('j-save').addEventListener('click', async () => {
       const title = el('j-title').value.trim(); if (!title) return toast('İş adı girin', true);
       const price = parseFloat(String(el('j-price').value).replace(',','.'))||0;
       el('j-save').disabled = true;
       try {
-        const { error } = await supabase.from('building_jobs').insert({ building_id:bId(), title,
+        const { error } = await supabase.from('building_jobs').insert({
+          building_id: jobState.hedefBlok || bId(),
+          scope: jobState.hedefBlok ? 'building' : 'site',
+          title,
           description: el('j-desc').value.trim()||null, interval:'monthly', assigned_to: el('j-assignee').value.trim()||'',
           price, is_active:true, status:'planned', created_by:S.user.id }).select().single();
         if (error) throw new Error(error.message);
@@ -3064,8 +3212,9 @@ function openJobPaymentModal(job) {
         const { data: pendingTx } = await supabase.from('transactions').select('id')
           .eq('related_id', job.id).eq('status', 'pending').eq('category', 'job').limit(1).maybeSingle();
 
+        // Gider işin KENDİ bloğuna yazılır (aktif blok neyse ona değil)
         const { error: rpcError } = await supabase.rpc('adjust_building_balance', {
-          p_building_id: bId(), p_wallet: 'bank', p_delta: -amount,
+          p_building_id: job.building_id || bId(), p_wallet: 'bank', p_delta: -amount,
         });
         if (rpcError) throw new Error(rpcError.message);
 
@@ -3077,7 +3226,7 @@ function openJobPaymentModal(job) {
           }).eq('id', pendingTx.id);
         } else {
           const { error: txError } = await supabase.from('transactions').insert({
-            building_id: bId(), type: 'expense', amount,
+            building_id: job.building_id || bId(), scope: job.scope || 'site', type: 'expense', amount,
             description: `İş ödemesi - ${job.title}`, category: 'job', wallet_type: 'bank',
             related_id: job.id, status: 'completed',
             approved_by: S.user.id, approved_at: new Date().toISOString(), created_by: S.user.id,
@@ -4334,7 +4483,7 @@ async function renderAssets() {
     return `
       <div class="asset-card">
         <span class="badge ${warrantyText.includes('Bitti') ? 'b-red' : 'b-green'} asset-badge">${warrantyText}</span>
-        <h3 style="margin-top: 0; margin-bottom: 8px;">${esc(a.name)}</h3>
+        <h3 style="margin-top: 0; margin-bottom: 8px;">${esc(a.name)}${blokRozeti(a.building_id)}</h3>
         <p class="muted" style="font-size: 13px;">Marka/Model: <strong>${esc(a.brand || '—')} ${esc(a.model || '—')}</strong></p>
         <p class="muted" style="font-size: 13px;">Seri No: <strong>${esc(a.serial_number || '—')}</strong></p>
         <p class="muted" style="font-size: 13px; margin-top: 10px;">Son Bakım: <strong>${lastMaint}</strong></p>
