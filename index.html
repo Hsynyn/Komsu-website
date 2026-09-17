@@ -468,19 +468,19 @@
       <h2 class="section-title reveal">Şeffaf, basit fiyat</h2>
       <p class="section-sub reveal">Sitenizdeki daire sayısını seçin, aylık ücretinizi anında görün. Gizli ücret yok.</p>
       <div class="pricing-card reveal">
-        <div class="price-big"><span id="priceVal">650</span><small>₺ / ay</small></div>
+        <div class="price-big"><span id="priceVal">1.059</span><small>₺ / ay</small></div>
         <div class="price-sub">Tüm site için tek abonelik — her bina, her özellik dahil.</div>
         <div class="slider-row">
           <label>Sitenizdeki toplam daire <b><span id="daireVal">40</span> daire</b></label>
           <input type="range" min="4" max="400" value="40" step="1" class="komsu" id="daireSlider" />
         </div>
         <div class="price-breakdown">
-          <span>Sabit işletim: 250₺</span>·<span>Daire başına: 10₺ × <span id="daireVal2">40</span></span>
+          <span>Sabit işletim: 299₺</span>·<span>Daire başına: 19₺ × <span id="daireVal2">40</span></span>
         </div>
         <div class="trial-note">🎁 İlk 1 ay tamamen ücretsiz — kart bilgisi istemeden deneyin</div>
         <a class="price-cta" href="panel.html?signup=1">Ücretsiz Başla →</a>
         <p class="price-legal">
-          Fiyatlar Türk Lirası (₺) cinsinden olup [KDV DAHİLDİR / KDV HARİÇTİR]. Abonelik aylıktır ve iptal edilmediği sürece otomatik yenilenir.
+          Fiyatlar Türk Lirası (₺) cinsinden olup KDV dahildir. Abonelik aylıktır ve iptal edilmediği sürece otomatik yenilenir.
           Satın alma öncesi <a href="mesafeli-satis-sozlesmesi.html">Mesafeli Satış Sözleşmesi</a>,
           <a href="iptal-iade-kosullari.html">İptal ve İade Koşulları</a> ve
           <a href="teslimat.html">Teslimat Koşulları</a>'nı inceleyebilirsiniz.
@@ -665,7 +665,7 @@
       const fmt = new Intl.NumberFormat('tr-TR');
       function update(){
         const d = parseInt(slider.value, 10);
-        const price = 250 + 10 * d;
+        const price = 299 + 19 * d;
         document.getElementById('daireVal').textContent = d;
         document.getElementById('daireVal2').textContent = d;
         document.getElementById('priceVal').textContent = fmt.format(price);

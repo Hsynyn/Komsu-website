@@ -4252,7 +4252,7 @@ async function renderSubscription() {
     return;
   }
 
-  const pricing = priceRes.data || { base_fee: 250, per_apartment_fee: 10 };
+  const pricing = priceRes.data || { base_fee: 299, per_apartment_fee: 19 };
   // Ücret, sitedeki BİLDİRİLEN toplam daire sayısına göre hesaplanır
   // (buildings.apartment_count). Fiziksel apartments satırları kayıtta
   // oluşmadığı için satır saymak yanlış (0) sonuç veriyordu.
