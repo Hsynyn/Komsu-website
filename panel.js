@@ -903,7 +903,7 @@ const modulBaglami = {
   cokBloklu, blokAdi, daireEtiketi, kapsamEtiketi, blokRozeti, kapsamRozeti,
   richEditorHTML, bindRichEditor, richValue,
   todayISO, downloadCSV, sortByApartment, occupiedOnly, isOccupied, notifyBuilding,
-  MONTHS, adjustBalance, notifyUser, refreshBuilding, ayEkle,
+  MONTHS, adjustBalance, notifyUser, notifyApartment, refreshBuilding, ayEkle,
 };
 initYonetim(modulBaglami);
 initBelge(modulBaglami);
@@ -1070,6 +1070,17 @@ async function notifyUser(userId, title, body) {
     });
     if (error) console.error('Kullanıcı bildirimi gönderilemedi:', error.message);
   } catch (e) { console.error('Kullanıcı bildirimi gönderilemedi:', e); }
+}
+// 0023: bir dairede iki sakin olabilir. Aidat gibi DAİREYE ait bildirimler
+// tek kişiye değil, dairenin tüm sakinlerine gitmeli.
+async function notifyApartment(apartmentId, title, body) {
+  if (!apartmentId) return;
+  try {
+    const { error } = await supabase.rpc('notify_apartment', {
+      p_apartment_id: apartmentId, p_title: title, p_body: body, p_data: { screen: 'chat' },
+    });
+    if (error) console.error('Daire bildirimi gönderilemedi:', error.message);
+  } catch (e) { console.error('Daire bildirimi gönderilemedi:', e); }
 }
 
 
@@ -2214,11 +2225,43 @@ async function renderApartments() {
   if (!needBuilding()) return;
   const { data } = await supabase.from('apartments').select('*').eq('building_id', bId());
   const list = sortByApartment(data);
+
+  // 0023: bir daireye iki sakin olabilir. apartments.user_id yalnızca BİRİNCİL
+  // üyeyi gösterir (eski istemciler için senkron tutuluyor), ikinci sakin
+  // yalnızca apartment_members'ta görünür.
+  const aptIds = list.map(a => a.id);
+  let membersByApt = {};
+  if (aptIds.length) {
+    const { data: mem } = await supabase
+      .from('apartment_members')
+      .select('apartment_id, user_id, role, joined_at')
+      .in('apartment_id', aptIds);
+
+    const uids = [...new Set((mem || []).map(m => m.user_id))];
+    let nameByUid = {};
+    if (uids.length) {
+      const { data: profs } = await supabase
+        .from('profiles').select('id, name, surname, email').in('id', uids);
+      (profs || []).forEach(pr => {
+        nameByUid[pr.id] = [pr.name, pr.surname].filter(Boolean).join(' ').trim() || pr.email || '';
+      });
+    }
+    (mem || [])
+      .sort((x, y) => String(x.joined_at).localeCompare(String(y.joined_at)))
+      .forEach(m => {
+        (membersByApt[m.apartment_id] = membersByApt[m.apartment_id] || [])
+          .push({ uid: m.user_id, ad: nameByUid[m.user_id] || 'İsimsiz sakin' });
+      });
+  }
+  const uyeler = (aptId) => membersByApt[aptId] || [];
   const rows = (filter='') => list
     .filter(a => !filter || `${a.apartment_number} ${a.owner_name||''} ${a.username||''} ${a.vehicle_plate_number||''}`.toLowerCase().includes(filter.toLowerCase()))
     .map(a => `<tr>
       <td><strong>${esc(a.apartment_number)}</strong></td>
       <td>${esc(a.owner_name||'—')}</td>
+      <td>${uyeler(a.id).length
+        ? uyeler(a.id).map((m, i) => `<div class="uye-satir">${esc(m.ad)}${i === 0 ? ' <span class="badge b-gray" title="Birincil sakin — daire bilgileri bu kişiye yazılır">1.</span>' : ''} <button class="btn btn-xs btn-outline-red" data-act="rm-member" data-uid="${esc(m.uid)}" data-ad="${esc(m.ad)}" data-no="${esc(a.apartment_number)}" title="Bu sakini daireden çıkar">Çıkar</button></div>`).join('')
+        : '<span class="t-muted">—</span>'}</td>
       <td>${esc(a.owner_phone||'—')}</td>
       <td>${esc(a.vehicle_plate_number||'—')}</td>
       <td><input class="share-input" data-share="${a.id}" inputmode="decimal" placeholder="—"
@@ -2235,11 +2278,11 @@ async function renderApartments() {
     </div>
     <div class="info-banner">Daireler, sakinlerin mobil uygulamada <strong>bina kodu</strong> ile kendilerini eklemesiyle otomatik oluşur. Buradan yeni daire eklenmez; mevcut daireleri yönetebilirsiniz.
       <br><strong>Arsa payı</strong> alanını doldurursanız işletme projesi giderleri ve genel kurul yeter sayısı KMK m.20/m.30'a uygun hesaplanır. Boş bırakılırsa eşit dağıtım yapılır.</div>
-    <div class="card"><table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th>Telefon</th><th>Plaka</th><th>Arsa Payı</th><th>Durum</th><th></th></tr></thead>
-      <tbody id="apt-body">${list.length ? rows() : '<tr><td colspan="7" class="t-empty">Henüz sakin kaydı yok</td></tr>'}</tbody></table></div>`;
+    <div class="card"><table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th>Sakinler</th><th>Telefon</th><th>Plaka</th><th>Arsa Payı</th><th>Durum</th><th></th></tr></thead>
+      <tbody id="apt-body">${list.length ? rows() : '<tr><td colspan="8" class="t-empty">Henüz sakin kaydı yok</td></tr>'}</tbody></table></div>`;
 
   el('apt-search')?.addEventListener('input', (e) => {
-    el('apt-body').innerHTML = rows(e.target.value) || '<tr><td colspan="7" class="t-empty">Eşleşen daire yok</td></tr>';
+    el('apt-body').innerHTML = rows(e.target.value) || '<tr><td colspan="8" class="t-empty">Eşleşen daire yok</td></tr>';
   });
   // Arsa payı: alandan çıkınca kaydet. Boş bırakılırsa null yazılır.
   el('apt-body').addEventListener('change', async (e) => {
@@ -2260,8 +2303,18 @@ async function renderApartments() {
       const { error } = await supabase.from('apartments').update({ is_active: !on }).eq('id', btn.dataset.id);
       if (error) return toast(error.message, true);
       toast(!on ? 'Daire aktifleştirildi' : 'Daire pasifleştirildi'); renderApartments();
+    } else if (btn.dataset.act === 'rm-member') {
+      // Yalnızca bu kişinin ÜYELİĞİ silinir; dairede ikinci sakin varsa o kalır.
+      // Son sakin çıkarsa daire "Boş" durumuna döner (aidat/borç kayıtları durur).
+      if (!confirm(`${btn.dataset.ad}, ${btn.dataset.no} numaralı daireden çıkarılsın mı?\n\nDairenin aidat ve talep kayıtları silinmez.`)) return;
+      const { error } = await supabase.rpc('admin_remove_resident', {
+        p_building_id: bId(),
+        p_user_id: btn.dataset.uid,
+      });
+      if (error) return toast(error.message, true);
+      toast('Sakin daireden çıkarıldı'); renderApartments();
     } else if (btn.dataset.act === 'del') {
-      if (!confirm(`${btn.dataset.no} dairesini silmek istediğinize emin misiniz?`)) return;
+      if (!confirm(`${btn.dataset.no} DAİRESİNİ TAMAMEN SİL\n\nBu işlem dairenin aidat, borç ve talep kayıtlarını da siler ve geri alınamaz.\n\nYalnızca sakini çıkarmak istiyorsanız "Çıkar" düğmesini kullanın.\n\nDevam edilsin mi?`)) return;
       const { error } = await supabase.from('apartments').delete().eq('id', btn.dataset.id);
       if (error) return toast(error.message, true);
       toast('Daire silindi'); renderApartments();
@@ -2320,7 +2373,7 @@ async function renderFees() {
       : `<label class="pay-check${f.is_paid ? ' is-paid' : ''}">
            <input type="checkbox" data-act="toggle" data-id="${f.id}" data-on="${f.is_paid}"
                   data-amt="${f.amount}" data-no="${esc(a.apartment_number)}"
-                  data-uid="${a.user_id||''}" ${f.is_paid ? 'checked' : ''}>
+                  data-apt="${a.id}" ${f.is_paid ? 'checked' : ''}>
            <span>${f.is_paid ? 'Ödendi' : 'Ödendi olarak işaretle'}</span>
          </label>`;
     const borc = borcByApt.get(a.id);
@@ -2430,8 +2483,8 @@ async function renderFees() {
         description: `${!on?'Aidat ödemesi':'Aidat iptali'} - Daire ${box.dataset.no} - ${year}/${month}`,
         category:'fee', walletType:'bank', relatedId: box.dataset.id,
         buildingId: bId(), scope: 'building' });
-      if (!on && box.dataset.uid) {
-        notifyUser(box.dataset.uid, '✅ Aidat Onaylandı', `${MONTHS[month-1]} ${year} ayı aidatınız ödendi olarak işaretlendi.`);
+      if (!on && box.dataset.apt) {
+        notifyApartment(box.dataset.apt, '✅ Aidat Onaylandı', `${MONTHS[month-1]} ${year} ayı aidatınız ödendi olarak işaretlendi.`);
       }
       toast(!on ? 'Ödendi işaretlendi, kasaya eklendi' : 'Ödeme geri alındı'); renderFees();
     } catch (err) {

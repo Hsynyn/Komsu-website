@@ -1553,8 +1553,9 @@ async function openTahsilatModal(d) {
         .eq('apartment_id', d.apt.id).neq('stage', 'closed');
     }
 
-    if (d.apt.user_id && C.notifyUser) {
-      C.notifyUser(d.apt.user_id, '✅ Aidat Ödemesi Alındı',
+    // 0023: daireye ait bildirim dairenin TÜM sakinlerine gitmeli
+    if (d.apt.id && C.notifyApartment) {
+      C.notifyApartment(d.apt.id, '✅ Aidat Ödemesi Alındı',
         `${secili.length} aylık aidatınız (${para(toplam)}) ödendi olarak işaretlendi.`);
     }
     if (C.refreshBuilding) await C.refreshBuilding();
