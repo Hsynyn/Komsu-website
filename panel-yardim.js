@@ -7,16 +7,18 @@
       Genel Bakış ona "denetim raporu girilmemiş", "genel kurul planlanmamış"
       diyordu — bina belki hepsini yapmıştı, sisteme dün kaydolmuştu. Rehber,
       kurulum tamamlanana kadar uyarıların yerine geçer ve adım adım yol
-      gösterir. Adımların durumu HİÇBİR YERDE SAKLANMAZ; her seferinde canlı
-      veriden hesaplanır (sakin var mı, aidat tanımlı mı...). Böylece hep
-      doğru, migration da gerektirmiyor.
+      gösterir. Adımlar iki yoldan biter: canlı veriden otomatik tespit
+      (sakin var mı, aidat tanımlı mı — hep doğru, saklama gerektirmez) ya da
+      yöneticinin elle işaretlemesi (sites.onboarding, migration 0028 —
+      "geçmiş kayıt bende yok" diyebilsin, başka cihazda da aynı görsün).
 
    2) YARDIM PANELİ. Sağ üstteki "?" ile açılan, o anki sayfaya göre içerik
       gösteren çekmece. Bir adıma tıklayınca ilgili düğme sayfada parlar.
 
    Bağımlılıklar panel.js'ten initYardim(ctx) ile gelir (panel-yonetim.js ile
-   aynı desen). Tercihler (paneli kapattım, kartı küçülttüm) tarayıcıda
-   localStorage'da; anahtar deseni komsu.panel.<özellik>.<uid>.
+   aynı desen). Kurulum durumu (elle işaretlenen adımlar, kartı küçülttüm)
+   sites.onboarding'de — başka cihazdan da aynı görünsün. Yalnızca "yardım
+   panelini gördüm" tercihi tarayıcıda (localStorage, komsu.panel.<özellik>.<uid>).
 ============================================================ */
 
 let C = null;
@@ -66,8 +68,37 @@ async function aidatTutari() {
   return Number(C.S.site?.default_fee_amount) || 0;
 }
 
+/* Bellekteki S.site sayfa açılışında yüklenir. Kart, IBAN/bakiye/onboarding
+   için her seferinde veritabanından okur ve belleği de tazeler — böylece
+   Ayarlar'da kaydedip Genel Bakış'a dönen yönetici adımı hemen yeşil görür.
+   select('*'): onboarding kolonu henüz yoksa (0028 uygulanmamışsa) sorgu
+   yine çalışır, alan undefined kalır. */
+async function tazeSite() {
+  try {
+    const { data, error } = await C.supabase.from('sites').select('*').eq('id', C.sId()).maybeSingle();
+    if (!error && data) { C.S.site = data; return data; }
+  } catch { /* aşağıya düş */ }
+  return C.S.site || {};
+}
+
+/* Sığ birleştirme: {done_gecmis:true} ya da {gizli:false}. RPC yoksa
+   (0028 uygulanmamış) anlaşılır bir mesajla döner, kartı bozmaz. */
+async function kurulumYaz(patch) {
+  const { error } = await C.supabase.rpc('kurulum_guncelle', { p_patch: patch });
+  if (error) {
+    const m = String(error.message || '');
+    C.toast(/kurulum_guncelle|schema cache/i.test(m)
+      ? 'Kurulum durumu kaydedilemedi: 0028_kurulum_durumu.sql henüz uygulanmamış.'
+      : m, true);
+    return false;
+  }
+  return true;
+}
+
 /**
  * Sekiz adım, üç kademe. "Kurulum tamamlandı" = çekirdek üçü bitmiş.
+ * Her adım iki yoldan biter: veriden otomatik tespit (a.otomatik) ya da
+ * yöneticinin elle işaretlemesi (a.elle, sites.onboarding.done_<id>).
  * Her adım: { id, baslik, aciklama, bolum, hedef, kademe, tamam, ekstraHTML }
  */
 export async function kurulumDurumu() {
@@ -75,7 +106,8 @@ export async function kurulumDurumu() {
   if (!C?.sId?.() || !C.bId?.()) return bos;
 
   const bIds = C.siteBIds();
-  const site = C.S.site || {};
+  const site = await tazeSite();
+  const isaretli = (site.onboarding && typeof site.onboarding === 'object') ? site.onboarding : {};
   const bina = C.activeBuilding?.() || C.S.buildings?.[0] || {};
 
   const [sakin, aidat, tx, demirbas, kural, toplanti, denetim] = await Promise.all([
@@ -153,11 +185,17 @@ export async function kurulumDurumu() {
     },
   ];
 
+  for (const a of adimlar) {
+    a.otomatik = a.tamam;
+    a.elle = !!isaretli['done_' + a.id];
+    a.tamam = a.otomatik || a.elle;
+  }
+
   const cekirdek = adimlar.filter((a) => a.kademe === 'cekirdek');
   const cekirdekBitti = cekirdek.every((a) => a.tamam);
   const bitenSayisi = adimlar.filter((a) => a.tamam).length;
 
-  return { tamam: cekirdekBitti, cekirdekBitti, adimlar, bitenSayisi, toplam: adimlar.length };
+  return { tamam: cekirdekBitti, cekirdekBitti, adimlar, bitenSayisi, toplam: adimlar.length, gizli: !!isaretli.gizli };
 }
 
 /* ============================================================
@@ -171,8 +209,9 @@ export function kurulumKartiHTML(d) {
   if (d.bitenSayisi === d.toplam) return '';               // her şey bitti: kart yok
 
   const yuzde = Math.round((d.bitenSayisi / d.toplam) * 100);
-  const gizli = tercihOku('kurulum.gizli');
+  const gizli = !!d.gizli;
   const kalan = d.toplam - d.bitenSayisi;
+  const bar = `<div class="kurulum-bar ${d.cekirdekBitti ? 'dolu' : ''}"><div style="width:${yuzde}%"></div></div>`;
 
   /* Küçültülmüş hal: çekirdek bittiyse otomatik, yoksa yönetici istediyse. */
   if (d.cekirdekBitti || gizli) {
@@ -181,7 +220,7 @@ export function kurulumKartiHTML(d) {
       : `Kurulum ${d.bitenSayisi}/${d.toplam}`;
     return `<div class="card kurulum-card kurulum-mini">
       <strong>${baslik}</strong>
-      <div class="kurulum-bar"><div style="width:${yuzde}%"></div></div>
+      ${bar}
       <button class="btn btn-sm btn-ghost" data-kurulum-goster>Göster</button>
     </div>`;
   }
@@ -194,7 +233,14 @@ export function kurulumKartiHTML(d) {
         <span class="muted">${C.esc(a.aciklama)}</span>
         ${a.ekstraHTML ? `<span style="margin-top:4px;display:flex;align-items:center;gap:8px;">${a.ekstraHTML}</span>` : ''}
       </div>
-      ${a.tamam ? '' : `<button class="btn btn-sm" data-kurulum-git="${a.bolum}" data-hedef="${C.esc(a.hedef || '')}">Git →</button>`}
+      ${a.tamam
+        ? (a.elle && !a.otomatik
+            ? `<span class="kurulum-elle">elle işaretlendi · <a href="#" data-kurulum-gerial="${a.id}">geri al</a></span>`
+            : '')
+        : `<span style="display:flex;gap:6px;flex-shrink:0;">
+             <button class="btn btn-sm" data-kurulum-git="${a.bolum}" data-hedef="${C.esc(a.hedef || '')}">Git →</button>
+             <button class="btn btn-sm btn-ghost" data-kurulum-isaretle="${a.id}" title="Bu adımı yaptım / benim için geçerli değil">✓ Yaptım</button>
+           </span>`}
     </div>`;
 
   const grup = (kademe) => {
@@ -206,11 +252,11 @@ export function kurulumKartiHTML(d) {
   return `<div class="card kurulum-card">
     <div class="kurulum-head">
       <h3>Sitenizi ayağa kaldıralım</h3>
-      <span class="badge b-amber">${d.bitenSayisi}/${d.toplam}</span>
+      <span class="badge ${d.bitenSayisi ? 'b-green' : 'b-amber'}">${d.bitenSayisi}/${d.toplam}</span>
     </div>
     <p class="kurulum-sub">Bu adımlar bitince sistem sizin adınıza takibe başlar: borç, süre dolan yükümlülük, açık arıza.
-      Sıra önemli değil; her adım kendi ekranında bir dakika sürer.</p>
-    <div class="kurulum-bar"><div style="width:${yuzde}%"></div></div>
+      Sıra önemli değil. Adımı yaptığınızda kendiliğinden yeşile döner; sizin için geçerli değilse <strong>✓ Yaptım</strong> ile geçin.</p>
+    ${bar}
     ${grup('cekirdek')}${grup('onerilen')}${grup('istege')}
     <div class="kurulum-foot"><button class="btn btn-sm btn-ghost" data-kurulum-kucult>Rehberi küçült</button></div>
   </div>`;
@@ -229,8 +275,21 @@ export function bindKurulumKarti(host) {
       catch { C.toast('Kopyalanamadı — kodu elle seçin', true); }
       return;
     }
-    if (e.target.closest('[data-kurulum-kucult]')) { tercihYaz('kurulum.gizli', true); C.navigate('overview'); return; }
-    if (e.target.closest('[data-kurulum-goster]')) { tercihYaz('kurulum.gizli', false); C.navigate('overview'); }
+    const isaretle = e.target.closest('[data-kurulum-isaretle]');
+    if (isaretle) {
+      isaretle.disabled = true;
+      if (await kurulumYaz({ ['done_' + isaretle.dataset.kurulumIsaretle]: true })) C.navigate('overview');
+      else isaretle.disabled = false;
+      return;
+    }
+    const gerial = e.target.closest('[data-kurulum-gerial]');
+    if (gerial) {
+      e.preventDefault();
+      if (await kurulumYaz({ ['done_' + gerial.dataset.kurulumGerial]: false })) C.navigate('overview');
+      return;
+    }
+    if (e.target.closest('[data-kurulum-kucult]')) { if (await kurulumYaz({ gizli: true })) C.navigate('overview'); return; }
+    if (e.target.closest('[data-kurulum-goster]')) { if (await kurulumYaz({ gizli: false })) C.navigate('overview'); }
   });
 }
 

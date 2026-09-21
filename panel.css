@@ -1008,3 +1008,10 @@ select.mini { padding: 8px 11px; border: 2px solid var(--line); border-radius: 1
 .kurulum-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
 .kurulum-mini { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .kurulum-mini .kurulum-bar { flex: 1; min-width: 120px; margin: 0; }
+/* Kurulum: çekirdek adımlar bitince çubuk yeşile döner; elle işaretlenen
+   adım küçük bir notla ayırt edilir. */
+.kurulum-bar.dolu > div { background: linear-gradient(90deg, var(--green), #48A97A); }
+.kurulum-elle { font-size: 12px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.kurulum-elle a { color: var(--blue); font-weight: 700; text-decoration: none; }
+.kurulum-elle a:hover { text-decoration: underline; }
+@media (max-width: 560px) { .kurulum-elle { white-space: normal; } }
