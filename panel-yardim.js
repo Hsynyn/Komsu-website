@@ -195,7 +195,8 @@ export async function kurulumDurumu() {
   const cekirdekBitti = cekirdek.every((a) => a.tamam);
   const bitenSayisi = adimlar.filter((a) => a.tamam).length;
 
-  return { tamam: cekirdekBitti, cekirdekBitti, adimlar, bitenSayisi, toplam: adimlar.length, gizli: !!isaretli.gizli };
+  // gizli: true/false yöneticinin tercihi; undefined = hiç dokunmamış
+  return { tamam: cekirdekBitti, cekirdekBitti, adimlar, bitenSayisi, toplam: adimlar.length, gizli: isaretli.gizli };
 }
 
 /* ============================================================
@@ -209,12 +210,16 @@ export function kurulumKartiHTML(d) {
   if (d.bitenSayisi === d.toplam) return '';               // her şey bitti: kart yok
 
   const yuzde = Math.round((d.bitenSayisi / d.toplam) * 100);
-  const gizli = !!d.gizli;
+  /* Küçültme yalnızca tercihe bağlı. Yönetici hiç dokunmadıysa çekirdek
+     bitince ilk kez küçük gelir; "Göster" deyince kalan adımlar açılır ve
+     tekrar küçültene kadar açık kalır. (Eski hâli çekirdek bitince her zaman
+     küçültüyordu — "Göster" hiç çalışmıyordu.) */
+  const gizli = (d.gizli === undefined || d.gizli === null) ? d.cekirdekBitti : !!d.gizli;
   const kalan = d.toplam - d.bitenSayisi;
   const bar = `<div class="kurulum-bar ${d.cekirdekBitti ? 'dolu' : ''}"><div style="width:${yuzde}%"></div></div>`;
 
   /* Küçültülmüş hal: çekirdek bittiyse otomatik, yoksa yönetici istediyse. */
-  if (d.cekirdekBitti || gizli) {
+  if (gizli) {
     const baslik = d.cekirdekBitti
       ? `Kurulum tamamlandı ✓ · ${kalan} isteğe bağlı adım kaldı`
       : `Kurulum ${d.bitenSayisi}/${d.toplam}`;
@@ -251,7 +256,7 @@ export function kurulumKartiHTML(d) {
 
   return `<div class="card kurulum-card">
     <div class="kurulum-head">
-      <h3>Sitenizi ayağa kaldıralım</h3>
+      <h3>${d.cekirdekBitti ? 'Kurulum tamamlandı ✓ — kalanlar isteğe bağlı' : 'Sitenizi ayağa kaldıralım'}</h3>
       <span class="badge ${d.bitenSayisi ? 'b-green' : 'b-amber'}">${d.bitenSayisi}/${d.toplam}</span>
     </div>
     <p class="kurulum-sub">Bu adımlar bitince sistem sizin adınıza takibe başlar: borç, süre dolan yükümlülük, açık arıza.
@@ -496,11 +501,13 @@ export function yardimAc() {
   const d = drawer(); if (!d) return;
   yardimGuncelle(C.S.section);
   d.classList.add('open'); d.setAttribute('aria-hidden', 'false');
+  document.querySelector('.help-bubble')?.classList.add('hidden');
 }
 
 export function yardimKapat() {
   const d = drawer(); if (!d) return;
   d.classList.remove('open'); d.setAttribute('aria-hidden', 'true');
+  document.querySelector('.help-bubble')?.classList.remove('hidden');
   tercihYaz('yardim.gorundu', true);           // ilk giriş bitti
 }
 

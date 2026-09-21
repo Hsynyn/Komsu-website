@@ -228,8 +228,20 @@
           <span class="top-name" id="top-building-name">—</span>
           <span class="top-addr" id="top-building-addr"></span>
         </div>
-        <button class="help-btn" id="help-btn" title="Bu sayfada ne yapılır?" aria-label="Yardım">?</button>
         <div class="top-user" id="top-user"></div>
+        <!-- Yardım: maskot + baloncuk. Gerçek maskot çizildiğinde yalnızca bu SVG değişir; id ve davranış aynı kalır. -->
+        <button class="help-mascot" id="help-btn" title="Bu sayfada ne yapılır?" aria-label="Yardım">
+          <span class="help-bubble">Yardıma mı ihtiyacın var?</span>
+          <span class="help-mascot-img">
+            <svg viewBox="0 0 48 48" width="42" height="42" aria-hidden="true">
+              <path d="M6 24 L24 7 L42 24" fill="none" stroke="#8A6B45" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+              <rect x="11" y="21" width="26" height="21" rx="5" fill="#FFE4C4" stroke="#8A6B45" stroke-width="3"/>
+              <circle cx="19" cy="30" r="2.2" fill="#2B2620"/><circle cx="29" cy="30" r="2.2" fill="#2B2620"/>
+              <path d="M18 35.5 Q24 40.5 30 35.5" fill="none" stroke="#2B2620" stroke-width="2.5" stroke-linecap="round"/>
+              <circle cx="15.5" cy="34" r="1.6" fill="#E9724C" opacity=".55"/><circle cx="32.5" cy="34" r="1.6" fill="#E9724C" opacity=".55"/>
+            </svg>
+          </span>
+        </button>
       </header>
       <main class="content" id="content">
         <!-- Bölümler JS ile render edilir -->
@@ -255,7 +267,7 @@
       <button class="modal-close" id="help-close" aria-label="Kapat">✕</button>
     </div>
     <div class="help-drawer-body" id="help-body"></div>
-    <div class="help-foot">Bu paneli sağ üstteki <strong>?</strong> düğmesinden her zaman açabilirsiniz.</div>
+    <div class="help-foot">Bu paneli sağ üstteki <strong>maskota</strong> tıklayarak her zaman açabilirsiniz.</div>
   </aside>
 
   <!-- Toast -->
