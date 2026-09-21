@@ -66,14 +66,12 @@ function migrationUyarisi(err) {
    Veri modeli (0029_takvim_serisi.sql): her yükümlülük bir SERİ
    (series_id), her tekrar ayrı satır. Bekleyen satır "sıradaki",
    tamamlanmış satırlar geçmiştir (done_date, performed_by, cost,
-   transaction_id). Yıllık döküm bu satırlardan hesaplanır; ayrı bir
-   geçmiş tablosu yoktur.
+   transaction_id).
 
-   Ekran iki görünüm sunar:
-     • Yıllık plan — her seri bir satır, 12 ay birer hücre: yapıldı /
-       planlı / gecikti. "Bu yıl ne yapıldı, ne kaldı" tek bakışta.
-     • Liste — tek tek kayıtlar, filtreli.
-   Seriye tıklayınca zaman çizgisi: kim yaptı, kaça, kasadan ödendi mi.
+   Ana sayfa sade bir listedir: her yükümlülük bir satır, son tarih,
+   durum, Yapıldı. Satıra tıklayınca o görevin KENDİ sayfası açılır:
+   kendi yıllık takvimi (12 ay: yapıldı / planlı / gecikti), kim yaptı,
+   kaça, toplam/ortalama harcama, zaman çizgisi, geçmiş kayıt.
    ============================================================ */
 const TASK_CATEGORIES = {
   yasal: { label: 'Yasal', icon: '⚖️' },
@@ -103,10 +101,9 @@ const SABLONLAR = [
 const AYLAR_KISA = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
 const KASA_ADI = { bank: 'Banka', cash: 'Nakit kasa', fund: 'Yedek akçe' };
 
-let takvimGorunum = 'plan';                   // 'plan' | 'liste'
-let takvimYil = new Date().getFullYear();
+let takvimYil = new Date().getFullYear();     // görev sayfasındaki yıl
 let taskFilter = 'pending';
-let sonSeriler = [];                           // son render'daki seriler (detay modalı için)
+let sonSeriler = [];                           // son yüklemedeki seriler (detay sayfası için)
 
 const yilAy = (d) => { const x = new Date(d); return { y: x.getFullYear(), m: x.getMonth() }; };
 const kimYapti = (t) => t.self_done ? 'Kendimiz' : (t.performed_by || t.assigned_to || '');
@@ -167,234 +164,116 @@ const vadeRozeti = (t) => {
   return r + (t.due_estimated ? ' <span class="badge b-amber" title="Şablon yüklenirken son yapılma tarihi girilmedi; vade tahminî">📅 tahminî</span>' : '');
 };
 
-const seriBasligi = (s) => {
-  const t = s.temsil;
-  const cat = TASK_CATEGORIES[t.category] || TASK_CATEGORIES.diger;
-  return `<strong>${cat.icon} ${C.esc(t.title)}</strong>
-    ${C.kapsamRozeti(t.scope, t.building_id)}
-    ${t.source === 'asset' ? '<span class="badge b-gray" title="Demirbaş kaydından otomatik oluştu">📦 Demirbaş</span>' : ''}
-    ${s.siradaki?.job_id ? '<span class="badge b-blue" title="Bu dönem için iş kaydı açıldı">🛠 İşte</span>' : ''}
-    <div class="muted" style="font-size:12px">${[t.legal_basis, t.recurrence_months ? `${t.recurrence_months} ayda bir` : 'Tek seferlik'].filter(Boolean).map(C.esc).join(' · ')}</div>`;
-};
-
-export async function renderTasks() {
-  if (!needSite()) return;
+/** Sitenin tüm görevlerini çeker, serilere böler. */
+async function serileriYukle() {
   const { data, error } = await C.supabase
     .from('management_tasks')
     .select('*')
     .eq('site_id', C.sId())
     .order('due_date', { ascending: true });
+  if (error) throw error;
+  const all = data || [];
+  sonSeriler = serileriKur(all);
+  return { all, seriler: sonSeriler };
+}
 
-  if (error) {
+export async function renderTasks() {
+  if (!needSite()) return;
+  let all, seriler;
+  try { ({ all, seriler } = await serileriYukle()); }
+  catch (error) {
     if (migrationUyarisi(error)) return;
     C.$content().innerHTML = `<div class="error">${C.esc(error.message)}</div>`;
     return;
   }
 
-  const all = data || [];
-  const seriler = serileriKur(all);
-  sonSeriler = seriler;
   const pending = all.filter(t => t.status === 'pending');
   const overdue = pending.filter(t => daysUntil(t.due_date) < 0);
   const soon = pending.filter(t => { const d = daysUntil(t.due_date); return d >= 0 && d <= 30; });
-  const buYilYapilan = all.filter(t => t.status === 'done' && t.done_date && yilAy(t.done_date).y === takvimYil);
-  const buYilHarcanan = buYilYapilan.reduce((a, t) => a + Number(t.cost || 0), 0);
   const tahmini = seriler.filter(s => s.siradaki?.due_estimated);
-  const bugun = new Date();
+  const shown = taskFilter === 'all' ? all : all.filter(t => t.status === taskFilter);
 
-  /* ---------- Yıllık plan satırı ---------- */
-  const planSatir = (s) => {
-    const hucreler = AYLAR_KISA.map((_, m) => {
-      const yapilanlar = s.yapilan.filter(x => x.done_date && yilAy(x.done_date).y === takvimYil && yilAy(x.done_date).m === m);
-      const planli = s.bekleyen.filter(x => yilAy(x.due_date).y === takvimYil && yilAy(x.due_date).m === m);
-      let cls = 'ay-bos', ic = '', tip = '';
-      if (yapilanlar.length) {
-        cls = 'ay-yapildi'; ic = '✓';
-        tip = yapilanlar.map(x => `${C.dmy(x.done_date)} · ${kimYapti(x) || 'kim yaptığı girilmedi'}${x.cost != null ? ' · ' + C.TL(x.cost) : ''}`).join('\n');
-      } else if (planli.length) {
-        const d = daysUntil(planli[0].due_date);
-        cls = d < 0 ? 'ay-gecikti' : 'ay-planli'; ic = d < 0 ? '!' : '●';
-        tip = `Planlı: ${C.dmy(planli[0].due_date)}${d < 0 ? ` — ${-d} gün gecikti` : ''}`;
-      }
-      const simdi = takvimYil === bugun.getFullYear() && m === bugun.getMonth() ? ' ay-simdi' : '';
-      return `<td class="ay-hucre${simdi}" data-seri="${s.id}"><span class="ay-nokta ${cls}" title="${C.esc(tip)}">${ic}</span></td>`;
-    }).join('');
-
-    const sira = s.siradaki
-      ? `<div>${C.dmy(s.siradaki.due_date)}</div><div style="margin-top:4px">${vadeRozeti(s.siradaki)}</div>`
-      : '<span class="muted">—</span>';
-    const kimSatir = s.kim ? C.esc(s.kim) : '<span class="muted">Belirtilmedi</span>';
-    const maliyet = s.beklenen != null ? C.TL(s.beklenen) : '<span class="muted">—</span>';
-    const gecmis = s.yapilan.length
-      ? `${s.yapilan.length} kez · toplam ${C.TL(s.toplam)}`
-      : 'Henüz kayıt yok';
-
-    return `<tr class="seri-satir" data-seri="${s.id}">
-      <td class="seri-ad">${seriBasligi(s)}</td>
-      <td class="seri-kim"><div>${kimSatir}</div><div class="muted" style="font-size:12px">${maliyet} · ${C.esc(gecmis)}</div></td>
-      ${hucreler}
-      <td class="seri-sira">${sira}</td>
-      <td class="t-right" style="white-space:nowrap">
-        ${s.siradaki ? `<button class="btn btn-sm btn-green" data-act="done" data-id="${s.siradaki.id}">Yapıldı</button>` : ''}
-        <button class="btn btn-sm btn-ghost" data-act="detay" data-seri="${s.id}" title="Geçmiş ve maliyet">›</button>
-      </td>
-    </tr>`;
-  };
-
-  /* ---------- Liste satırı ---------- */
-  const listeSatir = (t) => {
+  const row = (t) => {
     const cat = TASK_CATEGORIES[t.category] || TASK_CATEGORIES.diger;
-    const seri = seriler.find(s => s.id === (t.series_id || t.id));
+    const seriId = t.series_id || t.id;
     const durum = t.status === 'done'
-      ? '<span class="badge b-green">Yapıldı</span>'
+      ? '<span class="badge b-green">Tamamlandı</span>'
       : t.status === 'skipped' ? '<span class="badge b-gray">Atlandı</span>'
       : vadeRozeti(t);
     const tarih = t.status === 'done' ? C.dmy(t.done_date || t.completed_at) : C.dmy(t.due_date);
-    const kim = t.status === 'done' ? (kimYapti(t) || '<span class="muted">—</span>') : (t.assigned_to ? C.esc(t.assigned_to) : '<span class="muted">—</span>');
-    const maliyet = t.status === 'done'
-      ? (t.cost != null ? `${C.TL(t.cost)}${t.transaction_id ? ' <span class="badge b-gray" title="Kasaya gider olarak işlendi">kasa</span>' : ''}` : '<span class="muted">—</span>')
-      : (t.expected_cost != null ? `<span class="muted">~${C.TL(t.expected_cost)}</span>` : '<span class="muted">—</span>');
-    return `<tr>
+    return `<tr class="seri-satir" data-seri="${seriId}">
       <td><strong>${cat.icon} ${C.esc(t.title)}</strong>
         ${C.kapsamRozeti(t.scope, t.building_id)}
-        ${t.source === 'asset' ? '<span class="badge b-gray">📦 Demirbaş</span>' : ''}
-        ${t.job_id ? '<span class="badge b-blue">🛠 İşe dönüştürüldü</span>' : ''}
+        ${t.source === 'asset' ? '<span class="badge b-gray" title="Demirbaş kaydından otomatik oluştu">📦 Demirbaş</span>' : ''}
+        ${t.job_id ? '<span class="badge b-blue" title="Bu görev için iş kaydı açıldı">🛠 İşe dönüştürüldü</span>' : ''}
         ${t.legal_basis ? `<div class="muted" style="font-size:12px">${C.esc(t.legal_basis)}</div>` : ''}
-        ${t.evidence_url ? `<div style="font-size:12px"><a href="${C.esc(t.evidence_url)}" target="_blank" rel="noopener">📎 Belge</a></div>` : ''}
-        ${t.notes ? `<div class="muted" style="font-size:12px">${C.esc(t.notes)}</div>` : ''}</td>
+        ${t.status === 'done' && (kimYapti(t) || t.cost != null)
+          ? `<div class="muted" style="font-size:12px">${[kimYapti(t), t.cost != null ? C.TL(t.cost) : ''].filter(Boolean).map(C.esc).join(' · ')}</div>` : ''}</td>
+      <td>${cat.label}</td>
       <td>${tarih}</td>
-      <td>${kim}</td>
-      <td>${maliyet}</td>
+      <td>${t.recurrence_months ? `${t.recurrence_months} ayda bir` : 'Tek seferlik'}</td>
       <td>${durum}</td>
       <td class="t-right" style="white-space:nowrap">
         ${t.status === 'pending' ? `<button class="btn btn-sm btn-green" data-act="done" data-id="${t.id}">Yapıldı</button>` : ''}
         ${t.status === 'pending' && !t.job_id ? `<button class="btn btn-sm" data-act="job" data-id="${t.id}">🛠 İşe Dönüştür</button>` : ''}
-        ${seri ? `<button class="btn btn-sm btn-ghost" data-act="detay" data-seri="${seri.id}">Detay</button>` : ''}
-        ${t.status === 'pending' ? `<button class="btn btn-sm btn-ghost" data-act="edit" data-id="${t.id}">Düzenle</button>` : ''}
-        <button class="btn btn-sm btn-outline-red" data-act="del" data-id="${t.id}">Sil</button>
+        <button class="btn btn-sm btn-ghost" data-act="detay" data-seri="${seriId}">Detay ›</button>
       </td>
     </tr>`;
   };
 
-  const shown = taskFilter === 'all' ? all : all.filter(t => t.status === taskFilter);
-  const bosTakvim = all.length === 0;
-
-  const planHTML = `
-    <div class="card">
-      <div class="plan-ust">
-        <div class="yil-secici">
-          <button type="button" class="btn btn-sm btn-ghost" id="yil-geri">‹</button>
-          <strong>${takvimYil}</strong>
-          <button type="button" class="btn btn-sm btn-ghost" id="yil-ileri">›</button>
-        </div>
-        <div class="plan-legend">
-          <span><i class="ay-nokta ay-yapildi">✓</i> yapıldı</span>
-          <span><i class="ay-nokta ay-planli">●</i> planlı</span>
-          <span><i class="ay-nokta ay-gecikti">!</i> gecikti</span>
-          <span class="muted">Hücreye gelince tarih, kim, tutar görünür; satıra tıklayınca geçmiş açılır.</span>
-        </div>
-      </div>
-      <div class="plan-scroll">
-      <table class="plan-table"><thead><tr>
-        <th>Görev</th><th>Kim yapıyor · maliyet</th>
-        ${AYLAR_KISA.map((a, m) => `<th class="ay${takvimYil === bugun.getFullYear() && m === bugun.getMonth() ? ' ay-simdi' : ''}">${a}</th>`).join('')}
-        <th>Sıradaki</th><th></th></tr></thead>
-      <tbody id="task-body">${seriler.length ? seriler.map(planSatir).join('')
-        : '<tr><td colspan="16" class="t-empty">Takvim boş.</td></tr>'}</tbody></table>
-      </div>
-    </div>`;
-
-  const listeHTML = `
-    <div class="card">
-      <div class="cat-grid" id="task-filter" style="margin-bottom:14px;">
-        ${[['pending', 'Bekleyen'], ['done', 'Yapılan'], ['skipped', 'Atlanan'], ['all', 'Tümü']]
-          .map(([v, l]) => `<button type="button" class="cat-chip ${taskFilter === v ? 'active' : ''}" data-f="${v}">${l}</button>`).join('')}
-      </div>
-      <table><thead><tr><th>Görev</th><th>Tarih</th><th>Kim</th><th>Maliyet</th><th>Durum</th><th></th></tr></thead>
-      <tbody id="task-body">${shown.length ? shown.map(listeSatir).join('')
-        : '<tr><td colspan="6" class="t-empty">Bu filtrede kayıt yok.</td></tr>'}</tbody></table>
-    </div>`;
-
-  const bosHTML = `
-    <div class="card" style="text-align:center;padding:40px 24px">
-      <div style="font-size:40px">📅</div>
-      <h3 style="margin:10px 0 6px">Takviminiz henüz boş</h3>
-      <p class="muted" style="max-width:560px;margin:0 auto 18px;font-size:14px">
-        Genel kurul, hesap denetimi, sigorta, asansör muayenesi, su deposu, ilaçlama… Hazır şablonları yüklerken
-        her biri için <strong>"en son ne zaman yapıldı"</strong> sorulur; sıradaki tarih ona göre hesaplanır.
-        Böylece takvim binanızın gerçek düzenine oturur, kimse tahmin etmek zorunda kalmaz.</p>
-      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-        <button class="btn" id="task-seed-bos">Hazır Şablonları Yükle</button>
-        <button class="btn btn-ghost" id="task-add-bos">+ Kendi Görevimi Ekle</button>
-      </div>
-    </div>`;
-
   C.$content().innerHTML = `
     <div class="page-head"><h2>Yönetim Takvimi</h2>
       <div class="tools">
-        <div class="seg-tabs" id="takvim-gorunum" style="margin:0">
-          <button type="button" class="seg ${takvimGorunum === 'plan' ? 'active' : ''}" data-g="plan">Yıllık Plan</button>
-          <button type="button" class="seg ${takvimGorunum === 'liste' ? 'active' : ''}" data-g="liste">Liste</button>
-        </div>
         <button class="btn btn-ghost" id="task-seed">Hazır Şablonları Yükle</button>
         <button class="btn" id="task-add">+ Görev Ekle</button>
       </div>
     </div>
     <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
-      Yasal süreler ve periyodik bakımlar tek yerde. "Yapıldı" derken kimin yaptığını ve tutarı yazarsınız;
-      kasadan ödendiyse gider otomatik işlenir, sonraki dönem takvime kendiliğinden düşer.
+      Yasal süreler ve periyodik bakımlar tek yerde. Bir göreve tıklayın: kendi takvimi, kim yaptı, kaça yapıldı, geçmişi.
     </p>
 
     <div class="stat-grid">
       <div class="stat"><div class="val" style="color:var(--red)">${overdue.length}</div><div class="lbl">Gecikmiş</div></div>
       <div class="stat"><div class="val" style="color:var(--amber)">${soon.length}</div><div class="lbl">30 gün içinde</div></div>
-      <div class="stat"><div class="val" style="color:var(--green)">${buYilYapilan.length}</div><div class="lbl">${takvimYil} içinde yapılan</div></div>
-      <div class="stat"><div class="val">${C.TL(buYilHarcanan)}</div><div class="lbl">${takvimYil} içinde harcanan</div></div>
+      <div class="stat"><div class="val">${pending.length}</div><div class="lbl">Bekleyen toplam</div></div>
     </div>
 
     ${tahmini.length ? `<div class="info-banner" style="background:var(--amber-bg);border-color:#EAD3A2;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-      <div style="flex:1;min-width:260px"><strong>${tahmini.length} görevin sıradaki tarihi tahminî.</strong>
-        Binanız bunları daha önce yaptıysa son yapılma tarihlerini girin; takvim gerçek periyoda otursun ve boşuna "gecikti" demesin.</div>
+      <div style="flex:1;min-width:260px"><strong>${tahmini.length} görevin tarihi tahminî.</strong>
+        Şablon yüklenirken son yapılma tarihi girilmedi. Biliyorsanız girin; sıradaki tarih gerçek periyoda otursun.</div>
       <button class="btn btn-sm" id="tahmin-duzelt">Son tarihleri gir</button>
     </div>` : ''}
 
-    ${bosTakvim ? bosHTML : (takvimGorunum === 'plan' ? planHTML : listeHTML)}`;
+    <div class="card">
+      <div class="cat-grid" id="task-filter" style="margin-bottom:14px;">
+        ${[['pending', 'Bekleyen'], ['done', 'Tamamlanan'], ['skipped', 'Atlanan'], ['all', 'Tümü']]
+          .map(([v, l]) => `<button type="button" class="cat-chip ${taskFilter === v ? 'active' : ''}" data-f="${v}">${l}</button>`).join('')}
+      </div>
+      <table><thead><tr><th>Görev</th><th>Tür</th><th>${taskFilter === 'done' ? 'Yapıldı' : 'Son Tarih'}</th><th>Tekrar</th><th>Durum</th><th></th></tr></thead>
+      <tbody id="task-body">${shown.length ? shown.map(row).join('')
+        : `<tr><td colspan="6" class="t-empty">${all.length ? 'Bu filtrede görev yok.'
+          : '<strong>Takvim boş.</strong><br>"Hazır Şablonları Yükle" ile genel kurul, denetim, sigorta, asansör gibi standart yükümlülükleri ekleyin; her biri için "en son ne zaman yapıldı" sorulur.'}</td></tr>`}</tbody></table>
+    </div>`;
 
-  /* ---------- olaylar ---------- */
-  C.el('takvim-gorunum').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-g]'); if (!b) return;
-    takvimGorunum = b.dataset.g; renderTasks();
-  });
-  C.el('task-filter')?.addEventListener('click', (e) => {
+  C.el('task-filter').addEventListener('click', (e) => {
     const b = e.target.closest('[data-f]'); if (!b) return;
     taskFilter = b.dataset.f; renderTasks();
   });
-  C.el('yil-geri')?.addEventListener('click', () => { takvimYil--; renderTasks(); });
-  C.el('yil-ileri')?.addEventListener('click', () => { takvimYil++; renderTasks(); });
-
   C.el('task-seed').onclick = () => openSablonModal(all);
-  C.el('task-seed-bos')?.addEventListener('click', () => openSablonModal(all));
   C.el('task-add').onclick = () => openTaskModal(null);
-  C.el('task-add-bos')?.addEventListener('click', () => openTaskModal(null));
   C.el('tahmin-duzelt')?.addEventListener('click', () => openTahminModal(tahmini));
 
-  C.el('task-body')?.addEventListener('click', async (e) => {
+  C.el('task-body').addEventListener('click', async (e) => {
     const b = e.target.closest('button[data-act]');
     if (!b) {
-      // Satıra tıklama → seri detayı (düğmeler hariç)
       const tr = e.target.closest('tr[data-seri]');
-      if (tr) acSeri(tr.dataset.seri);
+      if (tr) renderSeriSayfasi(tr.dataset.seri);
       return;
     }
-    if (b.dataset.act === 'detay') return acSeri(b.dataset.seri);
-
+    if (b.dataset.act === 'detay') return renderSeriSayfasi(b.dataset.seri);
     const rec = all.find(x => x.id === b.dataset.id); if (!rec) return;
-    if (b.dataset.act === 'edit') return openTaskModal(rec);
     if (b.dataset.act === 'done') return openTamamlaModal(rec);
-    /* Görevi iş kaydına çevir — büyük işlerde İş Takibi "iş emri / teslim
-       tutanağı" belgeleri üretir. İş tamamlanınca buradaki görev de kapanır. */
     if (b.dataset.act === 'job') return openTaskToJobModal(rec);
-    if (b.dataset.act === 'del') return gorevSil(rec);
   });
 }
 
@@ -408,22 +287,49 @@ async function gorevSil(rec) {
   C.toast('Silindi'); renderTasks();
 }
 
-const acSeri = (id) => { const s = sonSeriler.find(x => x.id === id); if (s) openSeriDetay(s); };
+/* Detay sayfasına dönüş: veriyi tazeler, seri kaybolduysa listeye döner. */
+async function acSeri(id) {
+  try { await serileriYukle(); } catch (e) { return renderTasks(); }
+  const s = sonSeriler.find(x => x.id === id);
+  if (s) renderSeriSayfasi(id); else renderTasks();
+}
 
-/* ---------- Seri detayı: zaman çizgisi ---------- */
-function openSeriDetay(s) {
+/* ---------- Görevin kendi sayfası ---------- */
+function renderSeriSayfasi(id) {
+  const s = sonSeriler.find(x => x.id === id);
+  if (!s) return renderTasks();
   const t = s.temsil;
   const sira = s.siradaki;
+  const cat = TASK_CATEGORIES[t.category] || TASK_CATEGORIES.diger;
+  const bugun = new Date();
+
+  /* Bu görevin yıllık takvimi: 12 ay, her ay bir kutu */
+  const aylar = AYLAR_KISA.map((ad, m) => {
+    const yapilanlar = s.yapilan.filter(x => x.done_date && yilAy(x.done_date).y === takvimYil && yilAy(x.done_date).m === m);
+    const planli = s.bekleyen.filter(x => yilAy(x.due_date).y === takvimYil && yilAy(x.due_date).m === m);
+    let cls = 'ay-bos', ic = '', alt = '';
+    if (yapilanlar.length) {
+      const x = yapilanlar[0];
+      cls = 'ay-yapildi'; ic = '✓';
+      alt = `${C.dmy(x.done_date)}<br>${C.esc(kimYapti(x) || '—')}${x.cost != null ? '<br>' + C.TL(x.cost) : ''}`;
+    } else if (planli.length) {
+      const d = daysUntil(planli[0].due_date);
+      cls = d < 0 ? 'ay-gecikti' : 'ay-planli'; ic = d < 0 ? '!' : '●';
+      alt = `${C.dmy(planli[0].due_date)}<br>${d < 0 ? `${-d} gün gecikti` : 'planlı'}`;
+    }
+    const simdi = takvimYil === bugun.getFullYear() && m === bugun.getMonth() ? ' ay-simdi' : '';
+    return `<div class="ay-kutu ${cls}${simdi}"><div class="ay-ad">${ad}</div><div class="ay-isaret">${ic}</div><div class="ay-alt">${alt}</div></div>`;
+  }).join('');
+
   const zaman = [
     ...s.bekleyen.map(x => ({ tip: daysUntil(x.due_date) < 0 ? 'gecikti' : 'planli', tarih: x.due_date, kayit: x })),
     ...s.yapilan.map(x => ({ tip: 'yapildi', tarih: x.done_date || x.completed_at, kayit: x })),
   ];
-  const satir = (z) => {
+  const zSatir = (z) => {
     const x = z.kayit;
     if (z.tip !== 'yapildi') {
       return `<li class="z-${z.tip}"><strong>${C.dmy(x.due_date)}</strong> — planlı ${vadeRozeti(x)}
-        ${x.assigned_to ? `<div class="muted" style="font-size:12.5px">Sorumlu: ${C.esc(x.assigned_to)}${x.expected_cost != null ? ` · beklenen ${C.TL(x.expected_cost)}` : ''}</div>` : (x.expected_cost != null ? `<div class="muted" style="font-size:12.5px">Beklenen ${C.TL(x.expected_cost)}</div>` : '')}
-      </li>`;
+        <div class="muted" style="font-size:12.5px">${[x.assigned_to ? 'Sorumlu: ' + C.esc(x.assigned_to) : '', x.expected_cost != null ? 'beklenen ' + C.TL(x.expected_cost) : ''].filter(Boolean).join(' · ')}</div></li>`;
     }
     const kim = kimYapti(x);
     return `<li class="z-yapildi"><strong>${C.dmy(z.tarih)}</strong>
@@ -431,51 +337,80 @@ function openSeriDetay(s) {
         ${x.transaction_id ? ' <span class="badge b-gray" title="Kasaya gider olarak işlendi">kasadan ödendi</span>' : ''}
         <button class="btn btn-xs btn-outline-red" data-sil="${x.id}" style="float:right">Sil</button>
       <div class="muted" style="font-size:12.5px">
-        ${kim ? `${x.self_done ? '🏠 Kendimiz yaptık' : '🏢 ' + C.esc(kim)}` : 'Kim yaptığı girilmedi'}
+        ${kim ? (x.self_done ? '🏠 Kendimiz yaptık' : '🏢 ' + C.esc(kim)) : 'Kim yaptığı girilmedi'}
         ${x.evidence_url ? ` · <a href="${C.esc(x.evidence_url)}" target="_blank" rel="noopener">📎 Belge</a>` : ''}
         ${x.notes ? `<div>${C.esc(x.notes)}</div>` : ''}
       </div></li>`;
   };
 
-  C.el('modal').classList.add('genis');
-  C.openModal(t.title, `
-    <div class="muted" style="font-size:13px;margin-bottom:12px">
-      ${[TASK_CATEGORIES[t.category]?.label, t.legal_basis, t.recurrence_months ? `${t.recurrence_months} ayda bir` : 'Tek seferlik', C.kapsamEtiketi ? C.kapsamEtiketi(t.scope, t.building_id) : ''].filter(Boolean).map(C.esc).join(' · ')}
-      ${t.description ? `<div>${C.esc(t.description)}</div>` : ''}
-    </div>
-    <div class="seri-ozet">
-      <div><div class="v">${s.yapilan.length}</div><div class="l">kez yapıldı</div></div>
-      <div><div class="v">${C.TL(s.toplam)}</div><div class="l">toplam harcama</div></div>
-      <div><div class="v">${s.ortalama != null ? C.TL(s.ortalama) : '—'}</div><div class="l">ortalama tutar</div></div>
-      <div><div class="v" style="font-size:14px">${s.kim ? C.esc(s.kim) : '—'}</div><div class="l">kim yapıyor</div></div>
-      <div><div class="v" style="font-size:14px">${s.son ? C.dmy(s.son.done_date || s.son.completed_at) : '—'}</div><div class="l">son yapılma</div></div>
+  C.$content().innerHTML = `
+    <a class="geri-link" id="sd-geri">‹ Yönetim Takvimi</a>
+    <div class="page-head" style="margin-top:6px">
+      <div>
+        <h2>${cat.icon} ${C.esc(t.title)}</h2>
+        <div class="muted" style="font-size:13px;margin-top:4px">
+          ${[cat.label, t.legal_basis, t.recurrence_months ? `${t.recurrence_months} ayda bir` : 'Tek seferlik', C.kapsamEtiketi(t.scope, t.building_id)].filter(Boolean).map(C.esc).join(' · ')}
+          ${t.source === 'asset' ? ' · 📦 demirbaş kaydından' : ''}
+        </div>
+        ${t.description ? `<div class="muted" style="font-size:13px;margin-top:4px">${C.esc(t.description)}</div>` : ''}
+      </div>
+      <div class="tools">
+        ${sira ? `<button class="btn btn-green" data-done="${sira.id}">✓ Yapıldı</button>` : ''}
+        ${sira && !sira.job_id ? `<button class="btn btn-ghost" data-job="${sira.id}">🛠 İşe Dönüştür</button>` : ''}
+        ${sira ? `<button class="btn btn-ghost" data-edit="${sira.id}">Düzenle</button>` : ''}
+      </div>
     </div>
 
-    ${sira ? `<div class="todo-row ${daysUntil(sira.due_date) < 0 ? 't-kirmizi' : 't-bekle'}" style="margin-bottom:14px">
-      <div class="todo-text" style="flex:1"><strong>Sıradaki: ${C.dmy(sira.due_date)}</strong> ${vadeRozeti(sira)}
-        ${sira.due_estimated ? '<div class="muted" style="font-size:12.5px">Bu tarih tahminî. Aşağıdan geçmiş kayıt ekleyince gerçek periyoda göre düzelir.</div>' : ''}</div>
-      <button class="btn btn-sm btn-green" data-done="${sira.id}">Yapıldı</button>
-      ${!sira.job_id ? `<button class="btn btn-sm" data-job="${sira.id}">🛠 İşe Dönüştür</button>` : ''}
-      <button class="btn btn-sm btn-ghost" data-edit="${sira.id}">Düzenle</button>
-    </div>` : `<div class="info-banner">Bu serinin bekleyen görevi yok. Yeniden başlatmak için "Görev Ekle" ile aynı başlıkla yeni görev açın; geçmişi buraya bağlanır.</div>`}
-
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-      <h3 style="margin:0;font-size:15px">Zaman çizgisi</h3>
-      <button class="btn btn-sm btn-ghost" id="sd-gecmis">+ Geçmiş kayıt ekle</button>
+    <div class="stat-grid">
+      <div class="stat"><div class="val" style="font-size:20px">${sira ? C.dmy(sira.due_date) : '—'}</div>
+        <div class="lbl">Sıradaki ${sira ? vadeRozeti(sira) : ''}</div></div>
+      <div class="stat"><div class="val" style="font-size:20px">${s.son ? C.dmy(s.son.done_date || s.son.completed_at) : '—'}</div><div class="lbl">Son yapılma</div></div>
+      <div class="stat"><div class="val" style="font-size:20px">${s.kim ? C.esc(s.kim) : '—'}</div><div class="lbl">Kim yapıyor</div></div>
+      <div class="stat"><div class="val" style="font-size:20px">${s.beklenen != null ? C.TL(s.beklenen) : '—'}</div><div class="lbl">Beklenen tutar</div></div>
+      <div class="stat"><div class="val" style="font-size:20px">${C.TL(s.toplam)}</div><div class="lbl">Toplam harcama · ${s.yapilan.length} kez${s.ortalama != null ? ` · ort. ${C.TL(s.ortalama)}` : ''}</div></div>
     </div>
-    ${zaman.length ? `<ul class="zaman">${zaman.map(satir).join('')}</ul>`
-      : '<p class="muted" style="font-size:13px;padding:10px 0">Henüz kayıt yok.</p>'}
-    <p class="muted" style="font-size:12px;margin-top:10px">
-      Geçmiş kayıt: "bu iş geçen yıl da yapılmıştı" — takvime yazın, yıllık dökümde görünsün, ortalama maliyet hesaplansın.</p>
-    <div style="margin-top:14px;text-align:right">
-      <button class="btn btn-sm btn-outline-red" id="sd-hepsini-sil">Seriyi tümüyle sil</button>
-    </div>
-  `);
 
-  const body = C.el('modal-body');
-  body.addEventListener('click', async (e) => {
+    ${sira?.due_estimated ? `<div class="info-banner" style="background:var(--amber-bg);border-color:#EAD3A2">
+      <strong>Bu tarih tahminî.</strong> Şablon yüklenirken son yapılma tarihi girilmedi. "Geçmiş kayıt ekle" ile son yapıldığı tarihi yazın; sıradaki tarih ona göre düzelir.</div>` : ''}
+
+    <div class="card">
+      <div class="plan-ust">
+        <div class="yil-secici">
+          <button type="button" class="btn btn-sm btn-ghost" id="yil-geri">‹</button>
+          <strong>${takvimYil}</strong>
+          <button type="button" class="btn btn-sm btn-ghost" id="yil-ileri">›</button>
+        </div>
+        <div class="plan-legend">
+          <span><i class="ay-nokta ay-yapildi">✓</i> yapıldı</span>
+          <span><i class="ay-nokta ay-planli">●</i> planlı</span>
+          <span><i class="ay-nokta ay-gecikti">!</i> gecikti</span>
+        </div>
+      </div>
+      <div class="ay-izgara">${aylar}</div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <h3 style="margin:0">Geçmiş</h3>
+        <button class="btn btn-sm btn-ghost" id="sd-gecmis">+ Geçmiş kayıt ekle</button>
+      </div>
+      ${zaman.length ? `<ul class="zaman">${zaman.map(zSatir).join('')}</ul>`
+        : '<p class="muted" style="font-size:13px;padding:10px 0">Henüz kayıt yok.</p>'}
+      <p class="muted" style="font-size:12px;margin-top:10px">
+        Daha önce yapılmış dönemleri "Geçmiş kayıt ekle" ile işleyin: takvimde ✓ olarak görünür, ortalama tutara katılır.</p>
+    </div>
+
+    <div style="text-align:right;margin-bottom:20px">
+      <button class="btn btn-sm btn-outline-red" id="sd-hepsini-sil">Görevi geçmişiyle birlikte sil</button>
+    </div>`;
+
+  C.el('sd-geri').onclick = () => renderTasks();
+  C.el('yil-geri').onclick = () => { takvimYil--; renderSeriSayfasi(id); };
+  C.el('yil-ileri').onclick = () => { takvimYil++; renderSeriSayfasi(id); };
+
+  C.$content().addEventListener('click', async (e) => {
     const b = e.target.closest('button'); if (!b) return;
-    const bul = (id) => s.satirlar.find(x => x.id === id);
+    const bul = (rid) => s.satirlar.find(x => x.id === rid);
     if (b.dataset.done) return openTamamlaModal(bul(b.dataset.done), s.id);
     if (b.dataset.job) return openTaskToJobModal(bul(b.dataset.job));
     if (b.dataset.edit) return openTaskModal(bul(b.dataset.edit), s.id);
@@ -484,13 +419,13 @@ function openSeriDetay(s) {
       if (!confirm('Bu geçmiş kayıt silinsin mi? Kasaya işlenmiş gider varsa kasada kalır.')) return;
       const { error } = await C.supabase.from('management_tasks').delete().eq('id', b.dataset.sil);
       if (error) return C.toast(error.message, true);
-      C.toast('Kayıt silindi'); await renderTasks(); acSeri(s.id);
+      C.toast('Kayıt silindi'); acSeri(s.id);
     }
     if (b.id === 'sd-hepsini-sil') {
-      if (!confirm(`"${t.title}" serisi, ${s.satirlar.length} kayıtla birlikte silinsin mi? Kasa kayıtları kalır.`)) return;
+      if (!confirm(`"${t.title}" görevi, ${s.satirlar.length} kayıtla birlikte silinsin mi? Kasa kayıtları kalır.`)) return;
       const { error } = await C.supabase.from('management_tasks').delete().in('id', s.satirlar.map(x => x.id));
       if (error) return C.toast(error.message, true);
-      C.closeModal(); C.toast('Seri silindi'); renderTasks();
+      C.toast('Görev silindi'); renderTasks();
     }
   });
 }
@@ -524,8 +459,7 @@ function kaydetBagla(fn, seriId) {
     try {
       await fn();
       C.closeModal();
-      await renderTasks();
-      if (seriId) acSeri(seriId);
+      if (seriId) await acSeri(seriId); else await renderTasks();
     } catch (err) { C.toast(err.message, true); btn.disabled = false; }
   };
 }

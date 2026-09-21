@@ -428,11 +428,11 @@ const YARDIM = {
   },
   tasks: {
     baslik: 'Yönetim Takvimi',
-    ozet: 'Yasal yükümlülükler ve periyodik bakımlar. Yıllık planda her satır bir iş, her hücre bir ay: ✓ yapıldı, ● planlı, ! gecikti. Kim yaptı, kaça yapıldı burada tutulur.',
+    ozet: 'Yasal yükümlülükler ve periyodik bakımlar. Listede her görev bir satır; tıklayınca o görevin kendi sayfası açılır: yıllık takvimi, kim yaptı, kaça yapıldı, geçmişi.',
     adimlar: [
       { metin: '<strong>Hazır Şablonları Yükle</strong>: her şablon için "en son ne zaman yapıldı" sorulur; sıradaki tarih ondan hesaplanır. Bilmiyorsanız boş bırakın, sonra düzeltirsiniz.', hedef: '#task-seed' },
       { metin: 'İş bitince <strong>Yapıldı</strong>: tarih, kim yaptı (firma ya da kendiniz), tutar. Kasadan ödendiyse gider kendiliğinden işlenir, sonraki dönem takvime düşer.' },
-      { metin: 'Satıra tıklayın → <strong>Detay</strong>: zaman çizgisi, toplam ve ortalama maliyet. <strong>Geçmiş kayıt ekle</strong> ile eski yılları da işleyin.' },
+      { metin: 'Satıra tıklayın → görevin sayfası: 12 aylık takvimi (✓ yapıldı, ● planlı, ! gecikti), toplam ve ortalama tutar. <strong>Geçmiş kayıt ekle</strong> ile eski yılları da işleyin.' },
       { metin: 'Firmaya iş emri / teslim tutanağı gerekiyorsa <strong>İşe Dönüştür</strong>; iş tamamlanınca takvim de kapanır.', git: 'jobs' },
       { metin: 'Kendi görevinizi <strong>+ Görev Ekle</strong> ile açın; tekrar aralığı ve beklenen tutar girin.', hedef: '#task-add' },
     ],
