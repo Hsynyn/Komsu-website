@@ -388,7 +388,7 @@ function openModal(title, bodyHtml, onSave) {
     };
   }
 }
-function closeModal() { hide('modal-overlay'); el('modal-body').innerHTML = ''; }
+function closeModal() { hide('modal-overlay'); el('modal-body').innerHTML = ''; el('modal').classList.remove('genis'); }
 el('modal-close').addEventListener('click', closeModal);
 el('modal-overlay').addEventListener('click', (e) => { if (e.target === el('modal-overlay')) closeModal(); });
 
@@ -3319,28 +3319,26 @@ function openJobPaymentModal(job) {
 
       // 3) İş takvimden doğduysa oradaki görevi de kapat ve bir sonraki dönemi aç;
       //    aksi hâlde yapılmış bakım takvimde "gecikmiş" görünmeye devam ediyordu.
+      //    complete_management_task (0029) kim/kaça bilgisini yazar, demirbaşın
+      //    son bakım tarihini yürütür, sonraki dönemi seriye bağlı açar. Kasa
+      //    kaydı yukarıda zaten atıldı; p_wallet null → çift gider yazılmaz.
       if (job.task_id) {
         try {
           const { data: gorev } = await supabase.from('management_tasks')
             .select('*').eq('id', job.task_id).maybeSingle();
           if (gorev && gorev.status === 'pending') {
-            await supabase.from('management_tasks').update({
-              status: 'done', completed_at: new Date().toISOString(), completed_by: S.user.id,
-            }).eq('id', gorev.id);
-
-            if (gorev.asset_id) {
-              // Demirbaş bakımıysa sonraki dönem demirbaş kaydından hesaplanır
-              const { data: asset } = await supabase.from('building_assets')
-                .update({ last_maintenance_at: todayISO() }).eq('id', gorev.asset_id).select().single();
-              if (asset) await demirbasGoreviniEsitle(asset);
-            } else if (gorev.recurrence_months) {
-              await supabase.from('management_tasks').insert({
-                site_id: gorev.site_id, building_id: gorev.building_id,
-                title: gorev.title, description: gorev.description, category: gorev.category,
-                legal_basis: gorev.legal_basis, assigned_to: gorev.assigned_to,
-                due_date: ayEkle(gorev.due_date, gorev.recurrence_months),
-                recurrence_months: gorev.recurrence_months, source: gorev.source,
-              });
+            const { error: rpcErr } = await supabase.rpc('complete_management_task', {
+              p_task_id: gorev.id, p_done_date: todayISO(),
+              p_performed_by: job.assigned_to || null, p_self_done: false,
+              p_cost: state.paid && amount > 0 ? amount : null, p_wallet: null,
+              p_evidence_url: null, p_notes: null,
+            });
+            if (rpcErr) throw new Error(rpcErr.message);
+            if (state.paid && amount > 0) {
+              // Kasa kaydını göreve bağla (detay ekranında "kasadan ödendi" rozeti)
+              const { data: tx } = await supabase.from('transactions').select('id')
+                .eq('related_id', job.id).eq('category', 'job').order('created_at', { ascending: false }).limit(1).maybeSingle();
+              if (tx) await supabase.from('management_tasks').update({ transaction_id: tx.id }).eq('id', gorev.id);
             }
           }
         } catch (e) { console.warn('Bağlı görev kapatılamadı:', e.message); }

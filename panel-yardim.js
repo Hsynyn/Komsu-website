@@ -110,7 +110,7 @@ export async function kurulumDurumu() {
   const isaretli = (site.onboarding && typeof site.onboarding === 'object') ? site.onboarding : {};
   const bina = C.activeBuilding?.() || C.S.buildings?.[0] || {};
 
-  const [sakin, aidat, tx, demirbas, kural, toplanti, denetim] = await Promise.all([
+  const [sakin, aidat, tx, demirbas, kural, toplanti, denetim, gorev] = await Promise.all([
     say('apartments', (q) => q.in('building_id', bIds).not('user_id', 'is', null)),
     aidatTutari(),
     say('transactions', (q) => q.in('building_id', bIds)),
@@ -118,6 +118,7 @@ export async function kurulumDurumu() {
     say('building_rules', (q) => q.in('building_id', bIds)),
     say('meetings', (q) => q.in('building_id', bIds)),
     say('audit_reports', (q) => q.eq('site_id', C.sId())),
+    say('management_tasks', (q) => q.eq('site_id', C.sId())),
   ]);
 
   const bakiyeVar = ['bank_balance', 'cash_balance', 'fund_balance'].some((k) => Number(site[k]) !== 0);
@@ -161,6 +162,12 @@ export async function kurulumDurumu() {
       baslik: 'Demirbaşları girin',
       aciklama: 'Asansör, kazan, hidrofor, jeneratör… Bakım periyodu girerseniz takvim sizi hatırlatır.',
       bolum: 'assets', hedef: '#asset-add',
+    },
+    {
+      id: 'takvim', kademe: 'onerilen', tamam: gorev > 0,
+      baslik: 'Yönetim takvimini kurun',
+      aciklama: 'Genel kurul, denetim, sigorta, asansör muayenesi… Hazır şablonları yüklerken "en son ne zaman yapıldı" sorulur; takvim binanızın gerçek düzenine oturur.',
+      bolum: 'tasks', hedef: '#task-seed',
     },
     {
       id: 'kural', kademe: 'onerilen', tamam: kural > 0,
@@ -421,11 +428,13 @@ const YARDIM = {
   },
   tasks: {
     baslik: 'Yönetim Takvimi',
-    ozet: 'Yasal yükümlülükler ve periyodik işler. Neyin ne zaman yapılacağını tutar, süre yaklaşınca Genel Bakış\'ta uyarır.',
+    ozet: 'Yasal yükümlülükler ve periyodik bakımlar. Yıllık planda her satır bir iş, her hücre bir ay: ✓ yapıldı, ● planlı, ! gecikti. Kim yaptı, kaça yapıldı burada tutulur.',
     adimlar: [
-      { metin: '<strong>Hazır Şablonları Yükle</strong> ile KMK\'daki standart yükümlülükleri tek tıkla ekleyin.' },
-      { metin: 'Kendi görevinizi <strong>Yeni Görev</strong> ile ekleyin; periyodikse tekrar aralığı seçin.', hedef: '#task-add' },
-      { metin: 'Görev bitince <strong>Tamamlandı</strong>; periyodikse sonraki tarih kendiliğinden açılır.' },
+      { metin: '<strong>Hazır Şablonları Yükle</strong>: her şablon için "en son ne zaman yapıldı" sorulur; sıradaki tarih ondan hesaplanır. Bilmiyorsanız boş bırakın, sonra düzeltirsiniz.', hedef: '#task-seed' },
+      { metin: 'İş bitince <strong>Yapıldı</strong>: tarih, kim yaptı (firma ya da kendiniz), tutar. Kasadan ödendiyse gider kendiliğinden işlenir, sonraki dönem takvime düşer.' },
+      { metin: 'Satıra tıklayın → <strong>Detay</strong>: zaman çizgisi, toplam ve ortalama maliyet. <strong>Geçmiş kayıt ekle</strong> ile eski yılları da işleyin.' },
+      { metin: 'Firmaya iş emri / teslim tutanağı gerekiyorsa <strong>İşe Dönüştür</strong>; iş tamamlanınca takvim de kapanır.', git: 'jobs' },
+      { metin: 'Kendi görevinizi <strong>+ Görev Ekle</strong> ile açın; tekrar aralığı ve beklenen tutar girin.', hedef: '#task-add' },
     ],
   },
   board: {
