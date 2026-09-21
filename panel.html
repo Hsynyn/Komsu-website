@@ -130,7 +130,8 @@
         <span>KOMŞU</span><img class="home" src="icon.png" alt="" />
       </div>
       <h1>Yönetiminizi tanımlayın</h1>
-      <p class="sub">Son adım — binalarınızı burada tanımlıyorsunuz. Bu bilgiler sonradan bina eklemeye izin vermez, dikkatle doldurun.</p>
+      <p class="sub">Son adım — binalarınızı burada tanımlıyorsunuz. Bina ve daire sayısı sonradan değiştirilemez, dikkatle doldurun.
+        <br><strong>Diğer her şeyi</strong> — IBAN, sakinler, aidat, demirbaşlar, geçmiş kayıtlar — panelden sonradan girersiniz; kurulum rehberi size yol gösterecek.</p>
       <div id="setup-error" class="error hidden"></div>
 
       <div class="field">
@@ -227,6 +228,7 @@
           <span class="top-name" id="top-building-name">—</span>
           <span class="top-addr" id="top-building-addr"></span>
         </div>
+        <button class="help-btn" id="help-btn" title="Bu sayfada ne yapılır?" aria-label="Yardım">?</button>
         <div class="top-user" id="top-user"></div>
       </header>
       <main class="content" id="content">
@@ -245,6 +247,16 @@
       <div class="modal-body" id="modal-body"></div>
     </div>
   </div>
+
+  <!-- Yardım paneli: içeriği panel-yardim.js bölüme göre doldurur -->
+  <aside id="help-drawer" class="help-drawer" aria-hidden="true">
+    <div class="help-drawer-head">
+      <h3 id="help-title">Yardım</h3>
+      <button class="modal-close" id="help-close" aria-label="Kapat">✕</button>
+    </div>
+    <div class="help-drawer-body" id="help-body"></div>
+    <div class="help-foot">Bu paneli sağ üstteki <strong>?</strong> düğmesinden her zaman açabilirsiniz.</div>
+  </aside>
 
   <!-- Toast -->
   <div id="toast" class="toast hidden"></div>

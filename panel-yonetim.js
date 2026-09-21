@@ -439,7 +439,9 @@ export async function renderExtraCharges() {
       </p>
     </div>
 
-    ${list.length ? list.map(kart).join('') : '<div class="card"><p class="t-empty">Henüz ek ödeme yok</p></div>'}`;
+    ${list.length ? list.map(kart).join('') : `<div class="card"><p class="t-empty"><strong>Henüz ek ödeme yok.</strong><br>
+      Çatı tamiri, asansör bakımı gibi bir iş için para toplayacaksanız yukarıdaki formu doldurun;
+      tutar dairelere bölünür ve sakinler aidatından ayrı bir satır olarak görür.</p></div>`}`;
 
   C.el('ec-create').onclick = async () => {
     const title = String(C.el('ec-title').value || '').trim();
@@ -555,6 +557,9 @@ export async function renderBoard() {
   // KMK m.41: yönetim planında süre yoksa denetim 3 ayda bir
   const lastAudit = audits[0];
   const auditOverdue = !lastAudit || daysUntil(addMonths(lastAudit.period_end, 3)) < 0;
+  // Yeni kaydolmuş sitede "yönetici yok, denetçi yok, denetim gecikmiş" üçü
+  // birden yanıyordu — bina bunları yapmış, sisteme yeni girmiş olabilir.
+  const yeniSite = (C.siteYasiGun ? C.siteYasiGun() : Infinity) < (C.YENI_SITE_GUN ?? 90);
 
   C.$content().innerHTML = `
     <div class="page-head"><h2>Kurul & Denetim</h2>
@@ -565,7 +570,7 @@ export async function renderBoard() {
       </div>
     </div>
 
-    ${(!hasYonetici || !hasDenetci || auditOverdue) ? `<div class="info-banner" style="margin-bottom:18px;">
+    ${(!yeniSite && (!hasYonetici || !hasDenetci || auditOverdue)) ? `<div class="info-banner" style="margin-bottom:18px;">
       ${!hasYonetici ? '⚠️ Kayıtlı bir <strong>yönetici</strong> yok. KMK m.34: 8 veya daha fazla bağımsız bölümü olan yapılarda yönetici atanması zorunludur.<br>' : ''}
       ${!hasDenetci ? '⚠️ Kayıtlı bir <strong>denetçi</strong> yok (KMK m.41).<br>' : ''}
       ${auditOverdue ? '⚠️ Son denetimin üzerinden 3 aydan fazla geçmiş. KMK m.41: yönetim planında süre yoksa denetim <strong>3 ayda bir</strong> yapılır.' : ''}
@@ -585,7 +590,8 @@ export async function renderBoard() {
           <button class="btn btn-sm btn-ghost" data-act="edit" data-id="${m.id}">Düzenle</button>
           <button class="btn btn-sm btn-outline-red" data-act="del" data-id="${m.id}">Sil</button>
         </td>
-      </tr>`).join('') : '<tr><td colspan="7" class="t-empty">Henüz kurul üyesi eklenmemiş</td></tr>'}</tbody></table>
+      </tr>`).join('') : `<tr><td colspan="7" class="t-empty"><strong>Henüz kurul üyesi yok.</strong><br>
+        Yönetici ve denetçiyi <strong>+ Kurul Üyesi</strong> ile kaydedin; kurul belgesi ve ihtarnameler bu isimleri kullanır.</td></tr>`}</tbody></table>
     </div>
 
     <div class="card">
@@ -606,7 +612,9 @@ export async function renderBoard() {
             </div>
           </div>
           ${a.findings ? `<div class="decision-body rich-content">${a.findings}</div>` : ''}
-        </div>`).join('') : '<div class="t-empty">Henüz denetim raporu yok</div>'}</div>
+        </div>`).join('') : `<div class="t-empty"><strong>Henüz denetim raporu yok.</strong><br>
+          Geçmiş bir denetiminiz varsa sağ üstteki <strong>+ Denetim Raporu</strong> ile tarihini işleyin;
+          sistem bir daha "denetim yapılmamış" diye uyarmaz.</div>`}</div>
     </div>`;
 
   C.el('board-belge').onclick = (e) => belgeButonu(e.currentTarget, () => belgeUret({

@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { initYonetim, yonetimRoutes } from './panel-yonetim.js';
 import { initBelge, belgeUret, belgeButonu, htmlDuzMetin, para, tarih } from './panel-belge.js';
+import { initYardim, yardimSayfaDegisti, ilkGirisKontrol, kurulumDurumu, kurulumKartiHTML, bindKurulumKarti, siteYasiGun, YENI_SITE_GUN } from './panel-yardim.js';
 
 // Mobil uygulamayla AYNI Supabase projesi (publishable key herkese açık, güvenlik RLS'te)
 const SUPABASE_URL = 'https://latrcfjexphtnqpnvscr.supabase.co';
@@ -827,6 +828,7 @@ async function boot(user) {
   }
 
   navigate('overview');
+  ilkGirisKontrol();
 }
 
 /* ============ Üst Çubuk: Site Bilgisi + Blok Seçici ============ */
@@ -904,9 +906,11 @@ const modulBaglami = {
   richEditorHTML, bindRichEditor, richValue,
   todayISO, downloadCSV, sortByApartment, occupiedOnly, isOccupied, notifyBuilding,
   MONTHS, adjustBalance, notifyUser, notifyApartment, refreshBuilding, ayEkle,
+  getAccessState, trialDaysLeft, siteYasiGun, YENI_SITE_GUN,
 };
 initYonetim(modulBaglami);
 initBelge(modulBaglami);
+initYardim(modulBaglami);
 
 function navigate(section) {
   S.section = section;
@@ -915,7 +919,8 @@ function navigate(section) {
   // Blok seçici yalnızca bina bazlı bölümlerde görünür
   renderBuildingSelector();
   
-  // Güvenlik modunda sidebar'ı gizle
+  // Güvenlik modunda sidebar'ı ve yardım düğmesini gizle
+  el('help-btn')?.classList.toggle('hidden', section === 'security_mode');
   if (section === 'security_mode') {
     el('sidebar').classList.add('hidden');
     document.querySelector('.main').style.marginLeft = '0';
@@ -953,11 +958,15 @@ function navigate(section) {
     document.querySelectorAll('#side-nav a').forEach((a) =>
       a.classList.toggle('active', a.dataset.section === 'subscription'));
     renderSubscription();
+    yardimSayfaDegisti();
     return;
   }
 
   watchAccessBanner();
-  Promise.resolve((routes[section] || renderOverview)()).finally(mountAccessBanner);
+  // .finally: needBuilding()/needSite() erken çıksa bile çalışan tek nokta —
+  // yardım paneli o anki bölüme göre güncellenir, bekleyen vurgu uygulanır.
+  Promise.resolve((routes[section] || renderOverview)())
+    .finally(() => { mountAccessBanner(); yardimSayfaDegisti(); });
 }
 
 /* Uyarı şeridini içeriğin en üstüne yerleştirir ve butonunu bağlar.
@@ -984,16 +993,18 @@ function watchAccessBanner() {
   accessBannerObserver.observe(host, { childList: true });
 }
 
-// Site ve binalar YALNIZCA mobil kayıt sırasında oluşturulur; panelden
-// sonradan bina eklenemez. Kaydı olmayan yönetici mobil uygulamaya yönlendirilir.
+// Site ve binalar kurulum sihirbazında oluşturulur; panelden sonradan bina
+// eklenemez. Kaydı yarım kalan yönetici sihirbaza geri yönlendirilir.
 function needBuilding() {
   if (!bId()) {
     $content().innerHTML = `
       <div class="card" style="text-align: center; padding: 40px;">
         <h3>Henüz Tanımlı Bir Siteniz Yok</h3>
-        <p class="muted" style="margin: 12px 0 0;">Site/apartman kaydı mobil uygulamadaki yönetici kayıt akışında yapılır.
-        Lütfen Komşu mobil uygulamasından yönetici kaydınızı tamamlayın; siteniz ve binalarınız otomatik olarak burada görünecektir.</p>
+        <p class="muted" style="margin: 12px 0 16px;">Kurulum tamamlanmamış görünüyor. Sitenizi ve binalarınızı
+        kurulum sihirbazında tanımlayın; bir dakika sürer.</p>
+        <button class="btn" id="need-setup">Kuruluma git →</button>
       </div>`;
+    el('need-setup')?.addEventListener('click', () => showSetup());
     return false;
   }
   return true;
@@ -1226,6 +1237,14 @@ async function renderDashboard() {
   const gun = (d) => Math.ceil((new Date(d).getTime() - Date.now()) / 86400000);
   const uyarilar = [];
 
+  /* Kurulum bitmeden uyarı üretilmez; yerine kurulum rehberi. Bittikten sonra
+     da "yapılmadı" iddiası taşıyan iki uyarı (denetim, genel kurul) site
+     YENI_SITE_GUN'den gençse susar — bina bunları yapmış ama sisteme yeni
+     kaydolmuş olabilir. Diğer sekiz uyarı gerçek kayıt gerektirir, dokunulmadı. */
+  const kurulum = await kurulumDurumu();
+  const siteYasi = siteYasiGun();
+  const kayitYili = S.site?.created_at ? new Date(S.site.created_at).getFullYear() : yil;
+
   const bekleyenTx = txRes.data || [];
   if (bekleyenTx.length) {
     const tutar = bekleyenTx.reduce((s, t) => s + Number(t.amount), 0);
@@ -1292,7 +1311,7 @@ async function renderDashboard() {
   }
 
   const sonDenetim = (auditRes.data || [])[0];
-  if (auditRes.data && (!sonDenetim || gun(sonDenetim.period_end) < -90)) {
+  if (auditRes.data && siteYasi >= YENI_SITE_GUN && (!sonDenetim || gun(sonDenetim.period_end) < -90)) {
     uyarilar.push({
       seviye: 'sari', ikon: '👥', bolum: 'board',
       baslik: sonDenetim ? 'Son denetimin üzerinden 3 aydan fazla geçti' : 'Henüz denetim raporu girilmemiş',
@@ -1335,7 +1354,10 @@ async function renderDashboard() {
         eylem: 'Genel kurula git',
       });
     }
-    if (!buYilOlagan && !yaklasan.some(m => m.meeting_kind === 'olagan')) {
+    // Site bu yıl kaydolduysa "bu yılın genel kurulu" uyarısı hiç çıkmaz: bina
+    // yılın başında yapmış olabilir, sistem bilemez. Sonraki yıllarda normal.
+    if (!buYilOlagan && !yaklasan.some(m => m.meeting_kind === 'olagan')
+        && siteYasi >= YENI_SITE_GUN && kayitYili < yil) {
       uyarilar.push({
         seviye: 'bilgi', ikon: '📅', bolum: 'assembly',
         baslik: `${yil} yılı olağan genel kurulu henüz planlanmamış`,
@@ -1345,7 +1367,7 @@ async function renderDashboard() {
     }
   }
 
-  alertHost.innerHTML = uyarilar.length ? `
+  const uyariHTML = uyarilar.length ? `
     <div class="card dash-todo">
       <div class="dash-todo-head">
         <h3>Dikkat gerektirenler</h3>
@@ -1369,6 +1391,10 @@ async function renderDashboard() {
           Onay bekleyen ödeme, gecikmiş yükümlülük, açık arıza ya da süresi dolan sözleşme yok.</p>
       </div>
     </div>`;
+
+  // Kurulum kartı üstte; uyarılar yalnızca çekirdek kurulum bittiyse
+  alertHost.innerHTML = kurulumKartiHTML(kurulum) + (kurulum.tamam ? uyariHTML : '');
+  bindKurulumKarti(alertHost);
 
   alertHost.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-todo]');
@@ -2270,13 +2296,23 @@ async function renderApartments() {
     <div class="info-banner">Daireler, sakinlerin mobil uygulamada <strong>bina kodu</strong> ile kendilerini eklemesiyle otomatik oluşur. Buradan yeni daire eklenmez; mevcut daireleri yönetebilirsiniz.
       <br>Bir daireye en fazla <strong>iki sakin</strong> kaydolabilir. Ad ve telefon, sakinin kendi kaydından gelir.</div>
     <div class="card"><table><thead><tr><th>Daire</th><th>Sakinler</th><th>Plaka</th><th>Durum</th><th></th></tr></thead>
-      <tbody id="apt-body">${list.length ? rows() : '<tr><td colspan="5" class="t-empty">Henüz sakin kaydı yok</td></tr>'}</tbody></table></div>`;
+      <tbody id="apt-body">${list.length ? rows() : `<tr><td colspan="5" class="t-empty">
+        <strong>Henüz sakin katılmadı.</strong><br>
+        Sakinler mobil uygulamada davet koduyla kendi dairelerine katılır. Kodunuz:
+        <strong style="letter-spacing:1px">${esc(activeBuilding()?.building_code || '—')}</strong>
+        <button class="btn btn-sm btn-ghost" data-act="copy-code" data-code="${esc(activeBuilding()?.building_code || '')}" style="margin-left:6px">Kopyala</button>
+      </td></tr>`}</tbody></table></div>`;
 
   el('apt-search')?.addEventListener('input', (e) => {
     el('apt-body').innerHTML = rows(e.target.value) || '<tr><td colspan="5" class="t-empty">Eşleşen daire yok</td></tr>';
   });
   el('apt-body').addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-act]'); if (!btn) return;
+    if (btn.dataset.act === 'copy-code') {
+      try { await navigator.clipboard.writeText(btn.dataset.code); toast('Davet kodu kopyalandı'); }
+      catch { toast('Kopyalanamadı — kodu elle seçin', true); }
+      return;
+    }
     if (btn.dataset.act === 'toggle') {
       const on = btn.dataset.on === 'true';
       const { error } = await supabase.from('apartments').update({ is_active: !on }).eq('id', btn.dataset.id);
@@ -2884,7 +2920,8 @@ async function renderAnnouncements() {
           <div class="lr-text">${esc(a.detail)}</div>
         </div>
         <button class="btn btn-sm btn-outline-red" data-del="${a.id}">Sil</button>
-      </div>`).join('') : '<div class="card"><p class="t-empty">Henüz duyuru yok</p></div>'}</div>`;
+      </div>`).join('') : `<div class="card"><p class="t-empty"><strong>Henüz duyuru yok.</strong><br>
+        Sağ üstteki <strong>Yeni Duyuru</strong> ile yazın; gönderince tüm sakinlerin telefonuna bildirim düşer.</p></div>`}</div>`;
 
   el('ann-add').addEventListener('click', () => {
     // Bloğa özel duyuru yalnızca o bloğun sakinlerine görünür ve bildirim gider
@@ -3078,7 +3115,8 @@ async function renderJobs() {
           <select class="mini" data-status="${j.id}"><option value="">Durum…</option><option value="in_progress">Başlat</option><option value="completed">Tamamla</option><option value="cancelled">İptal</option></select>
           <button class="btn btn-sm" data-belge="${j.id}">📄 ${j.status === 'completed' ? 'Teslim Tutanağı' : 'İş Emri'}</button>
           <button class="btn btn-sm btn-outline-red" data-del="${j.id}">Sil</button>
-        </td></tr>`).join('') : '<tr><td colspan="5" class="t-empty">Henüz iş yok</td></tr>'}</tbody></table></div>`;
+        </td></tr>`).join('') : `<tr><td colspan="5" class="t-empty"><strong>Henüz iş yok.</strong><br>
+        Sağ üstteki <strong>Yeni İş</strong> ile ekleyin. Sakinlerden gelen arıza bildirimleri de "İş olarak tanımla" ile buraya düşer.</td></tr>`}</tbody></table></div>`;
   el('job-add').addEventListener('click', () => {
     // İşin kapsamı: bloğa özel iş, ücreti o bloğun defterine yazılır
     const jobState = { hedefBlok: null };
@@ -4559,7 +4597,10 @@ async function renderAssets() {
     </p>
     
     <div class="asset-grid" id="asset-grid">
-      ${rows || '<div class="card" style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--muted);">Bina için kayıtlı demirbaş bulunamadı.</div>'}
+      ${rows || `<div class="card" style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--muted);">
+        <strong>Henüz demirbaş yok.</strong><br>
+        Asansör, kazan, hidrofor, jeneratör… Sağ üstteki <strong>Demirbaş Ekle</strong> ile girin;
+        bakım periyodu yazarsanız Yönetim Takvimi zamanı gelince hatırlatır.</div>`}
     </div>
   `;
 

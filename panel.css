@@ -952,3 +952,59 @@ select.mini { padding: 8px 11px; border: 2px solid var(--line); border-radius: 1
   .todo-row { flex-wrap: wrap; }
   .todo-row .btn { width: 100%; }
 }
+
+/* ============================================================
+   YARDIM PANELİ (sağdan kayan) + KURULUM REHBERİ
+   ============================================================
+   Drawer, mobil sidebar'ın (yukarıda, @media 860px) sağa aynalanmış hali;
+   medya sorgusunun dışında çünkü masaüstünde de kullanılıyor. z-index 90:
+   modal'ın (100) altında, sidebar'ın (60) üstünde. */
+.help-btn { width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--line); background: var(--white);
+  color: var(--brown); font-weight: 800; font-size: 16px; cursor: pointer; flex-shrink: 0; font-family: inherit;
+  transition: border-color .12s, transform .12s, box-shadow .12s; }
+.help-btn:hover { border-color: var(--tan); transform: translateY(-1px); }
+.help-btn.pulse { animation: help-btn-pulse 1.6s ease-out 3; }
+@keyframes help-btn-pulse { 0% { box-shadow: 0 0 0 0 rgba(217,179,130,.65); } 100% { box-shadow: 0 0 0 14px rgba(217,179,130,0); } }
+
+.help-drawer { position: fixed; top: 0; right: 0; height: 100vh; width: 380px; max-width: 100vw; background: var(--white);
+  z-index: 90; transform: translateX(100%); transition: transform .22s; box-shadow: -6px 0 30px rgba(43,38,32,.15);
+  display: flex; flex-direction: column; }
+.help-drawer.open { transform: translateX(0); }
+.help-drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+.help-drawer-head h3 { margin: 0; font-size: 16px; }
+.help-drawer-body { flex: 1; overflow-y: auto; padding: 18px 20px; }
+.help-ozet { font-size: 13.5px; color: var(--muted); line-height: 1.55; margin-bottom: 16px; }
+.help-grup { font-size: 11.5px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); font-weight: 700; margin: 14px 0 8px; }
+.help-adim { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; border: 1.5px solid var(--line);
+  margin-bottom: 8px; background: var(--white); transition: border-color .12s, background .12s; }
+.help-adim.tikla { cursor: pointer; }
+.help-adim.tikla:hover { border-color: var(--tan); background: var(--cream); }
+.help-adim-no { width: 22px; height: 22px; border-radius: 50%; background: var(--peach); color: var(--brown); font-size: 12px; font-weight: 800;
+  display: grid; place-items: center; flex-shrink: 0; margin-top: 1px; }
+.help-adim-text { font-size: 13.5px; line-height: 1.5; }
+.help-adim-git { display: block; font-size: 12px; color: var(--blue); font-weight: 700; margin-top: 3px; }
+.help-backdrop { position: fixed; inset: 0; background: rgba(43,38,32,.22); z-index: 85; }
+.help-foot { padding: 12px 20px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+@media (max-width: 560px) { .help-drawer { width: 100vw; } }
+
+/* Vurgu: rehberde bir adıma tıklayınca sayfadaki ilgili alan birkaç kez
+   parlar. outline değil box-shadow: elemanın kendi radius'unu bozmasın. */
+.help-pulse { animation: help-pulse 1.1s ease-out 3; }
+@keyframes help-pulse { 0% { box-shadow: 0 0 0 0 rgba(217,179,130,.95); } 100% { box-shadow: 0 0 0 12px rgba(217,179,130,0); } }
+
+/* Kurulum kartı: Genel Bakış'ta, uyarıların yerinde. .todo-row'u yeniden
+   kullanır; tek yeni durum "tamamlandı" (yeşil, üstü çizili). */
+.kurulum-card { margin-bottom: 16px; border: 2px solid var(--tan); }
+.kurulum-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.kurulum-head h3 { margin: 0; }
+.kurulum-sub { font-size: 13px; color: var(--muted); margin: 4px 0 14px; line-height: 1.5; }
+.kurulum-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin-bottom: 6px; }
+.kurulum-bar > div { height: 100%; background: linear-gradient(90deg, var(--tan), var(--brown)); transition: width .3s; }
+.kurulum-grup { font-size: 11.5px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); font-weight: 700; margin: 14px 0 6px; }
+.todo-row.t-tamam { border-left: 4px solid var(--green); background: var(--green-bg); }
+.todo-row.t-tamam .todo-text strong { color: var(--green); }
+.todo-row.t-bekle { border-left: 4px solid var(--tan); }
+.kurulum-kod { font-weight: 800; letter-spacing: 1px; font-size: 14px; }
+.kurulum-foot { display: flex; justify-content: flex-end; margin-top: 10px; }
+.kurulum-mini { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.kurulum-mini .kurulum-bar { flex: 1; min-width: 120px; margin: 0; }
