@@ -84,7 +84,7 @@ const S = {
 };
 
 // Blok seçicinin görüneceği (fiziksel olarak bina bazlı) bölümler
-const PER_BUILDING_SECTIONS = ['apartments', 'fees', 'reports'];
+const PER_BUILDING_SECTIONS = ['apartments', 'fees', 'extra', 'reports'];
 
 /* ============ Yardımcılar ============ */
 const el = (id) => document.getElementById(id);
@@ -1159,7 +1159,7 @@ async function renderDashboard() {
      olabilir; o sorgular hata verirse pano yine de çalışsın. */
   const sessiz = (p) => Promise.resolve(p).then(r => (r.error ? { data: null } : r)).catch(() => ({ data: null }));
 
-  const [txRes, maintRes, jobRes, feeRes, taskRes, conRes, auditRes, budRes, gkRes] = await Promise.all([
+  const [txRes, maintRes, jobRes, feeRes, taskRes, conRes, auditRes, gkRes] = await Promise.all([
     sessiz(supabase.from('transactions').select('id, amount, type, status, description')
       .in('building_id', siteBIds()).eq('status', 'pending')),
     sessiz(supabase.from('maintenance_requests').select('id, priority, status')
@@ -1173,7 +1173,6 @@ async function renderDashboard() {
     sessiz(supabase.from('contracts').select('id, vendor_name, end_date, is_active').eq('site_id', sId())),
     sessiz(supabase.from('audit_reports').select('period_end').eq('site_id', sId())
       .order('period_end', { ascending: false }).limit(1)),
-    sessiz(supabase.from('operating_budgets').select('status, year').eq('site_id', sId()).eq('year', yil).maybeSingle()),
     sessiz(supabase.from('meetings').select('id, title, meeting_date, meeting_kind, minutes, announced_at')
       .in('building_id', siteBIds()).order('meeting_date', { ascending: false }).limit(20)),
   ]);
@@ -1190,7 +1189,7 @@ async function renderDashboard() {
   const oran = tahakkuk ? Math.round((tahsilat / tahakkuk) * 100) : 0;
 
   const borclar = await borcTablosuGetir();
-  const borcToplam = borclar.reduce((s, d) => s + d.anapara + d.gecikme, 0);
+  const borcToplam = borclar.reduce((s, d) => s + d.anapara, 0);
 
   const acikArizalar = maintRes.data || [];
   const acikIsler = jobRes.data || [];
@@ -1254,7 +1253,7 @@ async function renderDashboard() {
     uyarilar.push({
       seviye: borcToplam > tahakkuk ? 'kirmizi' : 'sari', ikon: '⚠️', bolum: 'debts',
       baslik: `${borclar.length} dairenin ödenmemiş aidat borcu var`,
-      detay: `En yüksek borç: ${daireEtiketi(enBuyuk.apt.building_id, enBuyuk.apt.apartment_number)} — ${TL(enBuyuk.anapara + enBuyuk.gecikme)} `
+      detay: `En yüksek borç: ${daireEtiketi(enBuyuk.apt.building_id, enBuyuk.apt.apartment_number)} — ${TL(enBuyuk.anapara)} `
         + `(${enBuyuk.ay} ay). İhtar kaydı açıp ihtarname üretebilirsiniz.`,
       eylem: 'Borç takibine git',
     });
@@ -1302,21 +1301,6 @@ async function renderDashboard() {
     });
   }
 
-  if (!budRes.data) {
-    uyarilar.push({
-      seviye: 'bilgi', ikon: '📊', bolum: 'budget',
-      baslik: `${yil} yılı işletme projesi henüz oluşturulmamış`,
-      detay: 'KMK m.37 — kesinleşmiş işletme projesi olmadan aidat alacağı icra takibine dayanak yapılamaz.',
-      eylem: 'İşletme projesine git',
-    });
-  } else if (budRes.data.status === 'draft') {
-    uyarilar.push({
-      seviye: 'bilgi', ikon: '📊', bolum: 'budget',
-      baslik: `${yil} işletme projesi taslak halinde`,
-      detay: 'Kat maliklerine tebliğ edilmeden kesinleşmez; tebliğden sonra 7 günlük itiraz süresi işler.',
-      eylem: 'İşletme projesine git',
-    });
-  }
 
   /* Genel kurul: KMK m.29 olağan toplantıyı yılda bir zorunlu kılar.
      Panelde toplantı kaydı vardı ama "yaptın mı, duyurdun mu, tutanağı
@@ -2234,7 +2218,7 @@ async function renderApartments() {
   if (aptIds.length) {
     const { data: mem } = await supabase
       .from('apartment_members')
-      .select('apartment_id, user_id, role, joined_at')
+      .select('apartment_id, user_id, role, joined_at, phone, vehicle_plate_number')
       .in('apartment_id', aptIds);
 
     const uids = [...new Set((mem || []).map(m => m.user_id))];
@@ -2250,7 +2234,12 @@ async function renderApartments() {
       .sort((x, y) => String(x.joined_at).localeCompare(String(y.joined_at)))
       .forEach(m => {
         (membersByApt[m.apartment_id] = membersByApt[m.apartment_id] || [])
-          .push({ uid: m.user_id, ad: nameByUid[m.user_id] || 'İsimsiz sakin' });
+          .push({
+            uid: m.user_id,
+            ad: nameByUid[m.user_id] || 'İsimsiz sakin',
+            tel: m.phone || '',
+            plaka: m.vehicle_plate_number || '',
+          });
       });
   }
   const uyeler = (aptId) => membersByApt[aptId] || [];
@@ -2258,14 +2247,16 @@ async function renderApartments() {
     .filter(a => !filter || `${a.apartment_number} ${a.owner_name||''} ${a.username||''} ${a.vehicle_plate_number||''}`.toLowerCase().includes(filter.toLowerCase()))
     .map(a => `<tr>
       <td><strong>${esc(a.apartment_number)}</strong></td>
-      <td>${esc(a.owner_name||'—')}</td>
       <td>${uyeler(a.id).length
-        ? uyeler(a.id).map((m, i) => `<div class="uye-satir">${esc(m.ad)}${i === 0 ? ' <span class="badge b-gray" title="Birincil sakin — daire bilgileri bu kişiye yazılır">1.</span>' : ''} <button class="btn btn-xs btn-outline-red" data-act="rm-member" data-uid="${esc(m.uid)}" data-ad="${esc(m.ad)}" data-no="${esc(a.apartment_number)}" title="Bu sakini daireden çıkar">Çıkar</button></div>`).join('')
+        ? uyeler(a.id).map(m => `<div class="uye-satir">
+            <span>${esc(m.ad)}</span>
+            ${m.tel ? `<a class="t-muted" href="tel:${esc(m.tel)}">${esc(m.tel)}</a>` : '<span class="t-muted">telefon yok</span>'}
+            <button class="btn btn-xs btn-outline-red" data-act="rm-member" data-uid="${esc(m.uid)}" data-ad="${esc(m.ad)}" data-no="${esc(a.apartment_number)}" title="Bu sakini daireden çıkar">Çıkar</button>
+          </div>`).join('')
         : '<span class="t-muted">—</span>'}</td>
-      <td>${esc(a.owner_phone||'—')}</td>
-      <td>${esc(a.vehicle_plate_number||'—')}</td>
-      <td><input class="share-input" data-share="${a.id}" inputmode="decimal" placeholder="—"
-           value="${a.land_share != null ? Number(a.land_share) : ''}" title="Arsa payı (KMK m.20)"></td>
+      <td>${uyeler(a.id).some(m => m.plaka)
+        ? uyeler(a.id).filter(m => m.plaka).map(m => esc(m.plaka)).join('<br>')
+        : esc(a.vehicle_plate_number||'—')}</td>
       <td>${isOccupied(a)
         ? `<button class="badge chip-toggle ${a.is_active?'b-green':'b-red'}" data-act="toggle" data-id="${a.id}" data-on="${a.is_active}">${a.is_active?'Aktif':'Pasif'}</button>`
         : '<span class="badge b-gray" title="Sakin katılmamış — aidat ve borç hesabına girmez">Boş</span>'}</td>
@@ -2277,25 +2268,13 @@ async function renderApartments() {
       <div class="tools"><input class="search" id="apt-search" placeholder="Daire, sahip, plaka ara…"></div>
     </div>
     <div class="info-banner">Daireler, sakinlerin mobil uygulamada <strong>bina kodu</strong> ile kendilerini eklemesiyle otomatik oluşur. Buradan yeni daire eklenmez; mevcut daireleri yönetebilirsiniz.
-      <br><strong>Arsa payı</strong> alanını doldurursanız işletme projesi giderleri ve genel kurul yeter sayısı KMK m.20/m.30'a uygun hesaplanır. Boş bırakılırsa eşit dağıtım yapılır.</div>
-    <div class="card"><table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th>Sakinler</th><th>Telefon</th><th>Plaka</th><th>Arsa Payı</th><th>Durum</th><th></th></tr></thead>
-      <tbody id="apt-body">${list.length ? rows() : '<tr><td colspan="8" class="t-empty">Henüz sakin kaydı yok</td></tr>'}</tbody></table></div>`;
+      <br>Bir daireye en fazla <strong>iki sakin</strong> kaydolabilir. Ad ve telefon, sakinin kendi kaydından gelir.</div>
+    <div class="card"><table><thead><tr><th>Daire</th><th>Sakinler</th><th>Plaka</th><th>Durum</th><th></th></tr></thead>
+      <tbody id="apt-body">${list.length ? rows() : '<tr><td colspan="5" class="t-empty">Henüz sakin kaydı yok</td></tr>'}</tbody></table></div>`;
 
   el('apt-search')?.addEventListener('input', (e) => {
-    el('apt-body').innerHTML = rows(e.target.value) || '<tr><td colspan="8" class="t-empty">Eşleşen daire yok</td></tr>';
+    el('apt-body').innerHTML = rows(e.target.value) || '<tr><td colspan="5" class="t-empty">Eşleşen daire yok</td></tr>';
   });
-  // Arsa payı: alandan çıkınca kaydet. Boş bırakılırsa null yazılır.
-  el('apt-body').addEventListener('change', async (e) => {
-    const inp = e.target.closest('input[data-share]'); if (!inp) return;
-    const raw = inp.value.trim().replace(',', '.');
-    const val = raw === '' ? null : Number(raw);
-    if (val !== null && (!isFinite(val) || val < 0)) return toast('Geçersiz arsa payı', true);
-    const { error } = await supabase.from('apartments').update({ land_share: val }).eq('id', inp.dataset.share);
-    if (error) return toast(error.message, true);
-    inp.classList.add('saved');
-    setTimeout(() => inp.classList.remove('saved'), 900);
-  });
-
   el('apt-body').addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-act]'); if (!btn) return;
     if (btn.dataset.act === 'toggle') {
@@ -2330,19 +2309,41 @@ async function renderFees() {
   /* Seçili ayın yanı sıra TÜM ödenmemiş aylar da çekiliyor: bir dairenin
      geçmiş borcu, o ayın satırına bakarken görünmüyordu ve Borç Takibi ile
      Aidat Takibi farklı tablo gösteriyordu. İki ekran artık aynı veriden
-     besleniyor. İşletme projesi de okunuyor ki aidatın nereden geldiği belli olsun. */
-  const [aptRes, feeRes, borcRes, budRes] = await Promise.all([
+     besleniyor. */
+  const [aptRes, feeRes, borcRes] = await Promise.all([
     supabase.from('apartments').select('id, apartment_number, owner_name, user_id, username').eq('building_id', bId()),
     supabase.from('monthly_fees').select('*').eq('building_id', bId()).eq('year', year).eq('month', month),
     supabase.from('monthly_fees').select('apartment_id, amount, year, month')
       .eq('building_id', bId()).eq('is_paid', false),
-    supabase.from('operating_budgets').select('id, status, year').eq('site_id', sId()).eq('year', year).maybeSingle(),
   ]);
   // Yer tutucu (boş) daireler aidat hesabına GİRMEZ; sahibi bilinmeyen
   // daireye borç yazmak hayali alacak üretir.
   const allApts = sortByApartment(aptRes.data);
   const apts = occupiedOnly(allApts);
   const emptyCount = allApts.length - apts.length;
+
+  /* Sakin isimleri apartment_members → profiles zincirinde. owner_name yalnızca
+     yönetici elle doldurursa dolar; uygulamadan katılanlarda boş kalıyor ve bu
+     ekranda hep "—" görünüyordu. İki sakinli dairede ikisi de listelenir. */
+  let sakinlerByApt = {};
+  if (apts.length) {
+    const { data: mem } = await supabase.from('apartment_members')
+      .select('apartment_id, user_id, joined_at').in('apartment_id', apts.map(a => a.id));
+    const uids = [...new Set((mem || []).map(m => m.user_id))];
+    let adByUid = {};
+    if (uids.length) {
+      const { data: profs } = await supabase.from('profiles').select('id, name, surname, email').in('id', uids);
+      (profs || []).forEach(pr => {
+        adByUid[pr.id] = [pr.name, pr.surname].filter(Boolean).join(' ').trim() || pr.email || '';
+      });
+    }
+    (mem || []).sort((x, y) => String(x.joined_at).localeCompare(String(y.joined_at)))
+      .forEach(m => {
+        (sakinlerByApt[m.apartment_id] = sakinlerByApt[m.apartment_id] || [])
+          .push(adByUid[m.user_id] || 'İsimsiz sakin');
+      });
+  }
+  const sakinler = (id) => (sakinlerByApt[id] || []).join(', ') || '—';
   const fees = feeRes.data || [];
   const feeByApt = new Map(fees.map(f => [f.apartment_id, f]));
   const paid = fees.filter(f => f.is_paid); const totalPaid = paid.reduce((s,f)=>s+Number(f.amount),0);
@@ -2358,7 +2359,6 @@ async function renderFees() {
   }
   const borcluDaire = apts.filter(a => borcByApt.has(a.id)).length;
   const borcToplam = apts.reduce((t, a) => t + (borcByApt.get(a.id)?.tutar || 0), 0);
-  const proje = budRes.error ? null : budRes.data;
 
   const monthOpts = MONTHS.map((m,i)=>`<option value="${i+1}" ${i+1===month?'selected':''}>${m}</option>`).join('');
   const years = [year-2,year-1,year,year+1].filter((v,i,a)=>a.indexOf(v)===i);
@@ -2383,8 +2383,8 @@ async function renderFees() {
       : '';
     return `<tr>
       <td><strong>${esc(a.apartment_number)}</strong> ${borcRozeti}</td>
-      <td>${esc(a.owner_name || '—')}</td>
-      <td>${f ? TL(f.amount) : '—'}${f?.budget_id ? '<div class="muted" style="font-size:11px">işletme projesinden</div>' : ''}</td>
+      <td>${esc(sakinler(a.id))}</td>
+      <td>${f ? TL(f.amount) : '—'}</td>
       <td>${f ? `<span class="badge ${f.is_paid?'b-green':'b-amber'}">${f.is_paid?'Ödendi':'Bekliyor'}</span>` : '<span class="badge b-gray">Kayıt yok</span>'}</td>
       <td>${f?.paid_date ? dmy(f.paid_date) : '—'}</td>
       <td class="t-right">${payCell}</td>
@@ -2408,14 +2408,6 @@ async function renderFees() {
     </div>
     <div class="card">
       <h3>Tüm Dairelere ${MONTHS[month-1]} ${year} Aidatı Uygula</h3>
-      ${proje ? `<div class="info-banner" style="margin:0 0 14px;">
-        ${proje.status === 'approved'
-          ? `✅ <strong>${year} işletme projesi kesinleşti.</strong> Aidatı buradan elle girmek yerine projeden uygulamak,
-             gider paylarını KMK m.20'ye göre daire daire hesaplar.`
-          : `📊 <strong>${year} işletme projesi ${proje.status === 'notified' ? 'tebliğ edildi' : 'taslak halinde'}.</strong>
-             Kesinleştikten sonra aidatları oradan uygulayabilirsiniz.`}
-        <button class="btn btn-sm" id="fee-goto-budget" style="margin-left:8px;">İşletme Projesine Git →</button>
-      </div>` : ''}
       <div class="grid-2">
         <div class="field" style="margin:0"><input id="bulk-amt" inputmode="decimal" placeholder="Örn: 1500"></div>
         <button class="btn" id="bulk-apply">Uygula</button>
@@ -2423,34 +2415,27 @@ async function renderFees() {
       <p class="muted" style="font-size:12.5px;margin-top:10px">Kaydı olmayan dairelere aidat oluşturur; ödenmemiş kayıtların tutarını günceller (ödenmiş olanlara dokunmaz).
       ${emptyCount ? `<br><strong>${emptyCount} boş daire</strong> hesaba katılmaz — sakin katılınca otomatik dahil olur.` : ''}</p>
     </div>
-    <div class="card"><table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th>Tutar</th><th>Durum</th><th>Ödeme Tarihi</th><th></th></tr></thead>
+    <div class="card"><table><thead><tr><th>Daire</th><th>Sakinler</th><th>Tutar</th><th>Durum</th><th>Ödeme Tarihi</th><th></th></tr></thead>
       <tbody id="fee-body">${apts.length ? rows : '<tr><td colspan="6" class="t-empty">Önce sakinler daire eklemeli</td></tr>'}</tbody></table></div>`;
 
   el('fee-month').addEventListener('change', e => { feeState.month = +e.target.value; renderFees(); });
   el('fee-year').addEventListener('change', e => { feeState.year = +e.target.value; renderFees(); });
 
   el('fee-goto-debts').onclick = () => navigate('debts');
-  if (el('fee-goto-budget')) el('fee-goto-budget').onclick = () => navigate('budget');
 
   el('bulk-apply').addEventListener('click', async () => {
     const amt = parseFloat(String(el('bulk-amt').value).replace(',','.'));
     if (isNaN(amt) || amt <= 0) return toast('Geçerli bir tutar girin', true);
 
-    /* İşletme projesinden gelen tutarı elle ezmek, kanuna göre hesaplanmış
-       daire paylarını bozar; yönetici bunu bilerek yapmalı. */
-    const projedenGelen = apts.filter(a => feeByApt.get(a.id)?.budget_id && !feeByApt.get(a.id)?.is_paid).length;
-    if (projedenGelen && !confirm(
-      `${projedenGelen} dairenin bu ayki aidatı işletme projesinden hesaplanmış durumda.\n\n` +
-      `Sabit ${TL(amt)} uygularsanız, KMK m.20'ye göre arsa payı/eşit dağıtımla bulunan tutarların yerine ` +
-      `herkese aynı tutar yazılacak. Devam edilsin mi?`)) return;
     el('bulk-apply').disabled = true;
     try {
-      for (const a of apts) {
-        const f = feeByApt.get(a.id);
-        if (!f) await supabase.from('monthly_fees').insert({ apartment_id:a.id, building_id:bId(), year, month, amount:amt, is_paid:false });
-        // Elle girilen tutar artık projeden gelmiyor; damgayı kaldır ki kaynak doğru görünsün
-        else if (!f.is_paid) await supabase.from('monthly_fees').update({ amount:amt, budget_id:null }).eq('id', f.id);
-      }
+      /* Tahakkuk kuralı sunucuda (0027): doluluk ölçütü, tutar çözümü ve
+         "ödenmiş satıra dokunma" garantisi tek yerde. Bu ekran eskiden kendi
+         döngüsünü çalıştırıyor ve ayarlardaki tutarı hiç okumuyordu. */
+      const { error: err } = await supabase.rpc('apply_monthly_fees', {
+        p_building_id: bId(), p_year: year, p_months: [month], p_amount: amt,
+      });
+      if (err) throw new Error(err.message);
       notifyBuilding('💰 Yeni Aidat', `${MONTHS[month-1]} ${year} aidatı ${TL(amt)} olarak tanımlandı.`);
       toast('Aidatlar uygulandı'); renderFees();
     } catch (err) { toast(err.message, true); el('bulk-apply').disabled = false; }
@@ -3710,8 +3695,8 @@ async function renderReports() {
 
       <div class="card rep-card">
         <div class="rep-ico">⚠️</div>
-        <h3>Borç ve Gecikme Raporu</h3>
-        <p class="muted">Tüm sitedeki ödenmemiş aidatlar, daire bazında gecikme tazminatıyla birlikte (KMK m.20).</p>
+        <h3>Borç Raporu</h3>
+        <p class="muted">Tüm sitedeki vadesi geçmiş ödenmemiş aidatlar, daire bazında.</p>
         <button class="btn btn-block" id="btn-rep-debt">Belge Oluştur</button>
       </div>
     </div>
@@ -3768,9 +3753,19 @@ async function renderReports() {
 
 /* ---------- Ortak veri toplayıcı ----------
    Borç hesabı üç yerde gerekiyor (Borç Takibi ekranı, borç raporu, faaliyet
-   raporu). Üçü aynı sayıyı göstersin diye kural tek yerde: vade ilgili ayın
-   1'i, gecikilen günler üzerinden aylık %5 tazminat (KMK m.20). */
+   raporu). Üçü aynı sayıyı göstersin diye kural tek yerde:
+
+   Borç = VADESİ GEÇMİŞ ödenmemiş aidat. Vade, ilgili ayın SON günüdür —
+   yönetici ay boyunca tahsilat yapar. Yıllık tahakkukta Aralık'a kadar tüm
+   aylar baştan açılır; bunları borç saymak daireyi ödemediği bir parayla
+   borçlu göstermek olurdu. (Bu kontrol web'de yoktu, mobilde vardı — iki
+   ekran farklı rakam gösteriyordu.)
+
+   Gecikme tazminatı uygulanmıyor. */
 const GUN = 86400000;
+
+/** Vade ayın son günü: sonraki ayın 1'i geldiyse vadesi geçmiştir. */
+const vadesiGecti = (year, month) => Date.now() >= new Date(year, month, 1).getTime();
 
 async function borcTablosuGetir() {
   const [feeRes, aptRes] = await Promise.all([
@@ -3782,17 +3777,20 @@ async function borcTablosuGetir() {
   const borclar = new Map();
   for (const f of (feeRes.data || [])) {
     const a = aptById.get(f.apartment_id); if (!a) continue;
-    const vade = new Date(f.year, f.month - 1, 1);
-    const gecikenGun = Math.max(0, Math.floor((Date.now() - vade.getTime()) / GUN));
-    const tazminat = Math.round((gecikenGun / 30) * 0.05 * Number(f.amount) * 100) / 100;
-    const cur = borclar.get(a.id) || { apt: a, anapara: 0, gecikme: 0, ay: 0, aylar: [] };
+    const cur = borclar.get(a.id) || { apt: a, anapara: 0, ay: 0, aylar: [], gelecekDonem: 0 };
+    if (!vadesiGecti(f.year, f.month)) {
+      cur.gelecekDonem += 1;          // ileri dönem tahakkuk: borç değil
+      borclar.set(a.id, cur);
+      continue;
+    }
     cur.anapara += Number(f.amount);
-    cur.gecikme += tazminat;
     cur.ay += 1;
     cur.aylar.push(`${MONTHS[f.month - 1]} ${f.year}`);
     borclar.set(a.id, cur);
   }
-  return [...borclar.values()].sort((x, y) => (y.anapara + y.gecikme) - (x.anapara + x.gecikme));
+  return [...borclar.values()]
+    .filter(d => d.ay > 0)
+    .sort((x, y) => y.anapara - x.anapara);
 }
 
 /* ---------- 1) Kasa gelir-gider ---------- */
@@ -3939,38 +3937,33 @@ async function belgeAidatRaporu() {
 async function belgeBorcRaporu() {
   const liste = await borcTablosuGetir();
   const anapara = liste.reduce((s, d) => s + d.anapara, 0);
-  const gecikme = liste.reduce((s, d) => s + d.gecikme, 0);
 
   return belgeUret({
     tur: 'borc_raporu', modul: 'debts', kategori: 'rapor',
-    baslik: 'Ortak Gider Borç ve Gecikme Raporu',
+    baslik: 'Ortak Gider Borç Raporu',
     donem: `${tarih(new Date())} itibarıyla`,
     dosyaAdi: `borc-raporu-${todayISO()}`,
     ozet: [
       { etiket: 'Borçlu Daire', deger: String(liste.length), renk: liste.length ? 'kirmizi' : 'yesil' },
-      { etiket: 'Anapara', deger: para(anapara) },
-      { etiket: 'Gecikme Tazminatı', deger: para(gecikme), renk: 'kirmizi' },
-      { etiket: 'Genel Toplam', deger: para(anapara + gecikme) },
+      { etiket: 'Toplam Borç', deger: para(anapara), renk: anapara ? 'kirmizi' : 'yesil' },
     ],
     bolumler: [
       {
-        tip: 'kutu', renk: 'sari', baslik: 'Yasal dayanak — KMK m.20',
-        icerik: 'Kat maliki, ortak gider borcunu zamanında ödemezse gecikilen günler için aylık %5 hesabıyla gecikme tazminatı ödemekle yükümlüdür. Bu oran yönetim planıyla değiştirilemez. Aşağıdaki hesapta her aidatın vadesi, ilgili ayın 1. günü kabul edilmiştir.',
+        tip: 'kutu', renk: 'sari', baslik: 'Kapsam',
+        icerik: 'Aşağıdaki tabloda vadesi geçmiş ödenmemiş aidatlar yer alır. Vade, ilgili ayın son günüdür; henüz vadesi gelmemiş tahakkuklar borç olarak gösterilmez.',
       },
       {
         tip: 'tablo', baslik: 'Borçlu Daireler',
         kolonlar: [
           { baslik: 'Daire', genislik: 18 }, { baslik: 'Kat Maliki' },
           { baslik: 'Ay', hiza: 'center', genislik: 14 },
-          { baslik: 'Anapara', hiza: 'right', genislik: 28 },
-          { baslik: 'Gecikme', hiza: 'right', genislik: 28 },
-          { baslik: 'Toplam', hiza: 'right', genislik: 30 },
+          { baslik: 'Toplam Borç', hiza: 'right', genislik: 30 },
         ],
         satirlar: liste.map(d => [
           d.apt.apartment_number, d.apt.owner_name || '—', String(d.ay),
-          para(d.anapara), para(d.gecikme), para(d.anapara + d.gecikme),
+          para(d.anapara),
         ]),
-        toplamSatiri: ['TOPLAM', `${liste.length} daire`, '', para(anapara), para(gecikme), para(anapara + gecikme)],
+        toplamSatiri: ['TOPLAM', `${liste.length} daire`, '', para(anapara)],
       },
     ],
     imzalar: ['Yönetici', 'Denetçi'],
@@ -4175,7 +4168,7 @@ async function belgeFaaliyetRaporu() {
   const isler = jobRes.data || [];
   const tamamlanan = isler.filter(j => j.status === 'completed');
   const borclar = await borcTablosuGetir();
-  const borcToplam = borclar.reduce((s, d) => s + d.anapara + d.gecikme, 0);
+  const borcToplam = borclar.reduce((s, d) => s + d.anapara, 0);
 
   /* Aylık gelir-gider seyri — genel kurulda en çok sorulan tablo. */
   const aylik = MONTHS.map((ad, i) => {
@@ -4237,7 +4230,7 @@ async function belgeFaaliyetRaporu() {
           { baslik: 'Ay', hiza: 'center', genislik: 14 },
           { baslik: 'Toplam Borç', hiza: 'right', genislik: 34 },
         ],
-        satirlar: borclar.map(d => [d.apt.apartment_number, d.apt.owner_name || '—', String(d.ay), para(d.anapara + d.gecikme)]),
+        satirlar: borclar.map(d => [d.apt.apartment_number, d.apt.owner_name || '—', String(d.ay), para(d.anapara)]),
         toplamSatiri: ['TOPLAM', `${borclar.length} daire`, '', para(borcToplam)],
         not: 'Gecikme tazminatı KMK m.20 uyarınca aylık %5 üzerinden hesaplanmıştır.',
       },

@@ -342,300 +342,183 @@ function openTaskModal(rec) {
 }
 
 /* ============================================================
-   2) İŞLETME PROJESİ (KMK m.37)
-   ============================================================ */
-let budgetYear = new Date().getFullYear();
+   2) EK ÖDEMELER
+   ============================================================
+   Aidat dışı, işe bağlı ortak giderler (çatı tamiri, asansör bakımı...).
+   İşletme projesinin yerini aldı: orada tüm yıllık kalemler toplanıp 12'ye
+   bölünüyor ve tek aidat tutarına gömülüyordu; sakin parasının nereye
+   gittiğini göremiyordu. Burada her gider kendi başlığıyla ayrı durur.
 
-export async function renderBudget() {
+   Tutar binanın TÜM dairelerine eşit bölünür (boş daireler dahil) — ortak
+   gider kat malikinin borcudur. Boş dairelerin payı ayrıca gösterilir ki
+   yönetici maliklerden tahsilat yapması gerektiğini bilsin.
+   ============================================================ */
+
+export async function renderExtraCharges() {
   if (!needSite()) return;
 
-  const [budRes, aptRes] = await Promise.all([
-    C.supabase.from('operating_budgets').select('*').eq('site_id', C.sId()).eq('year', budgetYear).maybeSingle(),
-    C.supabase.from('apartments').select('id, apartment_number, owner_name, land_share, building_id, user_id, username').in('building_id', C.siteBIds()),
-  ]);
+  const { data: charges, error } = await C.supabase
+    .from('extra_charges').select('*')
+    .eq('building_id', C.bId())
+    .order('created_at', { ascending: false });
 
-  if (budRes.error && migrationUyarisi(budRes.error)) return;
+  if (error) { if (migrationUyarisi(error)) return; return C.toast(error.message, true); }
+  const list = charges || [];
 
-  const budget = budRes.data;
-  // Yer tutucu (boş) daireler paydaya girmez; sahibi bilinmeyen daireye
-  // gider payı düşürmek diğer maliklerin payını yanlış hesaplatır.
-  const allApts = C.sortByApartment(aptRes.data);
-  const apts = C.occupiedOnly(allApts);
-  const emptyCount = allApts.length - apts.length;
-  let items = [];
-  if (budget) {
-    const { data: it } = await C.supabase.from('operating_budget_items')
-      .select('*').eq('budget_id', budget.id).order('sort_order');
-    items = it || [];
+  // Her ek ödemenin tahsilat durumu
+  const ozetler = {};
+  for (const c of list) {
+    const { data: o } = await C.supabase.rpc('extra_charge_summary', { p_charge_id: c.id });
+    ozetler[c.id] = (o && o[0]) || null;
   }
 
-  const income = items.filter(i => i.kind === 'income');
-  const expense = items.filter(i => i.kind === 'expense');
-  const totalIncome = income.reduce((s, i) => s + Number(i.annual_amount), 0);
-  const totalExpense = expense.reduce((s, i) => s + Number(i.annual_amount), 0);
+  const kart = (c) => {
+    const o = ozetler[c.id];
+    const tahsil = Number(o?.tahsil_edilen || 0);
+    const bekleyen = Number(o?.bekleyen || 0);
+    const oran = (tahsil + bekleyen) > 0 ? Math.round(tahsil / (tahsil + bekleyen) * 100) : 0;
+    return `<div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+        <div>
+          <h3 style="margin:0">${C.esc(c.title)}</h3>
+          <p class="muted" style="margin:4px 0 0;font-size:13px;">
+            Toplam ${C.TL(c.total_amount)} ·
+            ${c.installments > 1 ? `${c.installments} taksit` : 'tek seferlik'} ·
+            ${C.MONTHS[c.start_month - 1]} ${c.start_year}'den itibaren
+            ${c.note ? `<br>${C.esc(c.note)}` : ''}
+          </p>
+        </div>
+        <div style="text-align:right;white-space:nowrap;">
+          <div style="font-size:20px;font-weight:800;">${oran}%</div>
+          <div class="muted" style="font-size:12px;">tahsil edildi</div>
+        </div>
+      </div>
 
-  // KMK m.20 dağıtımı: 'equal' kalemler daire sayısına, 'arsa_payi' kalemler
-  // arsa payına bölünür. Arsa payı girilmemişse eşit dağıtıma düşer.
-  const totalShare = apts.reduce((s, a) => s + (Number(a.land_share) || 0), 0);
-  const useShare = totalShare > 0;
-  const equalTotal = expense.filter(i => i.share_basis === 'equal').reduce((s, i) => s + Number(i.annual_amount), 0);
-  const shareTotal = expense.filter(i => i.share_basis === 'arsa_payi').reduce((s, i) => s + Number(i.annual_amount), 0);
+      ${o ? `<div class="info-banner" style="margin:14px 0 0;">
+        <strong>${o.daire_sayisi} daireye bölündü</strong> — daire başına ${C.TL(o.daire_payi)}.
+        ${Number(o.bos_daire) > 0
+          ? `<br>⚠️ <strong>${o.bos_daire} daire boş.</strong> Bu dairelerin toplam
+             <strong>${C.TL(o.bos_daire_payi_toplami)}</strong> tutarındaki payı için
+             kat maliklerinden tahsilat yapmanız gerekir; uygulamada sakini olmadığı için
+             kimseye bildirim gitmez.`
+          : ''}
+      </div>` : ''}
 
-  const perApt = (a) => {
-    const eq = apts.length ? equalTotal / apts.length : 0;
-    const sh = useShare
-      ? shareTotal * ((Number(a.land_share) || 0) / totalShare)
-      : (apts.length ? shareTotal / apts.length : 0);
-    return { yearly: eq + sh, monthly: (eq + sh) / 12 };
-  };
-
-  const years = [budgetYear - 1, budgetYear, budgetYear + 1];
-  const STATUS = {
-    draft: '<span class="badge b-gray">Taslak</span>',
-    notified: '<span class="badge b-amber">Tebliğ edildi</span>',
-    approved: '<span class="badge b-green">Kesinleşti</span>',
-    rejected: '<span class="badge b-red">Reddedildi</span>',
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-sm btn-ghost" data-detay="${c.id}">Daire Dökümü</button>
+        <button class="btn btn-sm btn-outline-red" data-sil="${c.id}" data-baslik="${C.esc(c.title)}">Sil</button>
+      </div>
+      <div id="detay-${c.id}" hidden style="margin-top:14px;"></div>
+    </div>`;
   };
 
   C.$content().innerHTML = `
-    <div class="page-head"><h2>İşletme Projesi</h2>
-      <div class="tools">
-        <select class="mini" id="bud-year">${years.map(y => `<option value="${y}" ${y===budgetYear?'selected':''}>${y}</option>`).join('')}</select>
-        ${budget ? `<button class="btn" id="bud-item-add">+ Kalem Ekle</button>`
-                 : `<button class="btn" id="bud-create">${budgetYear} Projesini Oluştur</button>`}
+    <div class="page-head"><h2>Ek Ödemeler</h2></div>
+    <div class="info-banner">Aidat dışı, bir işe bağlı ortak giderler buraya girilir (çatı tamiri, asansör bakımı…).
+      Tutar tüm dairelere eşit bölünür ve sakinlere <strong>aidattan ayrı bir kalem</strong> olarak görünür.</div>
+
+    <div class="card">
+      <h3>Yeni Ek Ödeme</h3>
+      <div class="grid-2">
+        <div class="field"><label>Başlık</label><input id="ec-title" placeholder="Örn: Çatı tamiri"></div>
+        <div class="field"><label>Toplam Tutar (₺)</label><input id="ec-total" inputmode="decimal" placeholder="Örn: 3000"></div>
       </div>
-    </div>
-    <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
-      KMK m.37 — Kat malikleri kurulunca kabul edilmiş işletme projesi yoksa yönetici hazırlar.
-      Kat maliklerine tebliğ edilir; tebliğden itibaren <strong>7 gün</strong> içinde itiraz edilmezse kesinleşir
-      ve icra takibine dayanak olur.
-    </p>
-
-    ${!budget ? `<div class="card" style="text-align:center;padding:44px;">
-      <div style="font-size:38px;line-height:1">📊</div>
-      <h3 style="margin:10px 0 6px;">${budgetYear} için işletme projesi yok</h3>
-      <p class="muted" style="font-size:13.5px;max-width:420px;margin:0 auto;">
-        Yıllık tahmini gelir ve giderleri girin; sistem daire başına düşen yıllık ve aylık tutarı
-        KMK m.20'ye göre hesaplasın.</p>
-    </div>` : `
-    <div class="stat-grid">
-      <div class="stat"><div class="val">${C.TL(totalExpense)}</div><div class="lbl">Yıllık Gider</div></div>
-      <div class="stat"><div class="val">${C.TL(totalIncome)}</div><div class="lbl">Yıllık Gelir</div></div>
-      <div class="stat"><div class="val">${apts.length}</div><div class="lbl">Dolu Daire${emptyCount ? ` <span class="muted">(+${emptyCount} boş)</span>` : ''}</div></div>
-      <div class="stat"><div class="val">${STATUS[budget.status] || budget.status}</div><div class="lbl">Durum</div></div>
-    </div>
-
-    <div class="card">
-      <h3>Gider Kalemleri</h3>
-      <table><thead><tr><th>Kalem</th><th>Dağıtım</th><th class="t-right">Yıllık</th><th></th></tr></thead>
-      <tbody id="bud-exp">${expense.length ? expense.map(i => `<tr>
-        <td><strong>${C.esc(i.name)}</strong>${i.notes ? `<div class="muted" style="font-size:12px">${C.esc(i.notes)}</div>` : ''}</td>
-        <td>${i.share_basis === 'equal' ? 'Eşit' : 'Arsa payı'}</td>
-        <td class="t-right">${C.TL(i.annual_amount)}</td>
-        <td class="t-right"><button class="btn btn-sm btn-outline-red" data-del="${i.id}">Sil</button></td>
-      </tr>`).join('') : '<tr><td colspan="4" class="t-empty">Henüz gider kalemi yok</td></tr>'}</tbody></table>
-    </div>
-
-    ${income.length ? `<div class="card"><h3>Gelir Kalemleri</h3>
-      <table><thead><tr><th>Kalem</th><th class="t-right">Yıllık</th><th></th></tr></thead>
-      <tbody id="bud-inc">${income.map(i => `<tr>
-        <td><strong>${C.esc(i.name)}</strong></td>
-        <td class="t-right">${C.TL(i.annual_amount)}</td>
-        <td class="t-right"><button class="btn btn-sm btn-outline-red" data-del="${i.id}">Sil</button></td>
-      </tr>`).join('')}</tbody></table></div>` : ''}
-
-    <div class="card">
-      <h3>Daire Başına Dağıtım</h3>
-      <p class="muted" style="font-size:12.5px;margin:-4px 0 12px;">
-        ${useShare
-          ? 'Arsa payı girilmiş dairelere göre hesaplandı (KMK m.20).'
-          : '⚠️ Dairelere arsa payı girilmediği için tüm kalemler eşit dağıtıldı. Daireler ekranından arsa paylarını girerseniz hesap kanuna uygun olur.'}
+      <div class="grid-2">
+        <div class="field"><label>Taksit Sayısı</label>
+          <select id="ec-inst">${Array.from({length:12},(_,i)=>i+1).map(n=>`<option value="${n}">${n === 1 ? 'Tek seferlik' : n + ' taksit'}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>Başlangıç Ayı</label>
+          <select id="ec-month">${C.MONTHS.map((m,i)=>`<option value="${i+1}" ${i+1 === new Date().getMonth()+1 ? 'selected' : ''}>${m}</option>`).join('')}</select>
+        </div>
+      </div>
+      <div class="field"><label>Açıklama (isteğe bağlı)</label><input id="ec-note" placeholder="Sakinlerin göreceği kısa not"></div>
+      <button class="btn" id="ec-create">Ek Ödeme Oluştur</button>
+      <p class="muted" style="font-size:12.5px;margin-top:10px;">
+        Tutar tüm dairelere eşit bölünür, taksit sayısına göre aylara dağıtılır.
+        Sakinler uygulamada "Aidatlarım" ekranında ayrı bir satır olarak görür.
       </p>
-      <table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th class="t-right">Arsa Payı</th><th class="t-right">Yıllık</th><th class="t-right">Aylık Aidat</th></tr></thead>
-      <tbody>${apts.map(a => { const p = perApt(a); return `<tr>
-        <td><strong>${C.esc(a.apartment_number)}</strong></td>
-        <td>${C.esc(a.owner_name || '—')}</td>
-        <td class="t-right">${a.land_share ? Number(a.land_share).toFixed(2) : '—'}</td>
-        <td class="t-right">${C.TL(p.yearly)}</td>
-        <td class="t-right"><strong>${C.TL(p.monthly)}</strong></td>
-      </tr>`; }).join('') || '<tr><td colspan="5" class="t-empty">Daire kaydı yok</td></tr>'}</tbody></table>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">
-        <button class="btn btn-ghost" id="bud-csv">⬇ CSV İndir</button>
-        <button class="btn" id="bud-belge">📄 Tebliğ Belgesi</button>
-        ${budget.status === 'draft' ? `<button class="btn" id="bud-notify">Kat Maliklerine Tebliğ Et</button>` : ''}
-        ${budget.status === 'notified' ? `<button class="btn btn-green" id="bud-approve">Kesinleşti Olarak İşaretle</button>` : ''}
-        ${budget.status === 'approved' ? `<button class="btn" id="bud-apply">Aidatlara Uygula</button>` : ''}
-      </div>
-      ${budget.status === 'notified' && budget.objection_deadline ? `
-        <div class="info-banner" style="margin:14px 0 0;">
-          Tebliğ tarihi: <strong>${C.dmy(budget.notified_at)}</strong> ·
-          İtiraz süresi bitişi: <strong>${C.dmy(budget.objection_deadline)}</strong>
-          ${daysUntil(budget.objection_deadline) >= 0 ? ` (${daysUntil(budget.objection_deadline)} gün kaldı)` : ' — süre doldu, proje kesinleşmiş sayılır'}
-        </div>` : ''}
-    </div>`}`;
+    </div>
 
-  C.el('bud-year').addEventListener('change', (e) => { budgetYear = +e.target.value; renderBudget(); });
+    ${list.length ? list.map(kart).join('') : '<div class="card"><p class="t-empty">Henüz ek ödeme yok</p></div>'}`;
 
-  if (C.el('bud-create')) C.el('bud-create').onclick = async () => {
-    const { error } = await C.supabase.from('operating_budgets').insert({ site_id: C.sId(), year: budgetYear });
-    if (error) return C.toast(error.message, true);
-    C.toast(`${budgetYear} işletme projesi oluşturuldu`); renderBudget();
+  C.el('ec-create').onclick = async () => {
+    const title = String(C.el('ec-title').value || '').trim();
+    const total = num(C.el('ec-total').value);
+    const inst = Number(C.el('ec-inst').value) || 1;
+    const month = Number(C.el('ec-month').value);
+    if (!title) return C.toast('Başlık girin', true);
+    if (!(total > 0)) return C.toast('Geçerli bir tutar girin', true);
+
+    C.el('ec-create').disabled = true;
+    const { error: err } = await C.supabase.rpc('create_extra_charge', {
+      p_building_id: C.bId(), p_title: title, p_total: total,
+      p_installments: inst, p_start_year: new Date().getFullYear(),
+      p_start_month: month, p_note: String(C.el('ec-note').value || '').trim() || null,
+    });
+    if (err) { C.el('ec-create').disabled = false; return C.toast(err.message, true); }
+    C.toast('Ek ödeme oluşturuldu');
+    renderExtraCharges();
   };
 
-  if (C.el('bud-item-add')) C.el('bud-item-add').onclick = () => openBudgetItemModal(budget.id);
+  C.$content().addEventListener('click', async (e) => {
+    const sil = e.target.closest('[data-sil]');
+    if (sil) {
+      if (!confirm(`"${sil.dataset.baslik}" ek ödemesi silinsin mi?\n\nTüm dairelerdeki payları ve ödeme kayıtları da silinir.`)) return;
+      const { error: err } = await C.supabase.from('extra_charges').delete().eq('id', sil.dataset.sil);
+      if (err) return C.toast(err.message, true);
+      C.toast('Silindi'); return renderExtraCharges();
+    }
 
-  ['bud-exp', 'bud-inc'].forEach(id => {
-    const host = C.el(id); if (!host) return;
-    host.addEventListener('click', async (e) => {
-      const b = e.target.closest('[data-del]'); if (!b) return;
-      if (!confirm('Kalem silinsin mi?')) return;
-      const { error } = await C.supabase.from('operating_budget_items').delete().eq('id', b.dataset.del);
-      if (error) return C.toast(error.message, true);
-      C.toast('Kalem silindi'); renderBudget();
-    });
+    const det = e.target.closest('[data-detay]');
+    if (det) {
+      const host = C.el(`detay-${det.dataset.detay}`);
+      if (!host) return;
+      if (!host.hidden) { host.hidden = true; return; }
+      host.hidden = false;
+      host.innerHTML = '<p class="muted">Yükleniyor…</p>';
+
+      const [{ data: items }, { data: apts }, { data: mem }] = await Promise.all([
+        C.supabase.from('extra_charge_items').select('*').eq('charge_id', det.dataset.detay),
+        C.supabase.from('apartments').select('id, apartment_number').eq('building_id', C.bId()),
+        C.supabase.from('apartment_members').select('apartment_id, user_id'),
+      ]);
+      const aptNo = new Map((apts || []).map(a => [a.id, a.apartment_number]));
+      const doluSet = new Set((mem || []).map(m => m.apartment_id));
+      const sirali = (items || []).sort((x, y) =>
+        String(aptNo.get(x.apartment_id)).localeCompare(String(aptNo.get(y.apartment_id)), 'tr', { numeric: true })
+        || x.year - y.year || x.month - y.month);
+
+      host.innerHTML = `<table><thead><tr>
+          <th>Daire</th><th>Dönem</th><th class="t-right">Tutar</th><th>Durum</th>
+        </tr></thead><tbody>${sirali.map(i => `<tr>
+          <td><strong>${C.esc(aptNo.get(i.apartment_id) || '—')}</strong>${doluSet.has(i.apartment_id) ? '' : ' <span class="badge b-gray" title="Sakini yok — malikten tahsil edilmeli">Boş</span>'}</td>
+          <td>${C.MONTHS[i.month - 1]} ${i.year}</td>
+          <td class="t-right">${C.TL(i.amount)}</td>
+          <td><label class="pay-check${i.is_paid ? ' is-paid' : ''}">
+            <input type="checkbox" data-ec-pay="${i.id}" data-amt="${i.amount}" data-no="${C.esc(aptNo.get(i.apartment_id) || '')}" ${i.is_paid ? 'checked' : ''}>
+            <span>${i.is_paid ? 'Ödendi' : 'Ödendi işaretle'}</span>
+          </label></td>
+        </tr>`).join('')}</tbody></table>`;
+    }
   });
 
-  /* Tebliğ belgesi — KMK m.37'ye göre kat maliklerine verilen, 7 günlük
-     itiraz süresini başlatan evrak. Aidat alacağının icra takibine dayanak
-     olabilmesi için tebliğin belgelenmiş olması gerekir. */
-  if (C.el('bud-belge')) C.el('bud-belge').onclick = (e) => belgeButonu(e.currentTarget, () => belgeUret({
-    tur: 'isletme_projesi', modul: 'budget', kategori: 'tutanak',
-    baslik: `${budgetYear} Yılı İşletme Projesi`,
-    altBaslik: 'Kat maliklerine tebliğ edilmek üzere',
-    donem: `01.01.${budgetYear} – 31.12.${budgetYear}`,
-    dosyaAdi: `isletme-projesi-${budgetYear}`,
-    iliskiliId: budget.id,
-    ozet: [
-      { etiket: 'Yıllık Gider', deger: para(totalExpense), renk: 'kirmizi' },
-      { etiket: 'Yıllık Gelir', deger: para(totalIncome), renk: 'yesil' },
-      { etiket: 'Dolu Daire', deger: String(apts.length) },
-      { etiket: 'Ort. Aylık Aidat',
-        deger: para(apts.length ? apts.reduce((t, a) => t + perApt(a).monthly, 0) / apts.length : 0) },
-    ],
-    bolumler: [
-      { tip: 'kutu', baslik: 'Yasal dayanak — KMK m.37',
-        icerik: 'Kat malikleri kurulunca kabul edilmiş işletme projesi yoksa yönetici, gelecek 12 ay için tahmini '
-          + 'gelir ve gider tutarlarını, tüm giderlerden her kat malikine düşecek payı ve ödeme zamanlarını gösteren '
-          + 'bir işletme projesi hazırlar. Proje kat maliklerine imzaları karşılığında veya taahhütlü mektupla '
-          + 'bildirilir. Bildirimden başlayarak yedi gün içinde itiraz edilmezse proje kesinleşir ve İcra ve İflas '
-          + 'Kanunu\u2019nun 68. maddesinin 1. fıkrasındaki belgelerden sayılır.' },
-      expense.length && { tip: 'tablo', baslik: 'Tahmini Gider Kalemleri',
-        kolonlar: [{ baslik: 'Kalem' }, { baslik: 'Dağıtım Esası', genislik: 34 }, { baslik: 'Yıllık Tutar', hiza: 'right', genislik: 36 }],
-        satirlar: expense.map(i => [i.name, i.share_basis === 'equal' ? 'Eşit' : 'Arsa payı', para(i.annual_amount)]),
-        toplamSatiri: ['TOPLAM GİDER', '', para(totalExpense)] },
-      income.length && { tip: 'tablo', baslik: 'Tahmini Gelir Kalemleri',
-        kolonlar: [{ baslik: 'Kalem' }, { baslik: 'Yıllık Tutar', hiza: 'right', genislik: 36 }],
-        satirlar: income.map(i => [i.name, para(i.annual_amount)]),
-        toplamSatiri: ['TOPLAM GELİR', para(totalIncome)] },
-      { tip: 'tablo', baslik: 'Bağımsız Bölümlere Düşen Paylar',
-        kolonlar: [
-          { baslik: 'Daire', genislik: 20 }, { baslik: 'Kat Maliki' },
-          { baslik: 'Arsa Payı', hiza: 'right', genislik: 26 },
-          { baslik: 'Yıllık Pay', hiza: 'right', genislik: 32 },
-          { baslik: 'Aylık Aidat', hiza: 'right', genislik: 32 },
-        ],
-        satirlar: apts.map(a => { const pp = perApt(a); return [
-          a.apartment_number, a.owner_name || '—',
-          a.land_share ? Number(a.land_share).toFixed(2) : '—',
-          para(pp.yearly), para(pp.monthly)]; }),
-        not: useShare
-          ? 'Paylar KMK m.20 uyarınca, kapıcı/kaloriferci/bahçıvan/bekçi giderleri eşit, diğer giderler arsa payı oranında dağıtılarak hesaplanmıştır.'
-          : 'Dairelere arsa payı girilmediği için tüm kalemler eşit dağıtılmıştır. Kanuna tam uygunluk için Daireler ekranından arsa paylarını giriniz.' },
-      { tip: 'metin', baslik: 'Ödeme ve İtiraz',
-        icerik: 'Yukarıda bağımsız bölüm bazında gösterilen aylık paylar, her ayın ilk günü muaccel olur. '
-          + 'İşbu projeye, tebliğ tarihinden itibaren yedi (7) gün içinde kat malikleri kuruluna itiraz edilebilir. '
-          + 'Süresinde itiraz edilmemesi hâlinde proje kesinleşir.' },
-    ].filter(Boolean),
-    imzalar: YONETICI_IMZA,
-  }));
+  C.$content().addEventListener('change', async (e) => {
+    const box = e.target.closest('input[data-ec-pay]');
+    if (!box) return;
+    const odendi = box.checked;
+    const { error: err } = await C.supabase.from('extra_charge_items')
+      .update({ is_paid: odendi, paid_date: odendi ? new Date().toISOString() : null })
+      .eq('id', box.dataset.ecPay);
+    if (err) { box.checked = !odendi; return C.toast(err.message, true); }
 
-  if (C.el('bud-csv')) C.el('bud-csv').onclick = () => {
-    C.downloadCSV(`isletme-projesi-${budgetYear}.csv`,
-      ['Daire', 'Ev Sahibi', 'Arsa Payı', 'Yıllık', 'Aylık Aidat'],
-      apts.map(a => { const p = perApt(a); return [a.apartment_number, a.owner_name || '', a.land_share || '', p.yearly.toFixed(2), p.monthly.toFixed(2)]; }));
-    C.toast('İndirildi');
-  };
-
-  if (C.el('bud-notify')) C.el('bud-notify').onclick = async () => {
-    if (!confirm('Proje kat maliklerine tebliğ edilmiş sayılacak ve 7 günlük itiraz süresi başlayacak. Onaylıyor musunuz?')) return;
-    const now = new Date().toISOString();
-    const { error } = await C.supabase.from('operating_budgets')
-      .update({ status: 'notified', notified_at: now, objection_deadline: addDays(now.slice(0, 10), 7) })
-      .eq('id', budget.id);
-    if (error) return C.toast(error.message, true);
-    if (C.notifyBuilding) {
-      C.notifyBuilding('📊 İşletme Projesi', `${budgetYear} yılı işletme projesi tebliğ edildi. İtirazlarınızı 7 gün içinde iletebilirsiniz.`);
-    }
-    C.toast('Tebliğ edildi'); renderBudget();
-  };
-
-  if (C.el('bud-approve')) C.el('bud-approve').onclick = async () => {
-    const { error } = await C.supabase.from('operating_budgets')
-      .update({ status: 'approved', approved_at: new Date().toISOString() }).eq('id', budget.id);
-    if (error) return C.toast(error.message, true);
-    C.toast('Proje kesinleşti'); renderBudget();
-  };
-
-  if (C.el('bud-apply')) C.el('bud-apply').onclick = async () => {
-    if (!confirm('Hesaplanan aylık tutarlar, bu yılın kalan aylarında aidat olarak tanımlanacak. Ödenmiş kayıtlara dokunulmaz. Devam edilsin mi?')) return;
-    const btn = C.el('bud-apply'); btn.disabled = true; btn.textContent = 'Uygulanıyor…';
-    try {
-      const startMonth = budgetYear === new Date().getFullYear() ? new Date().getMonth() + 1 : 1;
-      for (const a of apts) {
-        const amt = Math.round(perApt(a).monthly * 100) / 100;
-        if (amt <= 0) continue;
-        for (let m = startMonth; m <= 12; m++) {
-          const { data: ex } = await C.supabase.from('monthly_fees').select('id, is_paid')
-            .eq('apartment_id', a.id).eq('year', budgetYear).eq('month', m).maybeSingle();
-          /* budget_id damgası: aidatın elle mi yoksa işletme projesinden mi
-             geldiği Aidat Takibi ekranında görünsün, iki yol birbirini
-             sessizce ezmesin. */
-          if (!ex) {
-            await C.supabase.from('monthly_fees').insert({
-              apartment_id: a.id, building_id: a.building_id, year: budgetYear, month: m,
-              amount: amt, is_paid: false, budget_id: budget.id });
-          } else if (!ex.is_paid) {
-            await C.supabase.from('monthly_fees').update({ amount: amt, budget_id: budget.id }).eq('id', ex.id);
-          }
-        }
-      }
-      C.toast('Aidatlar işletme projesine göre güncellendi');
-    } catch (err) { C.toast(err.message, true); }
-    finally { btn.disabled = false; btn.textContent = 'Aidatlara Uygula'; }
-  };
-}
-
-function openBudgetItemModal(budgetId) {
-  C.openModal('Bütçe Kalemi Ekle', `
-    <div class="field"><label>Kalem Adı *</label>
-      <input id="bi-name" placeholder="Örn: Kapıcı ücreti, Asansör bakımı, Elektrik" /></div>
-    <div class="grid-2">
-      <div class="field"><label>Tür</label>
-        <select id="bi-kind"><option value="expense">Gider</option><option value="income">Gelir</option></select></div>
-      <div class="field"><label>Yıllık Tutar (₺) *</label>
-        <input id="bi-amt" inputmode="decimal" placeholder="Örn: 120000" /></div>
-    </div>
-    <div class="field"><label>Dağıtım Esası</label>
-      <select id="bi-basis">
-        <option value="arsa_payi">Arsa payı oranında (sigorta, bakım-onarım, yönetici aylığı…)</option>
-        <option value="equal">Eşit (kapıcı, kaloriferci, bahçıvan, bekçi)</option>
-      </select>
-      <p class="muted" style="font-size:12px;margin-top:6px;">KMK m.20: kapıcı, kaloriferci, bahçıvan ve bekçi giderlerine <strong>eşit</strong>;
-      sigorta primleri, ortak yerlerin bakım-onarımı ve yönetici aylığı gibi diğer giderlere <strong>arsa payı</strong> oranında katılınır.</p>
-    </div>
-    <div class="field"><label>Not</label><input id="bi-note" /></div>
-    <button class="btn btn-block" id="m-save">Kalemi Ekle</button>
-  `, async () => {
-    const name = C.el('bi-name').value.trim();
-    const amt = num(C.el('bi-amt').value);
-    if (!name || amt <= 0) throw new Error('Kalem adı ve geçerli bir tutar zorunludur.');
-    const { error } = await C.supabase.from('operating_budget_items').insert({
-      budget_id: budgetId, name, kind: C.el('bi-kind').value,
-      share_basis: C.el('bi-basis').value, annual_amount: amt,
-      notes: C.el('bi-note').value.trim() || null,
+    // Kasaya yaz — aidat tahsilatıyla aynı desen
+    await C.adjustBalance({
+      amount: Number(box.dataset.amt), operation: odendi ? 'add' : 'subtract',
+      description: `${odendi ? 'Ek ödeme tahsilatı' : 'Ek ödeme iptali'} - Daire ${box.dataset.no}`,
+      category: 'other', walletType: 'bank', relatedId: box.dataset.ecPay,
+      buildingId: C.bId(), scope: 'building',
     });
-    if (error) throw new Error(error.message);
-    C.toast('Kalem eklendi');
+    C.toast(odendi ? 'Tahsil edildi, kasaya eklendi' : 'Tahsilat geri alındı');
   });
 }
 
@@ -898,7 +781,7 @@ export async function renderAssembly() {
     </div>
     <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
       KMK m.29 — Olağan toplantı yılda bir, yönetim planında belirtilen ayda yapılır.
-      KMK m.30 — Toplantı yeter sayısı: kat maliklerinin <strong>sayı ve arsa payı bakımından yarıdan fazlası</strong>.
+      KMK m.30 — Toplantı yeter sayısı: kat maliklerinin <strong>yarıdan fazlası</strong>.
       İlk toplantıda yeter sayı sağlanamazsa ikinci toplantı, katılanların salt çoğunluğuyla karar alır.
     </p>
     <div class="decision-list" id="gk-list">
@@ -978,7 +861,7 @@ async function toplantiCagrisiBelgesi(m) {
         icerik: m.is_second_call
           ? 'İlk toplantıda yeter sayı sağlanamadığından işbu ikinci toplantı yapılmaktadır. İkinci toplantıda '
             + 'yeter sayı aranmaz; kararlar, toplantıya katılan kat maliklerinin salt çoğunluğuyla alınır.'
-          : 'Kat malikleri kurulu, kat maliklerinin sayı ve arsa payı bakımından yarıdan fazlasıyla toplanır ve '
+          : 'Kat malikleri kurulu, kat maliklerinin yarıdan fazlasıyla toplanır ve '
             + 'oy çokluğuyla karar verir. İlk toplantıda yeter sayı sağlanamazsa ikinci toplantı, en geç on beş gün '
             + 'sonra yapılır ve katılanların salt çoğunluğuyla karar alınır.' },
     ].filter(Boolean),
@@ -990,13 +873,15 @@ async function toplantiCagrisiBelgesi(m) {
    üzerinden yeter sayı bilgisi de belgeye işlenir. */
 async function tutanakBelgesi(m) {
   const [aptRes, attRes] = await Promise.all([
-    C.supabase.from('apartments').select('id, apartment_number, owner_name, land_share, user_id, username').in('building_id', C.siteBIds()),
+    C.supabase.from('apartments').select('id, apartment_number, owner_name, user_id, username').in('building_id', C.siteBIds()),
     C.supabase.from('meeting_attendance').select('*').eq('meeting_id', m.id),
   ]);
   const apts = C.occupiedOnly(C.sortByApartment(aptRes.data));
   const katilim = (attRes.data || []).filter(a => a.attended);
-  const toplamPay = apts.reduce((t, a) => t + (Number(a.land_share) || 0), 0);
-  const katilanPay = katilim.reduce((t, a) => t + (Number(a.land_share) || 0), 0);
+  // Yeter sayı daire sayısına göre hesaplanır. Arsa payı kaldırıldı: hedef
+  // kitle küçük binalar, daireler pratikte eşit.
+  const toplamPay = apts.length;
+  const katilanPay = katilim.length;
   const yeterli = m.is_second_call
     || (apts.length > 0 && katilim.length > apts.length / 2
         && (toplamPay > 0 ? katilanPay > toplamPay / 2 : true));
@@ -1011,7 +896,7 @@ async function tutanakBelgesi(m) {
     ozet: [
       { etiket: 'Toplam Daire', deger: String(apts.length) },
       { etiket: 'Katılan', deger: String(katilim.length) },
-      { etiket: 'Katılan Arsa Payı', deger: toplamPay > 0 ? `${katilanPay.toFixed(2)} / ${toplamPay.toFixed(2)}` : '—' },
+      { etiket: 'Yeter Sayı Oranı', deger: toplamPay > 0 ? `${katilanPay} / ${toplamPay} daire` : '—' },
       { etiket: 'Yeter Sayı', deger: yeterli ? 'Sağlandı' : 'Sağlanamadı', renk: yeterli ? 'yesil' : 'kirmizi' },
     ],
     bolumler: [
@@ -1025,12 +910,12 @@ async function tutanakBelgesi(m) {
       katilim.length && { tip: 'tablo', baslik: 'Hazirun (Katılanlar)',
         kolonlar: [
           { baslik: 'Daire', genislik: 20 }, { baslik: 'Kat Maliki' },
-          { baslik: 'Arsa Payı', hiza: 'right', genislik: 26 }, { baslik: 'Vekâleten', genislik: 40 },
+          { baslik: 'Vekâleten', genislik: 40 },
         ],
         satirlar: katilim.map(a => [a.apartment_no, a.owner_name || '—',
-          a.land_share ? Number(a.land_share).toFixed(2) : '—', a.proxy_name || '—']) },
+          a.proxy_name || '—']) },
       !yeterli && { tip: 'kutu', renk: 'kirmizi', baslik: 'Yeter sayı sağlanamadı',
-        icerik: 'KMK m.30 uyarınca ilk toplantıda kat maliklerinin sayı ve arsa payı bakımından yarıdan fazlasının '
+        icerik: 'KMK m.30 uyarınca ilk toplantıda kat maliklerinin yarıdan fazlasının '
           + 'katılımı aranır. Yeter sayı sağlanamadığından ikinci toplantı çağrısı yapılmalıdır.' },
     ].filter(Boolean),
     imzalar: ['Divan Başkanı', 'Kâtip Üye', 'Yönetici'],
@@ -1133,7 +1018,7 @@ function openMeetingModal(rec) {
 /** Hazirun cetveli: daireleri çeker, katılım ve vekaleti işaretler, yeter sayıyı hesaplar. */
 async function openAttendance(meeting) {
   const [aptRes, attRes] = await Promise.all([
-    C.supabase.from('apartments').select('id, apartment_number, owner_name, land_share, user_id, username').in('building_id', C.siteBIds()),
+    C.supabase.from('apartments').select('id, apartment_number, owner_name, user_id, username').in('building_id', C.siteBIds()),
     C.supabase.from('meeting_attendance').select('*').eq('meeting_id', meeting.id),
   ]);
   if (attRes.error && /does not exist|schema cache/i.test(attRes.error.message || '')) {
@@ -1148,7 +1033,7 @@ async function openAttendance(meeting) {
     return `<tr>
       <td><strong>${C.esc(a.apartment_number)}</strong></td>
       <td>${C.esc(a.owner_name || '—')}</td>
-      <td class="t-right">${a.land_share ? Number(a.land_share).toFixed(2) : '—'}</td>
+
       <td><label class="pay-check"><input type="checkbox" data-apt="${C.esc(a.apartment_number)}" ${rec?.attended ? 'checked' : ''}><span>Katıldı</span></label></td>
       <td><input data-proxy="${C.esc(a.apartment_number)}" placeholder="Vekil (varsa)" value="${C.esc(rec?.proxy_name || '')}" style="width:100%;padding:7px 10px;border:1.5px solid var(--line);border-radius:9px;font-family:inherit;font-size:13px;" /></td>
     </tr>`;
@@ -1157,7 +1042,7 @@ async function openAttendance(meeting) {
   C.openModal(`Hazirun Cetveli — ${meeting.title}`, `
     <div id="quorum-box" class="info-banner" style="margin:0 0 14px;"></div>
     <div style="max-height:52vh;overflow-y:auto;">
-      <table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th class="t-right">Arsa Payı</th><th>Katılım</th><th>Vekalet</th></tr></thead>
+      <table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th>Katılım</th><th>Vekalet</th></tr></thead>
       <tbody id="haz-body">${rows || '<tr><td colspan="5" class="t-empty">Daire kaydı yok</td></tr>'}</tbody></table>
     </div>
     <div style="display:flex;gap:8px;margin-top:14px;">
@@ -1170,7 +1055,7 @@ async function openAttendance(meeting) {
       const proxy = document.querySelector(`input[data-proxy="${CSS.escape(a.apartment_number)}"]`);
       return {
         meeting_id: meeting.id, apartment_id: a.id, apartment_no: a.apartment_number,
-        owner_name: a.owner_name || null, land_share: a.land_share,
+        owner_name: a.owner_name || null,
         attended: !!box?.checked, proxy_name: proxy?.value.trim() || null,
       };
     });
@@ -1180,25 +1065,22 @@ async function openAttendance(meeting) {
     C.toast('Hazirun cetveli kaydedildi');
   });
 
-  // KMK m.30 yeter sayısı: sayı VE arsa payı bakımından yarıdan fazla
+  // KMK m.30 yeter sayısı: daire sayısı bakımından yarıdan fazla
   const updateQuorum = () => {
     const total = apts.length;
-    const totalShare = apts.reduce((s, a) => s + (Number(a.land_share) || 0), 0);
-    let cnt = 0, share = 0;
+    let cnt = 0;
     apts.forEach(a => {
       const box = document.querySelector(`input[data-apt="${CSS.escape(a.apartment_number)}"]`);
-      if (box?.checked) { cnt++; share += Number(a.land_share) || 0; }
+      if (box?.checked) cnt++;
     });
-    const byCount = total > 0 && cnt > total / 2;
-    const byShare = totalShare > 0 ? share > totalShare / 2 : byCount;
-    const ok = byCount && byShare;
+    const ok = total > 0 && cnt > total / 2;
     const box = C.el('quorum-box');
     if (!box) return;
     box.innerHTML = meeting.is_second_call
-      ? `<strong>İkinci toplantı</strong> — Katılım: ${cnt}/${total} daire${totalShare > 0 ? `, arsa payı ${share.toFixed(2)}/${totalShare.toFixed(2)}` : ''}.
+      ? `<strong>İkinci toplantı</strong> — Katılım: ${cnt}/${total} daire.
          KMK m.30: ikinci toplantıda yeter sayı aranmaz, katılanların salt çoğunluğuyla karar alınır.`
       : `${ok ? '✅ <strong>Yeter sayı sağlandı</strong>' : '⚠️ <strong>Yeter sayı sağlanamadı</strong>'} —
-         Katılım: ${cnt}/${total} daire ${byCount ? '✓' : '✗'}${totalShare > 0 ? `, arsa payı ${share.toFixed(2)}/${totalShare.toFixed(2)} ${byShare ? '✓' : '✗'}` : ''}.
+         Katılım: ${cnt}/${total} daire.
          ${!ok ? 'İkinci toplantı çağrısı yapılabilir.' : ''}`;
   };
   const host = C.el('haz-body');
@@ -1212,18 +1094,12 @@ async function openAttendance(meeting) {
       const box = document.querySelector(`input[data-apt="${CSS.escape(a.apartment_number)}"]`);
       const proxy = document.querySelector(`input[data-proxy="${CSS.escape(a.apartment_number)}"]`);
       return [a.apartment_number, a.owner_name || '—',
-        a.land_share ? Number(a.land_share).toFixed(2) : '—',
         box?.checked ? 'Katıldı' : 'Katılmadı',
         proxy?.value.trim() || '—'];
     });
-    const katilan = satirlar.filter(r => r[3] === 'Katıldı').length;
-    const toplamPay = apts.reduce((t, a) => t + (Number(a.land_share) || 0), 0);
-    const katilanPay = apts.reduce((t, a) => {
-      const box = document.querySelector(`input[data-apt="${CSS.escape(a.apartment_number)}"]`);
-      return t + (box?.checked ? (Number(a.land_share) || 0) : 0);
-    }, 0);
-    const yeterli = meeting.is_second_call
-      || (apts.length > 0 && katilan > apts.length / 2 && (toplamPay > 0 ? katilanPay > toplamPay / 2 : true));
+    const katilan = satirlar.filter(r => r[2] === 'Katıldı').length;
+    // Yeter sayı daire sayısına göre: arsa payı kaldırıldı.
+    const yeterli = meeting.is_second_call || (apts.length > 0 && katilan > apts.length / 2);
 
     return belgeUret({
       tur: 'hazirun_cetveli', modul: 'assembly', kategori: 'tutanak',
@@ -1235,14 +1111,12 @@ async function openAttendance(meeting) {
       ozet: [
         { etiket: 'Toplam Daire', deger: String(apts.length) },
         { etiket: 'Katılan', deger: String(katilan) },
-        { etiket: 'Arsa Payı', deger: toplamPay > 0 ? `${katilanPay.toFixed(2)} / ${toplamPay.toFixed(2)}` : '—' },
         { etiket: 'Yeter Sayı', deger: yeterli ? 'Sağlandı' : 'Sağlanamadı', renk: yeterli ? 'yesil' : 'kirmizi' },
       ],
       bolumler: [
         { tip: 'tablo', baslik: 'Katılım Listesi',
           kolonlar: [
             { baslik: 'Daire', genislik: 20 }, { baslik: 'Kat Maliki' },
-            { baslik: 'Arsa Payı', hiza: 'right', genislik: 24 },
             { baslik: 'Katılım', genislik: 26 }, { baslik: 'Vekâleten', genislik: 36 },
           ],
           satirlar,
@@ -1250,7 +1124,7 @@ async function openAttendance(meeting) {
         { tip: 'kutu', baslik: 'Yeter sayı — KMK m.30',
           icerik: meeting.is_second_call
             ? 'İkinci toplantıda yeter sayı aranmaz; kararlar katılanların salt çoğunluğuyla alınır.'
-            : 'Kat malikleri kurulu, kat maliklerinin sayı ve arsa payı bakımından yarıdan fazlasıyla toplanır.' },
+            : 'Kat malikleri kurulu, kat maliklerinin yarıdan fazlasıyla toplanır.' },
       ],
       imzalar: ['Divan Başkanı', 'Kâtip Üye', 'Yönetici'],
     });
@@ -1258,7 +1132,7 @@ async function openAttendance(meeting) {
 }
 
 /* ============================================================
-   5) BORÇ TAKİBİ (KMK m.20 — aylık %5 gecikme tazminatı)
+   5) BORÇ TAKİBİ — borç = vadesi geçmiş ödenmemiş aidat
    ============================================================ */
 const DEBT_STAGES = {
   reminder: '<span class="badge b-gray">Hatırlatma</span>',
@@ -1283,24 +1157,22 @@ export async function renderDebts() {
   const aptById = new Map(apts.map(a => [a.id, a]));
   const notices = noticeRes.data || [];
 
-  // Daire bazında borç ve gecikme tazminatı.
-  // Vade: ilgili ayın 1'i kabul edilir; gecikilen gün üzerinden aylık %5.
+  // Borç = vadesi geçmiş ödenmemiş aidat. Vade ilgili ayın SON günüdür:
+  // yönetici ay boyunca tahsilat yapar. Yıllık tahakkukta ileri aylar borç
+  // sayılmaz. Gecikme tazminatı uygulanmıyor.
+  const vadesiGecti = (y, m) => Date.now() >= new Date(y, m, 1).getTime();
   const debts = new Map();
   (feeRes.data || []).forEach(f => {
     const a = aptById.get(f.apartment_id); if (!a) return;
-    const due = new Date(f.year, f.month - 1, 1);
-    const lateDays = Math.max(0, Math.floor((Date.now() - due.getTime()) / DAY));
-    const fee = Math.round((lateDays / 30) * 0.05 * Number(f.amount) * 100) / 100;
-    const cur = debts.get(a.id) || { apt: a, principal: 0, late: 0, months: 0 };
+    const cur = debts.get(a.id) || { apt: a, principal: 0, late: 0, months: 0, future: 0 };
+    if (!vadesiGecti(f.year, f.month)) { cur.future += 1; debts.set(a.id, cur); return; }
     cur.principal += Number(f.amount);
-    cur.late += fee;
     cur.months += 1;
     debts.set(a.id, cur);
   });
 
-  const list = [...debts.values()].sort((x, y) => (y.principal + y.late) - (x.principal + x.late));
+  const list = [...debts.values()].filter(d => d.months > 0).sort((x, y) => y.principal - x.principal);
   const totalPrincipal = list.reduce((s, d) => s + d.principal, 0);
-  const totalLate = list.reduce((s, d) => s + d.late, 0);
 
   C.$content().innerHTML = `
     <div class="page-head"><h2>Borç Takibi</h2>
@@ -1310,34 +1182,29 @@ export async function renderDebts() {
       </div>
     </div>
     <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
-      KMK m.20 — Ortak gider borcunu ödemeyen kat maliki, gecikilen günler için <strong>aylık %5</strong>
-      gecikme tazminatı öder. Bu oran kanunla sabittir, yönetim planıyla değiştirilemez.
-      Aşağıdaki hesap, ilgili ayın 1'i vade kabul edilerek yapılmıştır.
+      Borç, <strong>vadesi geçmiş</strong> ödenmemiş aidatların toplamıdır. Vade ilgili ayın son günüdür;
+      henüz vadesi gelmemiş tahakkuklar burada borç olarak gösterilmez.
     </p>
 
     <div class="stat-grid">
       <div class="stat"><div class="val">${list.length}</div><div class="lbl">Borçlu Daire</div></div>
-      <div class="stat"><div class="val">${C.TL(totalPrincipal)}</div><div class="lbl">Anapara</div></div>
-      <div class="stat"><div class="val" style="color:var(--red)">${C.TL(totalLate)}</div><div class="lbl">Gecikme Tazminatı</div></div>
-      <div class="stat"><div class="val">${C.TL(totalPrincipal + totalLate)}</div><div class="lbl">Toplam</div></div>
+      <div class="stat"><div class="val" style="color:${totalPrincipal ? 'var(--red)' : 'var(--green)'}">${C.TL(totalPrincipal)}</div><div class="lbl">Toplam Borç</div></div>
     </div>
 
     <div class="card">
       <h3>Borçlu Daireler</h3>
-      <table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th class="t-right">Ay</th><th class="t-right">Anapara</th><th class="t-right">Gecikme</th><th class="t-right">Toplam</th><th></th></tr></thead>
+      <table><thead><tr><th>Daire</th><th>Sakinler</th><th class="t-right">Ay</th><th class="t-right">Toplam Borç</th><th></th></tr></thead>
       <tbody id="debt-body">${list.length ? list.map(d => `<tr>
         <td><strong>${C.esc(d.apt.apartment_number)}</strong>${C.blokRozeti(d.apt.building_id)}</td>
         <td>${C.esc(d.apt.owner_name || '—')}</td>
         <td class="t-right">${d.months}</td>
-        <td class="t-right">${C.TL(d.principal)}</td>
-        <td class="t-right" style="color:var(--red)">${C.TL(d.late)}</td>
-        <td class="t-right"><strong>${C.TL(d.principal + d.late)}</strong></td>
+        <td class="t-right"><strong>${C.TL(d.principal)}</strong></td>
         <td class="t-right" style="white-space:nowrap">
           <button class="btn btn-sm btn-green" data-tahsil="${d.apt.id}">💰 Tahsilat</button>
           <button class="btn btn-sm btn-ghost" data-notice="${d.apt.id}">İhtar Kaydı Aç</button>
           <button class="btn btn-sm" data-ihtarname="${d.apt.id}">📄 İhtarname</button>
         </td>
-      </tr>`).join('') : '<tr><td colspan="7" class="t-empty">Ödenmemiş aidat yok 🎉</td></tr>'}</tbody></table>
+      </tr>`).join('') : '<tr><td colspan="5" class="t-empty">Vadesi geçmiş borç yok 🎉</td></tr>'}</tbody></table>
     </div>
 
     <div class="card">
@@ -1361,36 +1228,32 @@ export async function renderDebts() {
 
   C.el('debt-belge').onclick = (e) => belgeButonu(e.currentTarget, () => belgeUret({
     tur: 'borc_raporu', modul: 'debts', kategori: 'rapor',
-    baslik: 'Ortak Gider Borç ve Gecikme Raporu',
+    baslik: 'Ortak Gider Borç Raporu',
     donem: `${C.dmy(new Date())} itibarıyla`,
     dosyaAdi: `borc-raporu-${C.todayISO()}`,
     ozet: [
       { etiket: 'Borçlu Daire', deger: String(list.length), renk: list.length ? 'kirmizi' : 'yesil' },
-      { etiket: 'Anapara', deger: para(totalPrincipal) },
-      { etiket: 'Gecikme Tazminatı', deger: para(totalLate), renk: 'kirmizi' },
-      { etiket: 'Genel Toplam', deger: para(totalPrincipal + totalLate) },
+      { etiket: 'Toplam Borç', deger: para(totalPrincipal), renk: totalPrincipal ? 'kirmizi' : 'yesil' },
     ],
     bolumler: [{
       tip: 'tablo', baslik: 'Borçlu Daireler',
       kolonlar: [
         { baslik: 'Daire', genislik: 18 }, { baslik: 'Kat Maliki' },
         { baslik: 'Ay', hiza: 'center', genislik: 14 },
-        { baslik: 'Anapara', hiza: 'right', genislik: 28 },
-        { baslik: 'Gecikme', hiza: 'right', genislik: 28 },
-        { baslik: 'Toplam', hiza: 'right', genislik: 30 },
+        { baslik: 'Toplam Borç', hiza: 'right', genislik: 30 },
       ],
       satirlar: list.map(d => [d.apt.apartment_number, d.apt.owner_name || '—', String(d.months),
-        para(d.principal), para(d.late), para(d.principal + d.late)]),
-      toplamSatiri: ['TOPLAM', `${list.length} daire`, '', para(totalPrincipal), para(totalLate), para(totalPrincipal + totalLate)],
+        para(d.principal)]),
+      toplamSatiri: ['TOPLAM', `${list.length} daire`, '', para(totalPrincipal)],
     }],
     imzalar: YONETICI_IMZA,
   }));
 
   C.el('debt-csv').onclick = () => {
     C.downloadCSV(`borc-listesi-${C.todayISO()}.csv`,
-      ['Daire', 'Ev Sahibi', 'Ay Sayısı', 'Anapara', 'Gecikme Tazminatı', 'Toplam'],
+      ['Daire', 'Ev Sahibi', 'Ay Sayısı', 'Toplam Borç'],
       list.map(d => [d.apt.apartment_number, d.apt.owner_name || '', d.months,
-        d.principal.toFixed(2), d.late.toFixed(2), (d.principal + d.late).toFixed(2)]));
+        d.principal.toFixed(2)]));
     C.toast('İndirildi');
   };
 
@@ -1432,10 +1295,8 @@ export async function renderDebts() {
           dosyaAdi: `ihtarname-daire-${d.apt.apartment_number}`,
           iliskiliId: kayit.id, binaId: d.apt.building_id,
           ozet: [
-            { etiket: 'Gecikmiş Ay', deger: String(d.months) },
-            { etiket: 'Anapara', deger: para(d.principal) },
-            { etiket: 'Gecikme Tazminatı', deger: para(d.late), renk: 'kirmizi' },
-            { etiket: 'Toplam Borç', deger: para(d.principal + d.late), renk: 'kirmizi' },
+            { etiket: 'Ödenmemiş Ay', deger: String(d.months) },
+            { etiket: 'Toplam Borç', deger: para(d.principal), renk: 'kirmizi' },
           ],
           bolumler: [
             { tip: 'kv', baslik: 'Muhatap', satirlar: [
@@ -1444,20 +1305,18 @@ export async function renderDebts() {
             ] },
             { tip: 'metin', baslik: 'Konu', icerik:
               'Yukarıda bilgileri yazılı bağımsız bölüme ait ortak gider (aidat) borcunuz, işbu ihtarnamenin '
-              + `düzenlendiği tarih itibarıyla ${d.months} aydır ödenmemiştir. Toplam borcunuz gecikme tazminatı `
-              + `dahil ${para(d.principal + d.late)} tutarındadır.` },
+              + `düzenlendiği tarih itibarıyla ${d.months} aydır ödenmemiştir. Toplam borcunuz `
+              + `${para(d.principal)} tutarındadır.` },
             { tip: 'kutu', renk: 'kirmizi', baslik: 'Yasal dayanak — KMK m.20',
-              icerik: 'Kat maliki, ortak gider borcunu zamanında ödemezse gecikilen günler için aylık %5 hesabıyla '
-                + 'gecikme tazminatı ödemekle yükümlüdür. Ödeme yapılmaması hâlinde yönetici, kat malikleri kurulu '
-                + 'kararına gerek olmaksızın icra takibi yapabilir ve dava açabilir. Ayrıca ödenmeyen ortak gider '
-                + 'alacağı, bağımsız bölüm üzerinde kanuni ipotek hakkı doğurur.' },
+              icerik: 'Ortak gider borcunun ödenmemesi hâlinde yönetici, kat malikleri kurulu kararına gerek '
+                + 'olmaksızın icra takibi yapabilir ve dava açabilir. Ayrıca ödenmeyen ortak gider alacağı, '
+                + 'bağımsız bölüm üzerinde kanuni ipotek hakkı doğurur.' },
             { tip: 'tablo', baslik: 'Borcun Dökümü',
               kolonlar: [{ baslik: 'Kalem' }, { baslik: 'Tutar', hiza: 'right', genislik: 44 }],
               satirlar: [
-                ['Ödenmemiş aidat anaparası', para(d.principal)],
-                ['Gecikme tazminatı (KMK m.20, aylık %5)', para(d.late)],
+                ['Ödenmemiş aidat', para(d.principal)],
               ],
-              toplamSatiri: ['GENEL TOPLAM', para(d.principal + d.late)] },
+              toplamSatiri: ['GENEL TOPLAM', para(d.principal)] },
             { tip: 'metin', baslik: 'İhtar', icerik:
               'İşbu ihtarnamenin tarafınıza tebliğinden itibaren yedi (7) gün içinde yukarıda dökümü verilen borcun '
               + 'tamamının site yönetimi hesabına ödenmesini, aksi hâlde hakkınızda yasal yollara başvurulacağını, '
@@ -1900,7 +1759,7 @@ async function openHandoverModal() {
 /* ---------- panel.js'in kullanacağı rota tablosu ---------- */
 export const yonetimRoutes = {
   tasks: renderTasks,
-  budget: renderBudget,
+  extra: renderExtraCharges,
   board: renderBoard,
   assembly: renderAssembly,
   debts: renderDebts,
