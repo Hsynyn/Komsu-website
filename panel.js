@@ -436,7 +436,7 @@ el('toggle-pass').addEventListener('click', () => {
 });
 
 // Tam ekran görünümler — aynı anda yalnızca biri açık olur
-const SCREENS = ['loading', 'login', 'signup', 'verify', 'setup', 'app'];
+const SCREENS = ['loading', 'login', 'signup', 'verify', 'forgot', 'forgot-code', 'setup', 'app'];
 function showScreen(id) { SCREENS.forEach(s => (s === id ? show(s) : hide(s))); }
 
 function showLogin(message) {
@@ -541,8 +541,122 @@ el('verify-resend').addEventListener('click', async () => {
   }
 });
 
+/* ============ Sosyal giriş (Google / Apple) ============ */
+// Mobilde Google/Apple ile açılan yönetici hesabı aynı Supabase kullanıcısıdır;
+// aynı sağlayıcıyla web'e girince binası otomatik gelir. Apple "E-postamı
+// gizle" seçen yöneticinin e-posta+şifre belirlemesine gerek kalmaz.
+// Dashboard önkoşulu: Authentication → Providers'ta Google (client secret) ve
+// Apple (Services ID + secret) web için tanımlı olmalı; bkz. Komsu/docs/EPOSTA_DOGRULAMA.md
+
+async function socialLogin(provider) {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider,
+    options: { redirectTo: location.origin + location.pathname },
+  });
+  if (error) showLogin(authErrorText(error, `${provider === 'apple' ? 'Apple' : 'Google'} ile giriş şu an kullanılamıyor.`));
+}
+['login-google', 'signup-google'].forEach(id => el(id).addEventListener('click', () => socialLogin('google')));
+['login-apple', 'signup-apple'].forEach(id => el(id).addEventListener('click', () => socialLogin('apple')));
+
+// Güvenlik sekmesinde sosyal giriş ve şifre sıfırlama gösterilmez
+el('tab-admin').addEventListener('click', () => { show('login-social'); show('login-forgot'); });
+el('tab-security').addEventListener('click', () => { hide('login-social'); hide('login-forgot'); });
+
+/* ============ Şifremi unuttum (6 haneli kod) ============ */
+// Mobil uygulamayla aynı akış: signInWithOtp ile kod gider, verifyOtp ile
+// oturum açılır, updateUser ile yeni şifre yazılır. Bağlantı/yönlendirme yok.
+// Şablon önkoşulu: "Magic Link" e-posta şablonunda {{ .Token }} bulunmalı.
+
+function authErrorText(error, fallback) {
+  const m = (error?.message || '').toLowerCase();
+  if (m.includes('signups not allowed') || m.includes('otp_disabled')) return 'Bu e-posta ile kayıtlı bir hesap bulunamadı.';
+  if (m.includes('expired')) return 'Kodun süresi dolmuş. Yeni kod isteyin.';
+  if (m.includes('invalid') && (m.includes('token') || m.includes('otp'))) return 'Kod hatalı. Lütfen kontrol edip tekrar girin.';
+  if (m.includes('for security purposes')) {
+    const sec = m.match(/after (\d+) second/)?.[1];
+    return sec ? `Güvenlik nedeniyle ${sec} saniye sonra tekrar deneyebilirsiniz.` : 'Lütfen bir dakika sonra tekrar deneyin.';
+  }
+  if (m.includes('rate limit') || m.includes('too many')) return 'Çok fazla deneme yapıldı. Lütfen birkaç dakika sonra tekrar deneyin.';
+  if (m.includes('password')) return 'Şifre çok zayıf (en az 6 karakter olmalı).';
+  return fallback || error?.message || 'Bir sorun oluştu. Lütfen tekrar deneyin.';
+}
+
+function forgotError(id, msg) { el(id).textContent = msg; show(id); }
+
+el('go-forgot').addEventListener('click', () => {
+  showScreen('forgot'); hide('forgot-error');
+  el('fp-email').value = el('email').value.trim();
+});
+el('forgot-to-login').addEventListener('click', () => showLogin());
+
+async function sendResetCode(email) {
+  const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+  if (error) throw error;
+}
+
+el('forgot-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  hide('forgot-error');
+  const email = el('fp-email').value.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return forgotError('forgot-error', 'Geçerli bir e-posta adresi girin.');
+  const btn = el('forgot-btn'); btn.disabled = true; btn.textContent = 'Gönderiliyor…';
+  try {
+    await sendResetCode(email);
+    S.pendingEmail = email;
+    el('fp-code-email').textContent = email;
+    el('fp-code').value = ''; el('fp-pass').value = ''; el('fp-pass2').value = '';
+    hide('forgot-code-error');
+    showScreen('forgot-code');
+    el('fp-code').focus();
+  } catch (err) {
+    forgotError('forgot-error', authErrorText(err, 'Kod gönderilemedi. Lütfen tekrar deneyin.'));
+  } finally {
+    btn.disabled = false; btn.textContent = 'Kod Gönder';
+  }
+});
+
+el('fp-resend').addEventListener('click', async () => {
+  const btn = el('fp-resend');
+  hide('forgot-code-error');
+  btn.disabled = true;
+  try {
+    await sendResetCode(S.pendingEmail || '');
+    toast('Yeni kod e-postanıza gönderildi.');
+  } catch (err) {
+    forgotError('forgot-code-error', authErrorText(err, 'Kod gönderilemedi.'));
+  } finally {
+    // Supabase aynı adrese 60 sn içinde ikinci kod göndermez
+    setTimeout(() => { btn.disabled = false; }, 60000);
+  }
+});
+
+el('forgot-code-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  hide('forgot-code-error');
+  const code = el('fp-code').value.replace(/\D/g, '');
+  const pass = el('fp-pass').value; const pass2 = el('fp-pass2').value;
+  if (code.length !== 6) return forgotError('forgot-code-error', 'E-postanızdaki 6 haneli kodu girin.');
+  if (pass.length < 6) return forgotError('forgot-code-error', 'Şifre en az 6 karakter olmalı.');
+  if (pass !== pass2) return forgotError('forgot-code-error', 'Şifreler birbiriyle eşleşmiyor.');
+
+  const btn = el('forgot-code-btn'); btn.disabled = true; btn.textContent = 'Kaydediliyor…';
+  try {
+    const { data, error } = await supabase.auth.verifyOtp({ email: S.pendingEmail || '', token: code, type: 'email' });
+    if (error || !data.user) throw error || new Error('Kod doğrulanamadı');
+    const { error: pwErr } = await supabase.auth.updateUser({ password: pass });
+    if (pwErr) throw pwErr;
+    toast('Şifreniz güncellendi.');
+    showScreen('loading');
+    await boot(data.user);
+  } catch (err) {
+    forgotError('forgot-code-error', authErrorText(err, 'Şifre güncellenemedi. Lütfen tekrar deneyin.'));
+  } finally {
+    btn.disabled = false; btn.textContent = 'Şifreyi Kaydet';
+  }
+});
+
 /* ============ Kurulum sihirbazı ============ */
-// Mobildeki app/register/admin.tsx ekranının birebir karşılığı:
+// Mobildeki app/create-building.tsx ekranının karşılığı:
 // site tipi, ad, adres ve bina bilgileri → create_site_with_buildings RPC.
 
 const BLOCK_LETTERS = 'ABCDEFGHIJKLMNOPRSTUVYZ';
@@ -5168,6 +5282,15 @@ async function saveVisitorEntry() {
   };
 
   try {
+    // Sosyal giriş sağlayıcıdan hatayla dönmüş olabilir (#error_description=...)
+    const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const oauthError = hashParams.get('error_description') || hashParams.get('error');
+    if (oauthError) {
+      history.replaceState(null, '', location.pathname + location.search);
+      showLogin('Giriş tamamlanamadı: ' + decodeURIComponent(oauthError.replace(/\+/g, ' ')));
+      return;
+    }
+
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) await boot(session.user);
     // Ana sayfadaki "Ücretsiz Başla" bağlantısı ?signup=1 ile gelir
