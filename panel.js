@@ -436,7 +436,7 @@ el('toggle-pass').addEventListener('click', () => {
 });
 
 // Tam ekran görünümler — aynı anda yalnızca biri açık olur
-const SCREENS = ['loading', 'login', 'signup', 'verify', 'forgot', 'forgot-code', 'setup', 'app'];
+const SCREENS = ['loading', 'login', 'signup', 'verify', 'forgot', 'reset', 'setup', 'app'];
 function showScreen(id) { SCREENS.forEach(s => (s === id ? show(s) : hide(s))); }
 
 function showLogin(message) {
@@ -562,94 +562,79 @@ async function socialLogin(provider) {
 el('tab-admin').addEventListener('click', () => { show('login-social'); show('login-forgot'); });
 el('tab-security').addEventListener('click', () => { hide('login-social'); hide('login-forgot'); });
 
-/* ============ Şifremi unuttum (6 haneli kod) ============ */
-// Mobil uygulamayla aynı akış: signInWithOtp ile kod gider, verifyOtp ile
-// oturum açılır, updateUser ile yeni şifre yazılır. Bağlantı/yönlendirme yok.
-// Şablon önkoşulu: "Magic Link" e-posta şablonunda {{ .Token }} bulunmalı.
+/* ============ Şifremi unuttum (bağlantı ile) ============ */
+// resetPasswordForEmail → Supabase'in standart "Reset Password" e-postası
+// (şablon değişikliği gerekmez) → bağlantı panele #type=recovery ile döner →
+// supabase-js oturumu URL'den alır → yeni şifre ekranı → updateUser.
+// Mobil uygulama "Şifremi unuttum" için buraya (?forgot=1) yönlendirir.
+// Önkoşul: Dashboard → Authentication → URL Configuration → Redirect URLs
+// listesinde https://komsuapp.org/panel.html bulunmalı; yoksa Site URL'e düşer.
 
 function authErrorText(error, fallback) {
   const m = (error?.message || '').toLowerCase();
-  if (m.includes('signups not allowed') || m.includes('otp_disabled')) return 'Bu e-posta ile kayıtlı bir hesap bulunamadı.';
-  if (m.includes('expired')) return 'Kodun süresi dolmuş. Yeni kod isteyin.';
-  if (m.includes('invalid') && (m.includes('token') || m.includes('otp'))) return 'Kod hatalı. Lütfen kontrol edip tekrar girin.';
+  if (m.includes('user not found') || m.includes('signups not allowed')) return 'Bu e-posta ile kayıtlı bir hesap bulunamadı.';
+  if (m.includes('expired') || m.includes('invalid') && m.includes('token')) return 'Bağlantının süresi dolmuş. Yeni bağlantı isteyin.';
   if (m.includes('for security purposes')) {
     const sec = m.match(/after (\d+) second/)?.[1];
     return sec ? `Güvenlik nedeniyle ${sec} saniye sonra tekrar deneyebilirsiniz.` : 'Lütfen bir dakika sonra tekrar deneyin.';
   }
   if (m.includes('rate limit') || m.includes('too many')) return 'Çok fazla deneme yapıldı. Lütfen birkaç dakika sonra tekrar deneyin.';
+  if (m.includes('same password') || m.includes('different from the old')) return 'Yeni şifre eskisiyle aynı olamaz.';
   if (m.includes('password')) return 'Şifre çok zayıf (en az 6 karakter olmalı).';
   return fallback || error?.message || 'Bir sorun oluştu. Lütfen tekrar deneyin.';
 }
 
 function forgotError(id, msg) { el(id).textContent = msg; show(id); }
 
-el('go-forgot').addEventListener('click', () => {
-  showScreen('forgot'); hide('forgot-error');
+function showForgot() {
+  showScreen('forgot'); hide('forgot-error'); hide('forgot-sent');
   el('fp-email').value = el('email').value.trim();
-});
-el('forgot-to-login').addEventListener('click', () => showLogin());
-
-async function sendResetCode(email) {
-  const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-  if (error) throw error;
 }
+el('go-forgot').addEventListener('click', showForgot);
+el('forgot-to-login').addEventListener('click', () => showLogin());
 
 el('forgot-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  hide('forgot-error');
+  hide('forgot-error'); hide('forgot-sent');
   const email = el('fp-email').value.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return forgotError('forgot-error', 'Geçerli bir e-posta adresi girin.');
   const btn = el('forgot-btn'); btn.disabled = true; btn.textContent = 'Gönderiliyor…';
   try {
-    await sendResetCode(email);
-    S.pendingEmail = email;
-    el('fp-code-email').textContent = email;
-    el('fp-code').value = ''; el('fp-pass').value = ''; el('fp-pass2').value = '';
-    hide('forgot-code-error');
-    showScreen('forgot-code');
-    el('fp-code').focus();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: location.origin + location.pathname,
+    });
+    if (error) throw error;
+    el('forgot-sent-email').textContent = email;
+    show('forgot-sent');
   } catch (err) {
-    forgotError('forgot-error', authErrorText(err, 'Kod gönderilemedi. Lütfen tekrar deneyin.'));
+    forgotError('forgot-error', authErrorText(err, 'Bağlantı gönderilemedi. Lütfen tekrar deneyin.'));
   } finally {
-    btn.disabled = false; btn.textContent = 'Kod Gönder';
+    btn.disabled = false; btn.textContent = 'Bağlantı Gönder';
   }
 });
 
-el('fp-resend').addEventListener('click', async () => {
-  const btn = el('fp-resend');
-  hide('forgot-code-error');
-  btn.disabled = true;
-  try {
-    await sendResetCode(S.pendingEmail || '');
-    toast('Yeni kod e-postanıza gönderildi.');
-  } catch (err) {
-    forgotError('forgot-code-error', authErrorText(err, 'Kod gönderilemedi.'));
-  } finally {
-    // Supabase aynı adrese 60 sn içinde ikinci kod göndermez
-    setTimeout(() => { btn.disabled = false; }, 60000);
-  }
+// supabase-js bağlantıdaki oturumu açınca bu olayı yayınlar; URL okuması
+// herhangi bir sebeple kaçarsa yeni şifre ekranı yine açılır.
+supabase.auth.onAuthStateChange((event) => {
+  if (event === 'PASSWORD_RECOVERY') { hide('reset-error'); showScreen('reset'); }
 });
 
-el('forgot-code-form').addEventListener('submit', async (e) => {
+el('reset-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  hide('forgot-code-error');
-  const code = el('fp-code').value.replace(/\D/g, '');
-  const pass = el('fp-pass').value; const pass2 = el('fp-pass2').value;
-  if (code.length !== 6) return forgotError('forgot-code-error', 'E-postanızdaki 6 haneli kodu girin.');
-  if (pass.length < 6) return forgotError('forgot-code-error', 'Şifre en az 6 karakter olmalı.');
-  if (pass !== pass2) return forgotError('forgot-code-error', 'Şifreler birbiriyle eşleşmiyor.');
+  hide('reset-error');
+  const pass = el('rp-pass').value; const pass2 = el('rp-pass2').value;
+  if (pass.length < 6) return forgotError('reset-error', 'Şifre en az 6 karakter olmalı.');
+  if (pass !== pass2) return forgotError('reset-error', 'Şifreler birbiriyle eşleşmiyor.');
 
-  const btn = el('forgot-code-btn'); btn.disabled = true; btn.textContent = 'Kaydediliyor…';
+  const btn = el('reset-btn'); btn.disabled = true; btn.textContent = 'Kaydediliyor…';
   try {
-    const { data, error } = await supabase.auth.verifyOtp({ email: S.pendingEmail || '', token: code, type: 'email' });
-    if (error || !data.user) throw error || new Error('Kod doğrulanamadı');
-    const { error: pwErr } = await supabase.auth.updateUser({ password: pass });
-    if (pwErr) throw pwErr;
-    toast('Şifreniz güncellendi.');
+    const { data, error } = await supabase.auth.updateUser({ password: pass });
+    if (error || !data.user) throw error || new Error('Şifre güncellenemedi');
+    toast('Şifreniz güncellendi. Aynı şifreyle mobil uygulamaya da girebilirsiniz.');
     showScreen('loading');
     await boot(data.user);
   } catch (err) {
-    forgotError('forgot-code-error', authErrorText(err, 'Şifre güncellenemedi. Lütfen tekrar deneyin.'));
+    forgotError('reset-error', authErrorText(err, 'Şifre güncellenemedi. Lütfen tekrar deneyin.'));
   } finally {
     btn.disabled = false; btn.textContent = 'Şifreyi Kaydet';
   }
@@ -5291,10 +5276,22 @@ async function saveVisitorEntry() {
       return;
     }
 
+    // Şifre sıfırlama bağlantısından dönüş: URL'de type=recovery gelir,
+    // supabase-js oturumu URL'den açar → yeni şifre ekranı
+    const isRecovery = hashParams.get('type') === 'recovery';
+
     const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) await boot(session.user);
+    if (session?.user && isRecovery) {
+      history.replaceState(null, '', location.pathname);
+      hide('reset-error');
+      showScreen('reset');
+      el('rp-pass').focus();
+    }
+    else if (session?.user) await boot(session.user);
     // Ana sayfadaki "Ücretsiz Başla" bağlantısı ?signup=1 ile gelir
     else if (new URLSearchParams(location.search).get('signup') === '1') showSignup();
+    // Mobil uygulamadaki "Şifremi unuttum" ?forgot=1 ile gelir
+    else if (new URLSearchParams(location.search).get('forgot') === '1') showForgot();
     else showLogin();
   } catch (err) {
     window.onerror(err.message, 'panel.js', 0, 0, err);

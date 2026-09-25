@@ -73,14 +73,17 @@
         <span>KOMŞU</span><img class="home" src="icon.png" alt="" />
       </div>
       <h1>Şifreyi sıfırla</h1>
-      <p class="sub">Kayıtlı e-postanıza 6 haneli bir kod göndeririz.</p>
+      <p class="sub">Kayıtlı e-postanıza bir sıfırlama bağlantısı göndeririz. Bağlantı sizi buraya geri getirir, yeni şifrenizi belirlersiniz.</p>
       <div id="forgot-error" class="error hidden"></div>
+      <div id="forgot-sent" class="hidden" style="background:var(--cream);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:13.5px;line-height:1.55;margin-bottom:16px;">
+        <strong id="forgot-sent-email">—</strong> adresine bağlantı gönderildi. Gelen kutunuzu (ve spam klasörünü) kontrol edin.
+      </div>
       <form id="forgot-form">
         <div class="field">
           <label for="fp-email">E-posta</label>
           <input id="fp-email" type="email" autocomplete="email" placeholder="ornek@eposta.com" required />
         </div>
-        <button type="submit" class="btn btn-block" id="forgot-btn">Kod Gönder</button>
+        <button type="submit" class="btn btn-block" id="forgot-btn">Bağlantı Gönder</button>
       </form>
       <div class="alt-action">
         <button type="button" class="linklike" id="forgot-to-login">Giriş ekranına dön</button>
@@ -88,35 +91,26 @@
     </div>
   </div>
 
-  <!-- ŞİFREMİ UNUTTUM: kod + yeni şifre -->
-  <div id="forgot-code" class="login-screen hidden">
+  <!-- ŞİFREMİ UNUTTUM: bağlantıdan dönüş → yeni şifre -->
+  <div id="reset" class="login-screen hidden">
     <div class="login-card">
       <div class="brand" style="margin-bottom:18px;">
         <span>KOMŞU</span><img class="home" src="icon.png" alt="" />
       </div>
-      <h1>Kodu girin</h1>
-      <p class="sub"><strong id="fp-code-email">—</strong> adresine gönderilen 6 haneli kodu ve yeni şifrenizi girin.</p>
-      <div id="forgot-code-error" class="error hidden"></div>
-      <form id="forgot-code-form">
+      <h1>Yeni şifre</h1>
+      <p class="sub">Bundan sonra hem web panelinde hem mobil uygulamada bu şifreyle giriş yapacaksınız.</p>
+      <div id="reset-error" class="error hidden"></div>
+      <form id="reset-form">
         <div class="field">
-          <label for="fp-code">Doğrulama kodu</label>
-          <input id="fp-code" class="code-input" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" required />
+          <label for="rp-pass">Yeni şifre</label>
+          <input id="rp-pass" type="password" autocomplete="new-password" placeholder="En az 6 karakter" required />
         </div>
         <div class="field">
-          <label for="fp-pass">Yeni şifre</label>
-          <input id="fp-pass" type="password" autocomplete="new-password" placeholder="En az 6 karakter" required />
+          <label for="rp-pass2">Yeni şifre (tekrar)</label>
+          <input id="rp-pass2" type="password" autocomplete="new-password" placeholder="Şifrenizi tekrar girin" required />
         </div>
-        <div class="field">
-          <label for="fp-pass2">Yeni şifre (tekrar)</label>
-          <input id="fp-pass2" type="password" autocomplete="new-password" placeholder="Şifrenizi tekrar girin" required />
-        </div>
-        <button type="submit" class="btn btn-block" id="forgot-code-btn">Şifreyi Kaydet</button>
+        <button type="submit" class="btn btn-block" id="reset-btn">Şifreyi Kaydet</button>
       </form>
-      <div class="alt-action">
-        Kod gelmedi mi?
-        <button type="button" class="linklike" id="fp-resend">Kodu tekrar gönder</button>
-      </div>
-      <p class="foot">Gelen kutunuzda göremezseniz spam/gereksiz klasörünü kontrol edin.</p>
     </div>
   </div>
 

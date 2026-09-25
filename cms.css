@@ -34,6 +34,15 @@
 .cms-table tbody tr:last-child td { border-bottom: none; }
 .cms-table .t-right { text-align: right; }
 
+/* ---- Tehlikeli bölge (site silme) ---- */
+.danger-zone { border: 1.5px solid #F3C9C1; background: #FFF8F6; border-radius: 14px; padding: 16px 18px; }
+.danger-zone h4 { color: var(--red); }
+.danger-text { font-size: 13px; line-height: 1.6; color: var(--ink); margin: 0 0 12px; }
+.danger-text code { background: var(--white); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-weight: 700; }
+.del-confirm { margin-top: 14px; padding-top: 14px; border-top: 1px dashed #F3C9C1; }
+.del-confirm .search { width: 100%; margin-bottom: 10px; }
+.del-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
 .c-title { font-weight: 700; }
 .c-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
 .c-mail { color: var(--brown); font-weight: 600; text-decoration: none; }

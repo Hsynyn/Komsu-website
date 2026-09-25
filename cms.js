@@ -346,7 +346,66 @@ async function openDetail(siteId) {
         </table>
       ` : '<p class="c-empty">Henüz ödeme yok.</p>'}
     </div>
+
+    <div class="detail-sec danger-zone">
+      <h4>Tehlikeli bölge</h4>
+      <p class="danger-text">
+        Bu siteyi silmek <strong>${NUM(buildings.length)} bina</strong>, <strong>${NUM(r.apartments_created)} daire</strong>,
+        tüm aidat/kasa/duyuru/belge kayıtlarını, ödeme geçmişini ve siteye bağlı
+        <strong>tüm kullanıcı hesaplarını</strong> (yönetici dahil) kalıcı olarak yok eder. Geri alınamaz.
+      </p>
+      <button type="button" class="btn btn-sm btn-red" id="del-open">Siteyi sil…</button>
+      <div id="del-confirm" class="del-confirm hidden">
+        <p class="danger-text">Emin misiniz? Onaylamak için site adını yazın: <code>${esc(r.site_name || '')}</code></p>
+        <input type="text" id="del-name" class="search" placeholder="Site adını buraya yazın" autocomplete="off" />
+        <div class="del-actions">
+          <button type="button" class="btn btn-sm btn-ghost" id="del-cancel">Vazgeç</button>
+          <button type="button" class="btn btn-sm btn-red" id="del-go" disabled>Evet, kalıcı olarak sil</button>
+        </div>
+        <div id="del-error" class="error hidden" style="margin-top:12px;"></div>
+      </div>
+    </div>
   `;
+
+  bindDelete(r);
+}
+
+/* ============ Site silme ============ */
+// Sunucu tarafı: cms_delete_site RPC (migration 0031). Yalnızca platform
+// yöneticisi çalıştırabilir ve site adını birebir ister; istemci de aynı adı
+// yazdırmadan düğmeyi açmaz. İki kademeli onay: "Siteyi sil…" → ad yaz → "Evet".
+function bindDelete(r) {
+  const expected = String(r.site_name || '').trim().toLocaleLowerCase('tr');
+  const name = el('del-name'), go = el('del-go');
+
+  el('del-open').addEventListener('click', () => {
+    show('del-confirm'); hide('del-open'); hide('del-error');
+    name.value = ''; go.disabled = true; name.focus();
+  });
+  el('del-cancel').addEventListener('click', () => { hide('del-confirm'); show('del-open'); hide('del-error'); });
+  name.addEventListener('input', () => { go.disabled = name.value.trim().toLocaleLowerCase('tr') !== expected; });
+
+  go.addEventListener('click', async () => {
+    if (!window.confirm(`"${r.site_name}" sitesi, tüm verisi ve kullanıcılarıyla birlikte KALICI olarak silinecek.\n\nBu işlem geri alınamaz. Devam edilsin mi?`)) return;
+
+    hide('del-error');
+    go.disabled = true; go.textContent = 'Siliniyor…';
+    const { data, error } = await supabase.rpc('cms_delete_site', { p_site_id: r.site_id, p_confirm_name: name.value.trim() });
+    if (error) {
+      go.disabled = false; go.textContent = 'Evet, kalıcı olarak sil';
+      const m = (error.message || '').toLowerCase();
+      el('del-error').textContent = (m.includes('could not find') || error.code === 'PGRST202')
+        ? 'Sunucu tarafı kurulumu eksik: 0031_cms_site_delete.sql migration\'ı henüz uygulanmamış.'
+        : 'Silinemedi: ' + (error.message || 'bilinmeyen hata');
+      show('del-error');
+      return;
+    }
+
+    hide('modal-overlay');
+    const d = data || {};
+    toast(`"${d.site_name || r.site_name}" silindi · ${NUM(d.buildings)} bina, ${NUM(d.apartments)} daire, ${NUM(d.users_deleted)} kullanıcı.`);
+    await loadData(true);
+  });
 }
 
 /* ============ CSV dışa aktarım ============ */
