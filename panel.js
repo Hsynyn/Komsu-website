@@ -2352,7 +2352,7 @@ async function renderApartments() {
       const { data: profs } = await supabase
         .from('profiles').select('id, name, surname, email').in('id', uids);
       (profs || []).forEach(pr => {
-        nameByUid[pr.id] = [pr.name, pr.surname].filter(Boolean).join(' ').trim() || pr.email || '';
+        nameByUid[pr.id] = [pr.name, pr.surname].filter(Boolean).join(' ').trim() || 'İsimsiz sakin';
       });
     }
     (mem || [])
@@ -2469,7 +2469,7 @@ async function renderFees() {
     if (uids.length) {
       const { data: profs } = await supabase.from('profiles').select('id, name, surname, email').in('id', uids);
       (profs || []).forEach(pr => {
-        adByUid[pr.id] = [pr.name, pr.surname].filter(Boolean).join(' ').trim() || pr.email || '';
+        adByUid[pr.id] = [pr.name, pr.surname].filter(Boolean).join(' ').trim() || 'İsimsiz sakin';
       });
     }
     (mem || []).sort((x, y) => String(x.joined_at).localeCompare(String(y.joined_at)))
