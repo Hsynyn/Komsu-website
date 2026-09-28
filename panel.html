@@ -3,26 +3,110 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>KOMŞU — Yönetim Paneli</title>
+  <title>Komşu — Yönetim Paneli</title>
   <meta name="robots" content="noindex" />
   <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="panel.css" />
 </head>
 <body>
+  <!-- Panel ikonları (çizgi ikon seti). Kullanım: <svg class="ic"><use href="#i-..."/></svg> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></symbol>
+      <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v3h-4a2 2 0 0 0 0 4h4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/></symbol>
+      <symbol id="i-cash" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M11 8.5v7a3 3 0 0 0 3-3M9 12l4-1.5M9 14l4-1.5"/></symbol>
+      <symbol id="i-megaphone" viewBox="0 0 24 24"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></symbol>
+      <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+      <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l3-2 3 2 2-2 2 2 3-2 3 2V2l-3 2-3-2-2 2-2-2-3 2z"/><path d="M8 9h8M8 13h6"/></symbol>
+      <symbol id="i-check-square" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m8 12 3 3 5-6"/></symbol>
+      <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></symbol>
+      <symbol id="i-scale" viewBox="0 0 24 24"><path d="M12 3v18M7 21h10M5 7h14M5 7l-3 7a4 4 0 0 0 6 0zM19 7l-3 7a4 4 0 0 0 6 0z"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15v2M11 11v6M15 7v10M19 12v5"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+      <symbol id="i-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></symbol>
+      <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></symbol>
+      <symbol id="i-printer" viewBox="0 0 24 24"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></symbol>
+      <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></symbol>
+      <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+      <symbol id="i-gift" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5M9 10.76V6h6v4.76l2 3.24H7z"/><path d="M8 2h8"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+      <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+      <symbol id="i-in" viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></symbol>
+      <symbol id="i-out" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+      <symbol id="i-car" viewBox="0 0 24 24"><path d="M5 17H3v-5l2-5h14l2 5v5h-2"/><circle cx="7.5" cy="17" r="2"/><circle cx="16.5" cy="17" r="2"/><path d="M9.5 17h5M3 12h18"/></symbol>
+      <symbol id="i-package" viewBox="0 0 24 24"><path d="M16.5 9.4 7.5 4.2M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7 12 12l8.7-5M12 22V12"/></symbol>
+      <symbol id="i-droplet" viewBox="0 0 24 24"><path d="M12 2.7 6.3 8.3a8 8 0 1 0 11.4 0z"/></symbol>
+      <symbol id="i-utensils" viewBox="0 0 24 24"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M7 2v20M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/></symbol>
+      <symbol id="i-door" viewBox="0 0 24 24"><path d="M13 4h3a2 2 0 0 1 2 2v14M2 20h3M13 20h9M10 12v.01M13 4.56v16.28a.5.5 0 0 1-.62.49L5 19.5V5.12a2 2 0 0 1 1.51-1.94l5-1.25A1.2 1.2 0 0 1 13 3.1z"/></symbol>
+      <symbol id="i-volume-x" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6"/></symbol>
+      <symbol id="i-paw" viewBox="0 0 24 24"><circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.05Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10z"/></symbol>
+      <symbol id="i-building" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01"/></symbol>
+      <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></symbol>
+      <symbol id="i-cube"viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7 12 12l8.7-5M12 22V12"/></symbol>
+    </defs>
+  </svg>
+
   <!-- Yükleniyor -->
-  <div id="loading" class="loading">Yükleniyor…</div>
+  <div id="loading" class="loading"><span class="spinner"></span>Yükleniyor…</div>
+
+  <!-- Giriş ekranlarının ortak sol paneli (masaüstünde görünür) -->
+  <aside class="auth-side" aria-hidden="true">
+    <a class="auth-side-brand" href="index.html"><img src="icon.png" alt="" /><span>Komşu</span></a>
+    <div class="auth-side-body">
+      <h2>Sitenizi tek ekrandan, kolayca yönetin.</h2>
+      <ul>
+        <li><svg class="ic"><use href="#i-check"/></svg>Aidat, kasa ve borçlar her an güncel</li>
+        <li><svg class="ic"><use href="#i-check"/></svg>Duyuru ve arızalar sakinlerin telefonunda</li>
+        <li><svg class="ic"><use href="#i-check"/></svg>Kararlar, tutanaklar ve raporlar tek tıkla PDF</li>
+      </ul>
+      <div class="auth-side-card">
+        <div class="asc-row"><span>Eylül tahsilatı</span><b>%92</b></div>
+        <div class="asc-bar"><i></i></div>
+        <div class="asc-row muted-row"><span>88 / 96 daire ödedi</span><span>₺96.000</span></div>
+      </div>
+    </div>
+    <div class="auth-side-foot">© 2026 Komşu · komsuapp.org</div>
+  </aside>
 
   <!-- GİRİŞ EKRANI -->
   <div id="login" class="login-screen hidden">
     <div class="login-card">
-      <div class="brand" style="margin-bottom:18px;">
-        <span>KOMŞU</span><img class="home" src="icon.png" alt="" />
-      </div>
-      
-      <!-- Giriş Tipi Seçimi -->
-      <div class="login-tabs" style="display:flex; gap:8px; margin-bottom:20px; background:rgba(43,38,32,0.04); padding:4px; border-radius:10px;">
-        <button type="button" class="login-tab active" id="tab-admin" style="flex:1; border:none; padding:10px; border-radius:8px; font-weight:700; cursor:pointer; background:#fff; color:var(--ink);">Yönetici</button>
-        <button type="button" class="login-tab" id="tab-security" style="flex:1; border:none; padding:10px; border-radius:8px; font-weight:700; cursor:pointer; background:transparent; color:var(--muted);">Güvenlik</button>
+      <div class="brand"><img class="home" src="icon.png" alt="" /><span>Komşu</span></div>
+
+      <!-- Giriş tipi seçimi -->
+      <div class="login-tabs" role="tablist">
+        <button type="button" class="login-tab active" id="tab-admin" role="tab">Yönetici</button>
+        <button type="button" class="login-tab" id="tab-security" role="tab">Güvenlik</button>
       </div>
 
       <h1 id="login-title">Yönetici Girişi</h1>
@@ -31,12 +115,12 @@
       <form id="login-form">
         <div class="field">
           <label for="email" id="email-label">E-posta</label>
-          <input id="email" type="text" placeholder="ornek@eposta.com" required />
+          <input id="email" type="text" autocomplete="username" placeholder="ornek@eposta.com" required />
         </div>
         <div class="field">
           <label for="password">Şifre</label>
           <div class="input-row">
-            <input id="password" type="password" placeholder="••••••••" required />
+            <input id="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
             <button type="button" class="eye" id="toggle-pass">Göster</button>
           </div>
         </div>
@@ -44,7 +128,7 @@
       </form>
       <div class="alt-action" id="login-alt">
         Henüz hesabınız yok mu?
-        <button type="button" class="linklike" id="go-signup">Yönetici olarak kayıt olun</button>
+        <button type="button" class="linklike" id="go-signup">Ücretsiz hesap oluşturun</button>
       </div>
     </div>
   </div>
@@ -52,13 +136,11 @@
   <!-- ŞİFREMİ UNUTTUM: e-posta -->
   <div id="forgot" class="login-screen hidden">
     <div class="login-card">
-      <div class="brand" style="margin-bottom:18px;">
-        <span>KOMŞU</span><img class="home" src="icon.png" alt="" />
-      </div>
+      <div class="brand"><img class="home" src="icon.png" alt="" /><span>Komşu</span></div>
       <h1>Şifreyi sıfırla</h1>
       <p class="sub">Kayıtlı e-postanıza bir sıfırlama bağlantısı göndeririz. Bağlantı sizi buraya geri getirir, yeni şifrenizi belirlersiniz.</p>
       <div id="forgot-error" class="error hidden"></div>
-      <div id="forgot-sent" class="hidden" style="background:var(--cream);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:13.5px;line-height:1.55;margin-bottom:16px;">
+      <div id="forgot-sent" class="notice hidden">
         <strong id="forgot-sent-email">—</strong> adresine bağlantı gönderildi. Gelen kutunuzu (ve spam klasörünü) kontrol edin.
       </div>
       <form id="forgot-form">
@@ -77,9 +159,7 @@
   <!-- ŞİFREMİ UNUTTUM: bağlantıdan dönüş → yeni şifre -->
   <div id="reset" class="login-screen hidden">
     <div class="login-card">
-      <div class="brand" style="margin-bottom:18px;">
-        <span>KOMŞU</span><img class="home" src="icon.png" alt="" />
-      </div>
+      <div class="brand"><img class="home" src="icon.png" alt="" /><span>Komşu</span></div>
       <h1>Yeni şifre</h1>
       <p class="sub">Bundan sonra web paneline bu şifreyle giriş yapacaksınız.</p>
       <div id="reset-error" class="error hidden"></div>
@@ -100,11 +180,9 @@
   <!-- KAYIT EKRANI (Yönetici) -->
   <div id="signup" class="login-screen hidden">
     <div class="login-card">
-      <div class="brand" style="margin-bottom:18px;">
-        <span>KOMŞU</span><img class="home" src="icon.png" alt="" />
-      </div>
-      <h1>Yönetici Kaydı</h1>
-      <p class="sub">Hesabınızı oluşturun, ardından sitenizi tanımlayın. İlk 1 ay ücretsiz.</p>
+      <div class="brand"><img class="home" src="icon.png" alt="" /><span>Komşu</span></div>
+      <h1>Hesabınızı oluşturun</h1>
+      <p class="sub">İki dakikada hesabınızı açın, ardından sitenizi tanımlayın. İlk ay ücretsiz, kart bilgisi istenmez.</p>
       <div id="signup-error" class="error hidden"></div>
       <form id="signup-form">
         <div class="grid-2">
@@ -129,7 +207,7 @@
           </div>
         </div>
         <div class="field">
-          <label for="su-pass2">Şifre (Tekrar)</label>
+          <label for="su-pass2">Şifre (tekrar)</label>
           <input id="su-pass2" type="password" autocomplete="new-password" placeholder="Şifrenizi tekrar girin" required />
         </div>
         <label class="check-row">
@@ -152,9 +230,7 @@
   <!-- E-POSTA DOĞRULAMA BEKLENİYOR -->
   <div id="verify" class="login-screen hidden">
     <div class="login-card">
-      <div class="brand" style="margin-bottom:18px;">
-        <span>KOMŞU</span><img class="home" src="icon.png" alt="" />
-      </div>
+      <div class="brand"><img class="home" src="icon.png" alt="" /><span>Komşu</span></div>
       <h1>E-postanızı doğrulayın</h1>
       <p class="sub">
         <strong id="verify-email">—</strong> adresine bir doğrulama bağlantısı gönderdik.
@@ -173,22 +249,21 @@
   <!-- KURULUM SİHİRBAZI (Site / Apartman tanımı) -->
   <div id="setup" class="login-screen hidden">
     <div class="login-card setup-card">
-      <div class="brand" style="margin-bottom:18px;">
-        <span>KOMŞU</span><img class="home" src="icon.png" alt="" />
-      </div>
-      <h1>Yönetiminizi tanımlayın</h1>
-      <p class="sub">Son adım — binalarınızı burada tanımlıyorsunuz. Bina ve daire sayısı sonradan değiştirilemez, dikkatle doldurun.
-        <br><strong>Diğer her şeyi</strong> — IBAN, sakinler, aidat, demirbaşlar, geçmiş kayıtlar — panelden sonradan girersiniz; kurulum rehberi size yol gösterecek.</p>
+      <div class="brand"><img class="home" src="icon.png" alt="" /><span>Komşu</span></div>
+      <div class="setup-steps"><span class="done">1 · Hesap</span><span class="on">2 · Siteniz</span><span>3 · Panel</span></div>
+      <h1>Sitenizi tanımlayın</h1>
+      <p class="sub">Son adım. Binalarınızı ve daire sayılarını girin — bunlar sonradan değiştirilemez, dikkatle doldurun.
+        IBAN, sakinler, aidat ve diğer her şeyi panelden sonra girersiniz; kurulum rehberi size yol gösterecek.</p>
       <div id="setup-error" class="error hidden"></div>
 
       <div class="field">
         <label>Neyi yönetiyorsunuz?</label>
         <div class="type-seg-row">
           <button type="button" class="type-seg active" id="seg-apartment">
-            <b>Apartman</b><span>Tek bina</span>
+            <svg class="ic"><use href="#i-home"/></svg><b>Apartman</b><span>Tek bina</span>
           </button>
           <button type="button" class="type-seg" id="seg-site">
-            <b>Site</b><span>Birden çok blok</span>
+            <svg class="ic"><use href="#i-grid"/></svg><b>Site</b><span>Birden çok blok</span>
           </button>
         </div>
       </div>
@@ -235,60 +310,71 @@
     </div>
   </div>
 
-  <!-- DASHBOARD -->
+  <!-- PANEL -->
   <div id="app" class="app hidden">
-    <!-- Sidebar -->
+    <!-- Kenar menü -->
     <aside class="sidebar" id="sidebar">
-      <div class="side-brand"><span>KOMŞU</span><img class="home" src="icon.png" alt="" /></div>
+      <div class="side-brand"><img class="home" src="icon.png" alt="" /><span>Komşu</span></div>
       <nav class="side-nav" id="side-nav">
-        <a data-section="overview" class="active"><i>◈</i> Genel Bakış</a>
-        <a data-section="apartments"><i>🏠</i> Daireler &amp; Sakinler</a>
-        <a data-section="fees"><i>₺</i> Aidat Takibi</a>
-        <a data-section="extra"><i>🧾</i> Ek Ödemeler</a>
-        <a data-section="transactions"><i>◇</i> Kasa &amp; Harcamalar</a>
-        <a data-section="announcements"><i>📢</i> Duyurular</a>
-        <a data-section="maintenance"><i>🔧</i> Arıza Bildirimleri</a>
-        <a data-section="jobs"><i>🛠</i> İş Takibi</a>
-        <a data-section="assembly"><i>📅</i> Genel Kurul</a>
-        <a data-section="rules"><i>📋</i> Site Kuralları</a>
-        <a data-section="assets"><i>📦</i> Demirbaşlar</a>
-        <a data-section="decisions"><i>📜</i> Karar Defteri</a>
+        <a data-section="overview" class="active"><svg class="ic"><use href="#i-grid"/></svg>Genel Bakış</a>
+
+        <div class="side-group">Her gün</div>
+        <a data-section="fees"><svg class="ic"><use href="#i-wallet"/></svg>Aidat Takibi</a>
+        <a data-section="transactions"><svg class="ic"><use href="#i-cash"/></svg>Kasa &amp; Harcamalar</a>
+        <a data-section="announcements"><svg class="ic"><use href="#i-megaphone"/></svg>Duyurular</a>
+        <a data-section="maintenance"><svg class="ic"><use href="#i-wrench"/></svg>Arıza Bildirimleri</a>
+
+        <div class="side-group">Site</div>
+        <a data-section="apartments"><svg class="ic"><use href="#i-home"/></svg>Daireler &amp; Sakinler</a>
+        <a data-section="debts"><svg class="ic"><use href="#i-alert"/></svg>Borç Takibi</a>
+        <a data-section="extra"><svg class="ic"><use href="#i-receipt"/></svg>Ek Ödemeler</a>
+        <a data-section="jobs"><svg class="ic"><use href="#i-check-square"/></svg>İş Takibi</a>
+        <a data-section="assets"><svg class="ic"><use href="#i-box"/></svg>Demirbaşlar</a>
+
+        <div class="side-group">Toplantı &amp; Karar</div>
+        <a data-section="assembly"><svg class="ic"><use href="#i-users"/></svg>Genel Kurul</a>
+        <a data-section="decisions"><svg class="ic"><use href="#i-book"/></svg>Karar Defteri</a>
+        <a data-section="board"><svg class="ic"><use href="#i-scale"/></svg>Kurul &amp; Denetim</a>
+        <a data-section="rules"><svg class="ic"><use href="#i-list"/></svg>Site Kuralları</a>
 
         <div class="side-group">Yönetim</div>
-        <a data-section="tasks"><i>🗓</i> Yönetim Takvimi</a>
-        <a data-section="board"><i>👥</i> Kurul &amp; Denetim</a>
-        <a data-section="debts"><i>⚠️</i> Borç Takibi</a>
-        <a data-section="archive"><i>🗄</i> Belgeler &amp; Devir</a>
-        <a data-section="security_mode" class="nav-security-btn" style="background: rgba(43,38,32,0.06); border-radius: 12px; margin-top: 14px; font-weight: 700;"><i>🛡️</i> Güvenlik Modu</a>
-        <a data-section="settings"><i>⚙</i> Site Ayarları</a>
-        <a data-section="reports"><i>📊</i> Raporlar</a>
-        <a data-section="subscription"><i>💳</i> Abonelik</a>
+        <a data-section="tasks"><svg class="ic"><use href="#i-calendar"/></svg>Yönetim Takvimi</a>
+        <a data-section="archive"><svg class="ic"><use href="#i-folder"/></svg>Belgeler &amp; Devir</a>
+        <a data-section="reports"><svg class="ic"><use href="#i-chart"/></svg>Raporlar</a>
+
+        <div class="side-sep"></div>
+        <a data-section="security_mode"><svg class="ic"><use href="#i-shield"/></svg>Güvenlik Modu</a>
+        <a data-section="settings"><svg class="ic"><use href="#i-settings"/></svg>Site Ayarları</a>
+        <a data-section="subscription"><svg class="ic"><use href="#i-card"/></svg>Abonelik</a>
       </nav>
-      <button class="side-logout" id="logout-btn">Çıkış Yap</button>
+      <button class="side-logout" id="logout-btn"><svg class="ic"><use href="#i-logout"/></svg>Çıkış Yap</button>
     </aside>
 
-    <!-- Main -->
+    <!-- İçerik -->
     <div class="main">
       <header class="topbar">
-        <button class="hamburger" id="hamburger" aria-label="Menü">☰</button>
+        <button class="hamburger" id="hamburger" aria-label="Menü"><svg class="ic"><use href="#i-menu"/></svg></button>
         <div class="top-building">
           <span class="top-name" id="top-building-name">—</span>
           <span class="top-addr" id="top-building-addr"></span>
         </div>
-        <div class="top-user" id="top-user"></div>
-        <!-- Yardım: maskot + baloncuk. Gerçek maskot çizildiğinde yalnızca bu SVG değişir; id ve davranış aynı kalır. -->
+        <!-- Hızlı işlem: en sık yapılan işler tek tıkla -->
+        <div class="quick" id="quick">
+          <button class="btn btn-sm quick-btn" id="quick-btn" aria-haspopup="true" aria-expanded="false">
+            <svg class="ic"><use href="#i-plus"/></svg><span>Yeni işlem</span>
+          </button>
+          <div class="quick-menu hidden" id="quick-menu" role="menu">
+            <button role="menuitem" data-quick="fees"><svg class="ic"><use href="#i-wallet"/></svg><span><b>Aidat ödemesi işle</b><small>Kim ödedi, işaretleyin</small></span></button>
+            <button role="menuitem" data-quick="transactions" data-click="tx-add"><svg class="ic"><use href="#i-cash"/></svg><span><b>Gelir / gider ekle</b><small>Fatura, harcama, tahsilat</small></span></button>
+            <button role="menuitem" data-quick="announcements" data-click="ann-add"><svg class="ic"><use href="#i-megaphone"/></svg><span><b>Duyuru yap</b><small>Tüm sakinlere bildirim gider</small></span></button>
+            <button role="menuitem" data-quick="jobs" data-click="job-add"><svg class="ic"><use href="#i-check-square"/></svg><span><b>İş ekle</b><small>Bakım, tamir, temizlik</small></span></button>
+            <button role="menuitem" data-quick="decisions" data-click="decision-add"><svg class="ic"><use href="#i-book"/></svg><span><b>Karar yaz</b><small>Karar defterine işlenir</small></span></button>
+          </div>
+        </div>
         <button class="help-mascot" id="help-btn" title="Bu sayfada ne yapılır?" aria-label="Yardım">
-          <span class="help-bubble">Yardıma mı ihtiyacın var?</span>
-          <span class="help-mascot-img">
-            <svg viewBox="0 0 48 48" width="42" height="42" aria-hidden="true">
-              <path d="M6 24 L24 7 L42 24" fill="none" stroke="#8A6B45" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-              <rect x="11" y="21" width="26" height="21" rx="5" fill="#FFE4C4" stroke="#8A6B45" stroke-width="3"/>
-              <circle cx="19" cy="30" r="2.2" fill="#2B2620"/><circle cx="29" cy="30" r="2.2" fill="#2B2620"/>
-              <path d="M18 35.5 Q24 40.5 30 35.5" fill="none" stroke="#2B2620" stroke-width="2.5" stroke-linecap="round"/>
-              <circle cx="15.5" cy="34" r="1.6" fill="#E9724C" opacity=".55"/><circle cx="32.5" cy="34" r="1.6" fill="#E9724C" opacity=".55"/>
-            </svg>
-          </span>
+          <svg class="ic"><use href="#i-help"/></svg><span class="help-label">Yardım</span>
         </button>
+        <div class="top-user" id="top-user"></div>
       </header>
       <main class="content" id="content">
         <!-- Bölümler JS ile render edilir -->
@@ -301,7 +387,7 @@
     <div class="modal" id="modal">
       <div class="modal-head">
         <h3 id="modal-title">Başlık</h3>
-        <button class="modal-close" id="modal-close">✕</button>
+        <button class="modal-close" id="modal-close" aria-label="Kapat">✕</button>
       </div>
       <div class="modal-body" id="modal-body"></div>
     </div>
@@ -314,7 +400,7 @@
       <button class="modal-close" id="help-close" aria-label="Kapat">✕</button>
     </div>
     <div class="help-drawer-body" id="help-body"></div>
-    <div class="help-foot">Bu paneli sağ üstteki <strong>maskota</strong> tıklayarak her zaman açabilirsiniz.</div>
+    <div class="help-foot">Bu paneli sağ üstteki <strong>Yardım</strong> düğmesiyle her zaman açabilirsiniz.</div>
   </aside>
 
   <!-- Toast -->

@@ -15,6 +15,23 @@ import { belgeUret, belgeButonu, belgeBaglantisi, htmlDuzMetin, para } from './p
 
 let C = null;   // panel.js'ten gelen bağlam
 
+/* #content kalıcı bir eleman; ekranlar her çizimde ona dinleyici ekleyince
+   dinleyiciler birikiyor ve tek tıklama birden çok kez işleniyordu (ör. ek
+   ödeme tikinin kasaya iki kez yazılması). Her olay türü için tek dinleyici
+   tutulur; yeni ekran bağlanınca öncekinin dinleyicisi sökülür. */
+const _icerikDinleyici = {};
+function icerikDinle(tur, fn) {
+  const host = C.$content();
+  if (_icerikDinleyici[tur]) host.removeEventListener(tur, _icerikDinleyici[tur]);
+  _icerikDinleyici[tur] = fn;
+  host.addEventListener(tur, fn);
+}
+// navigate() her ekran değişiminde çağırır: önceki ekranın dinleyicisi yeni ekranda çalışmasın
+export function icerikDinleyicileriniTemizle() {
+  const host = C?.$content(); if (!host) return;
+  for (const tur of Object.keys(_icerikDinleyici)) { host.removeEventListener(tur, _icerikDinleyici[tur]); delete _icerikDinleyici[tur]; }
+}
+
 export function initYonetim(ctx) { C = ctx; }
 
 /* Resmî belgelerin ortak imza bloğu. */
@@ -38,10 +55,8 @@ const num = (v) => Number(String(v ?? '').replace(/\./g, '').replace(',', '.')) 
 /** Site kaydı yoksa bölümleri açma — hepsi site_id'ye bağlı. */
 function needSite() {
   if (C.sId()) return true;
-  C.$content().innerHTML = `<div class="card" style="text-align:center;padding:40px;">
-    <h3>Site kaydınız bulunamadı</h3>
-    <p class="muted" style="margin-top:10px;">Yönetim modülü site bazlı çalışır. Site kaydınız oluşturulduktan sonra bu bölümler kullanılabilir.</p>
-  </div>`;
+  C.$content().innerHTML = `<div class="card">${C.bosDurum('building', 'Site kaydınız bulunamadı',
+    'Yönetim modülü site bazlı çalışır. Site kaydınız oluşturulduktan sonra bu bölümler kullanılabilir.')}</div>`;
   return false;
 }
 
@@ -49,11 +64,11 @@ function needSite() {
 function migrationUyarisi(err) {
   const m = String(err?.message || err || '');
   if (/relation .* does not exist|schema cache|Could not find the table/i.test(m)) {
-    C.$content().innerHTML = `<div class="card" style="padding:32px;">
-      <h3>Yönetim modülü henüz kurulmamış</h3>
-      <p class="muted" style="margin:12px 0;">Bu bölümün tabloları veritabanında yok. Supabase Studio → SQL Editor'den
-      <strong>0020_yonetim_modulu.sql</strong> dosyasını çalıştırın, sonra sayfayı yenileyin.</p>
-      <pre class="muted" style="font-size:12px;white-space:pre-wrap;">${C.esc(m)}</pre>
+    C.$content().innerHTML = `<div class="card">
+      ${C.bosDurum('alert', 'Yönetim modülü henüz kurulmamış',
+        `Bu bölümün tabloları veritabanında yok. Supabase Studio → SQL Editor'den
+        <strong>0020_yonetim_modulu.sql</strong> dosyasını çalıştırın, sonra sayfayı yenileyin.`)}
+      <pre class="hint" style="white-space:pre-wrap;">${C.esc(m)}</pre>
     </div>`;
     return true;
   }
@@ -73,12 +88,13 @@ function migrationUyarisi(err) {
    kendi yıllık takvimi (12 ay: yapıldı / planlı / gecikti), kim yaptı,
    kaça, toplam/ortalama harcama, zaman çizgisi, geçmiş kayıt.
    ============================================================ */
+/* icon: panel.html'deki çizgi ikonun adı (C.ikon ile basılır). */
 const TASK_CATEGORIES = {
-  yasal: { label: 'Yasal', icon: '⚖️' },
-  bakim: { label: 'Bakım', icon: '🔧' },
-  sozlesme: { label: 'Sözleşme', icon: '📄' },
-  finans: { label: 'Finans', icon: '₺' },
-  diger: { label: 'Diğer', icon: '•' },
+  yasal: { label: 'Yasal', icon: 'scale' },
+  bakim: { label: 'Bakım', icon: 'wrench' },
+  sozlesme: { label: 'Sözleşme', icon: 'file' },
+  finans: { label: 'Finans', icon: 'wallet' },
+  diger: { label: 'Diğer', icon: 'list' },
 };
 
 /* 0029 seed_management_tasks ile birebir aynı liste. Yeni şablon eklerken
@@ -161,7 +177,7 @@ const vadeRozeti = (t) => {
   const r = d < 0 ? `<span class="badge b-red">${Math.abs(d)} gün gecikti</span>`
     : d <= 30 ? `<span class="badge b-amber">${d} gün kaldı</span>`
     : `<span class="badge b-gray">${d} gün</span>`;
-  return r + (t.due_estimated ? ' <span class="badge b-amber" title="Şablon yüklenirken son yapılma tarihi girilmedi; vade tahminî">📅 tahminî</span>' : '');
+  return r + (t.due_estimated ? ' <span class="badge b-amber" title="Şablon yüklenirken son yapılma tarihi girilmedi; vade tahminî">Tahminî</span>' : '');
 };
 
 /** Sitenin tüm görevlerini çeker, serilere böler. */
@@ -202,35 +218,30 @@ export async function renderTasks() {
       : vadeRozeti(t);
     const tarih = t.status === 'done' ? C.dmy(t.done_date || t.completed_at) : C.dmy(t.due_date);
     return `<tr class="seri-satir" data-seri="${seriId}">
-      <td><strong>${cat.icon} ${C.esc(t.title)}</strong>
+      <td><strong class="inline-ico">${C.ikon(cat.icon)} ${C.esc(t.title)}</strong>
         ${C.kapsamRozeti(t.scope, t.building_id)}
-        ${t.source === 'asset' ? '<span class="badge b-gray" title="Demirbaş kaydından otomatik oluştu">📦 Demirbaş</span>' : ''}
-        ${t.job_id ? '<span class="badge b-blue" title="Bu görev için iş kaydı açıldı">🛠 İşe dönüştürüldü</span>' : ''}
-        ${t.legal_basis ? `<div class="muted" style="font-size:12px">${C.esc(t.legal_basis)}</div>` : ''}
+        ${t.source === 'asset' ? '<span class="badge b-gray" title="Demirbaş kaydından otomatik oluştu">Demirbaş</span>' : ''}
+        ${t.job_id ? '<span class="badge b-blue" title="Bu görev için iş kaydı açıldı">İşe dönüştürüldü</span>' : ''}
+        ${t.legal_basis ? `<div class="hint">${C.esc(t.legal_basis)}</div>` : ''}
         ${t.status === 'done' && (kimYapti(t) || t.cost != null)
-          ? `<div class="muted" style="font-size:12px">${[kimYapti(t), t.cost != null ? C.TL(t.cost) : ''].filter(Boolean).map(C.esc).join(' · ')}</div>` : ''}</td>
+          ? `<div class="hint">${[kimYapti(t), t.cost != null ? C.TL(t.cost) : ''].filter(Boolean).map(C.esc).join(' · ')}</div>` : ''}</td>
       <td>${cat.label}</td>
       <td>${tarih}</td>
       <td>${t.recurrence_months ? `${t.recurrence_months} ayda bir` : 'Tek seferlik'}</td>
       <td>${durum}</td>
-      <td class="t-right" style="white-space:nowrap">
-        ${t.status === 'pending' ? `<button class="btn btn-sm btn-green" data-act="done" data-id="${t.id}">Yapıldı</button>` : ''}
-        ${t.status === 'pending' && !t.job_id ? `<button class="btn btn-sm" data-act="job" data-id="${t.id}">🛠 İşe Dönüştür</button>` : ''}
-        <button class="btn btn-sm btn-ghost" data-act="detay" data-seri="${seriId}">Detay ›</button>
-      </td>
+      <td><div class="row-actions">
+        ${t.status === 'pending' ? `<button class="btn btn-sm btn-green" data-act="done" data-id="${t.id}">${C.ikon('check')} Yapıldı</button>` : ''}
+        ${t.status === 'pending' && !t.job_id ? `<button class="btn btn-sm" data-act="job" data-id="${t.id}">${C.ikon('wrench')} İşe Dönüştür</button>` : ''}
+        <button class="btn btn-sm btn-ghost" data-act="detay" data-seri="${seriId}">Detay ${C.ikon('arrow')}</button>
+      </div></td>
     </tr>`;
   };
 
   C.$content().innerHTML = `
-    <div class="page-head"><h2>Yönetim Takvimi</h2>
-      <div class="tools">
-        <button class="btn btn-ghost" id="task-seed">Hazır Şablonları Yükle</button>
-        <button class="btn" id="task-add">+ Görev Ekle</button>
-      </div>
-    </div>
-    <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
-      Yasal süreler ve periyodik bakımlar tek yerde. Bir göreve tıklayın: kendi takvimi, kim yaptı, kaça yapıldı, geçmişi.
-    </p>
+    ${C.sayfaBasi('Yönetim Takvimi',
+      'Genel kurul, denetim, sigorta, asansör bakımı gibi tekrarlayan işler tek listede. Yapılan işi "Yapıldı" ile kapatın; ayrıntı için satıra tıklayın.',
+      `<button class="btn btn-ghost" id="task-seed">${C.ikon('download')} Hazır Şablonları Yükle</button>
+       <button class="btn" id="task-add">${C.ikon('plus')} Görev Ekle</button>`)}
 
     <div class="stat-grid">
       <div class="stat"><div class="val" style="color:var(--red)">${overdue.length}</div><div class="lbl">Gecikmiş</div></div>
@@ -238,21 +249,24 @@ export async function renderTasks() {
       <div class="stat"><div class="val">${pending.length}</div><div class="lbl">Bekleyen toplam</div></div>
     </div>
 
-    ${tahmini.length ? `<div class="info-banner" style="background:var(--amber-bg);border-color:#EAD3A2;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    ${tahmini.length ? `<div class="info-banner" style="background:var(--amber-bg);border-color:var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap">
       <div style="flex:1;min-width:260px"><strong>${tahmini.length} görevin tarihi tahminî.</strong>
         Şablon yüklenirken son yapılma tarihi girilmedi. Biliyorsanız girin; sıradaki tarih gerçek periyoda otursun.</div>
       <button class="btn btn-sm" id="tahmin-duzelt">Son tarihleri gir</button>
     </div>` : ''}
 
     <div class="card">
-      <div class="cat-grid" id="task-filter" style="margin-bottom:14px;">
+      <div class="seg-tabs compact" id="task-filter" style="margin-bottom:14px;">
         ${[['pending', 'Bekleyen'], ['done', 'Tamamlanan'], ['skipped', 'Atlanan'], ['all', 'Tümü']]
-          .map(([v, l]) => `<button type="button" class="cat-chip ${taskFilter === v ? 'active' : ''}" data-f="${v}">${l}</button>`).join('')}
+          .map(([v, l]) => `<button type="button" class="seg ${taskFilter === v ? 'active' : ''}" data-f="${v}">${l}</button>`).join('')}
       </div>
       <table><thead><tr><th>Görev</th><th>Tür</th><th>${taskFilter === 'done' ? 'Yapıldı' : 'Son Tarih'}</th><th>Tekrar</th><th>Durum</th><th></th></tr></thead>
       <tbody id="task-body">${shown.length ? shown.map(row).join('')
-        : `<tr><td colspan="6" class="t-empty">${all.length ? 'Bu filtrede görev yok.'
-          : '<strong>Takvim boş.</strong><br>"Hazır Şablonları Yükle" ile genel kurul, denetim, sigorta, asansör gibi standart yükümlülükleri ekleyin; her biri için "en son ne zaman yapıldı" sorulur.'}</td></tr>`}</tbody></table>
+        : `<tr><td colspan="6">${all.length
+          ? C.bosDurum('calendar', 'Bu filtrede görev yok', 'Üstteki sekmelerden başka bir durumu seçin.')
+          : C.bosDurum('calendar', 'Takvim boş',
+              '"Hazır Şablonları Yükle" ile genel kurul, denetim, sigorta, asansör gibi standart yükümlülükleri ekleyin; her biri için "en son ne zaman yapıldı" sorulur.',
+              '<button class="btn" type="button" data-bos="seed">Hazır Şablonları Yükle</button>')}</td></tr>`}</tbody></table>
     </div>`;
 
   C.el('task-filter').addEventListener('click', (e) => {
@@ -262,6 +276,7 @@ export async function renderTasks() {
   C.el('task-seed').onclick = () => openSablonModal(all);
   C.el('task-add').onclick = () => openTaskModal(null);
   C.el('tahmin-duzelt')?.addEventListener('click', () => openTahminModal(tahmini));
+  C.$content().querySelector('[data-bos="seed"]')?.addEventListener('click', () => openSablonModal(all));
 
   C.el('task-body').addEventListener('click', async (e) => {
     const b = e.target.closest('button[data-act]');
@@ -310,7 +325,7 @@ function renderSeriSayfasi(id) {
     let cls = 'ay-bos', ic = '', alt = '';
     if (yapilanlar.length) {
       const x = yapilanlar[0];
-      cls = 'ay-yapildi'; ic = '✓';
+      cls = 'ay-yapildi'; ic = C.ikon('check');
       alt = `${C.dmy(x.done_date)}<br>${C.esc(kimYapti(x) || '—')}${x.cost != null ? '<br>' + C.TL(x.cost) : ''}`;
     } else if (planli.length) {
       const d = daysUntil(planli[0].due_date);
@@ -329,59 +344,51 @@ function renderSeriSayfasi(id) {
     const x = z.kayit;
     if (z.tip !== 'yapildi') {
       return `<li class="z-${z.tip}"><strong>${C.dmy(x.due_date)}</strong> — planlı ${vadeRozeti(x)}
-        <div class="muted" style="font-size:12.5px">${[x.assigned_to ? 'Sorumlu: ' + C.esc(x.assigned_to) : '', x.expected_cost != null ? 'beklenen ' + C.TL(x.expected_cost) : ''].filter(Boolean).join(' · ')}</div></li>`;
+        <div class="hint">${[x.assigned_to ? 'Sorumlu: ' + C.esc(x.assigned_to) : '', x.expected_cost != null ? 'beklenen ' + C.TL(x.expected_cost) : ''].filter(Boolean).join(' · ')}</div></li>`;
     }
     const kim = kimYapti(x);
     return `<li class="z-yapildi"><strong>${C.dmy(z.tarih)}</strong>
         ${x.cost != null ? ` · <strong>${C.TL(x.cost)}</strong>` : ''}
         ${x.transaction_id ? ' <span class="badge b-gray" title="Kasaya gider olarak işlendi">kasadan ödendi</span>' : ''}
         <button class="btn btn-xs btn-outline-red" data-sil="${x.id}" style="float:right">Sil</button>
-      <div class="muted" style="font-size:12.5px">
-        ${kim ? (x.self_done ? '🏠 Kendimiz yaptık' : '🏢 ' + C.esc(kim)) : 'Kim yaptığı girilmedi'}
-        ${x.evidence_url ? ` · <a href="${C.esc(x.evidence_url)}" target="_blank" rel="noopener">📎 Belge</a>` : ''}
+      <div class="hint">
+        ${kim ? (x.self_done ? 'Kendimiz yaptık' : C.esc(kim)) : 'Kim yaptığı girilmedi'}
+        ${x.evidence_url ? ` · <a class="inline-ico" href="${C.esc(x.evidence_url)}" target="_blank" rel="noopener">${C.ikon('file')} Belge</a>` : ''}
         ${x.notes ? `<div>${C.esc(x.notes)}</div>` : ''}
       </div></li>`;
   };
 
   C.$content().innerHTML = `
-    <a class="geri-link" id="sd-geri">‹ Yönetim Takvimi</a>
-    <div class="page-head" style="margin-top:6px">
-      <div>
-        <h2>${cat.icon} ${C.esc(t.title)}</h2>
-        <div class="muted" style="font-size:13px;margin-top:4px">
-          ${[cat.label, t.legal_basis, t.recurrence_months ? `${t.recurrence_months} ayda bir` : 'Tek seferlik', C.kapsamEtiketi(t.scope, t.building_id)].filter(Boolean).map(C.esc).join(' · ')}
-          ${t.source === 'asset' ? ' · 📦 demirbaş kaydından' : ''}
-        </div>
-        ${t.description ? `<div class="muted" style="font-size:13px;margin-top:4px">${C.esc(t.description)}</div>` : ''}
-      </div>
-      <div class="tools">
-        ${sira ? `<button class="btn btn-green" data-done="${sira.id}">✓ Yapıldı</button>` : ''}
-        ${sira && !sira.job_id ? `<button class="btn btn-ghost" data-job="${sira.id}">🛠 İşe Dönüştür</button>` : ''}
-        ${sira ? `<button class="btn btn-ghost" data-edit="${sira.id}">Düzenle</button>` : ''}
-      </div>
-    </div>
+    <a class="geri-link" id="sd-geri">${C.ikon('arrow-left')} Yönetim Takvimi</a>
+    ${C.sayfaBasi(C.esc(t.title),
+      [cat.label, t.legal_basis, t.recurrence_months ? `${t.recurrence_months} ayda bir` : 'Tek seferlik', C.kapsamEtiketi(t.scope, t.building_id)].filter(Boolean).map(C.esc).join(' · ')
+        + (t.source === 'asset' ? ' · demirbaş kaydından' : '')
+        + (t.description ? `<br>${C.esc(t.description)}` : ''),
+      `${sira ? `<button class="btn btn-green" data-done="${sira.id}">${C.ikon('check')} Yapıldı</button>` : ''}
+       ${sira && !sira.job_id ? `<button class="btn btn-ghost" data-job="${sira.id}">${C.ikon('wrench')} İşe Dönüştür</button>` : ''}
+       ${sira ? `<button class="btn btn-ghost" data-edit="${sira.id}">${C.ikon('edit')} Düzenle</button>` : ''}`)}
 
     <div class="stat-grid">
-      <div class="stat"><div class="val" style="font-size:20px">${sira ? C.dmy(sira.due_date) : '—'}</div>
+      <div class="stat"><div class="val">${sira ? C.dmy(sira.due_date) : '—'}</div>
         <div class="lbl">Sıradaki ${sira ? vadeRozeti(sira) : ''}</div></div>
-      <div class="stat"><div class="val" style="font-size:20px">${s.son ? C.dmy(s.son.done_date || s.son.completed_at) : '—'}</div><div class="lbl">Son yapılma</div></div>
-      <div class="stat"><div class="val" style="font-size:20px">${s.kim ? C.esc(s.kim) : '—'}</div><div class="lbl">Kim yapıyor</div></div>
-      <div class="stat"><div class="val" style="font-size:20px">${s.beklenen != null ? C.TL(s.beklenen) : '—'}</div><div class="lbl">Beklenen tutar</div></div>
-      <div class="stat"><div class="val" style="font-size:20px">${C.TL(s.toplam)}</div><div class="lbl">Toplam harcama · ${s.yapilan.length} kez${s.ortalama != null ? ` · ort. ${C.TL(s.ortalama)}` : ''}</div></div>
+      <div class="stat"><div class="val">${s.son ? C.dmy(s.son.done_date || s.son.completed_at) : '—'}</div><div class="lbl">Son yapılma</div></div>
+      <div class="stat"><div class="val">${s.kim ? C.esc(s.kim) : '—'}</div><div class="lbl">Kim yapıyor</div></div>
+      <div class="stat"><div class="val">${s.beklenen != null ? C.TL(s.beklenen) : '—'}</div><div class="lbl">Beklenen tutar</div></div>
+      <div class="stat"><div class="val">${C.TL(s.toplam)}</div><div class="lbl">Toplam harcama · ${s.yapilan.length} kez${s.ortalama != null ? ` · ort. ${C.TL(s.ortalama)}` : ''}</div></div>
     </div>
 
-    ${sira?.due_estimated ? `<div class="info-banner" style="background:var(--amber-bg);border-color:#EAD3A2">
+    ${sira?.due_estimated ? `<div class="info-banner" style="background:var(--amber-bg);border-color:var(--line)">
       <strong>Bu tarih tahminî.</strong> Şablon yüklenirken son yapılma tarihi girilmedi. "Geçmiş kayıt ekle" ile son yapıldığı tarihi yazın; sıradaki tarih ona göre düzelir.</div>` : ''}
 
     <div class="card">
       <div class="plan-ust">
         <div class="yil-secici">
-          <button type="button" class="btn btn-sm btn-ghost" id="yil-geri">‹</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="yil-geri" aria-label="Önceki yıl">${C.ikon('arrow-left')}</button>
           <strong>${takvimYil}</strong>
-          <button type="button" class="btn btn-sm btn-ghost" id="yil-ileri">›</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="yil-ileri" aria-label="Sonraki yıl">${C.ikon('arrow')}</button>
         </div>
         <div class="plan-legend">
-          <span><i class="ay-nokta ay-yapildi">✓</i> yapıldı</span>
+          <span><i class="ay-nokta ay-yapildi">${C.ikon('check')}</i> yapıldı</span>
           <span><i class="ay-nokta ay-planli">●</i> planlı</span>
           <span><i class="ay-nokta ay-gecikti">!</i> gecikti</span>
         </div>
@@ -390,25 +397,25 @@ function renderSeriSayfasi(id) {
     </div>
 
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <h3 style="margin:0">Geçmiş</h3>
-        <button class="btn btn-sm btn-ghost" id="sd-gecmis">+ Geçmiş kayıt ekle</button>
+      <div class="card-head">
+        <h3>Geçmiş</h3>
+        <button class="btn btn-sm btn-ghost" id="sd-gecmis">${C.ikon('plus')} Geçmiş kayıt ekle</button>
       </div>
       ${zaman.length ? `<ul class="zaman">${zaman.map(zSatir).join('')}</ul>`
-        : '<p class="muted" style="font-size:13px;padding:10px 0">Henüz kayıt yok.</p>'}
-      <p class="muted" style="font-size:12px;margin-top:10px">
-        Daha önce yapılmış dönemleri "Geçmiş kayıt ekle" ile işleyin: takvimde ✓ olarak görünür, ortalama tutara katılır.</p>
+        : C.bosDurum('clock', 'Henüz kayıt yok', 'Bu görev yapıldıkça burada tarihiyle listelenir.')}
+      <p class="hint" style="margin-top:10px">
+        Daha önce yapılmış dönemleri "Geçmiş kayıt ekle" ile işleyin: takvimde "yapıldı" olarak görünür, ortalama tutara katılır.</p>
     </div>
 
-    <div style="text-align:right;margin-bottom:20px">
-      <button class="btn btn-sm btn-outline-red" id="sd-hepsini-sil">Görevi geçmişiyle birlikte sil</button>
+    <div class="row-actions" style="margin-bottom:20px">
+      <button class="btn btn-sm btn-outline-red" id="sd-hepsini-sil">${C.ikon('trash')} Görevi geçmişiyle birlikte sil</button>
     </div>`;
 
   C.el('sd-geri').onclick = () => renderTasks();
   C.el('yil-geri').onclick = () => { takvimYil--; renderSeriSayfasi(id); };
   C.el('yil-ileri').onclick = () => { takvimYil++; renderSeriSayfasi(id); };
 
-  C.$content().addEventListener('click', async (e) => {
+  icerikDinle('click', async (e) => {
     const b = e.target.closest('button'); if (!b) return;
     const bul = (rid) => s.satirlar.find(x => x.id === rid);
     if (b.dataset.done) return openTamamlaModal(bul(b.dataset.done), s.id);
@@ -474,8 +481,8 @@ function openTamamlaModal(rec, seriId = null) {
   const kendimizVars = !rec.assigned_to && !!seri?.son?.self_done;
   const bugun = C.todayISO();
 
-  C.openModal('✅ Yapıldı', `
-    <p class="muted" style="font-size:13px;margin-bottom:14px;">
+  C.openModal('Yapıldı olarak işaretle', `
+    <p class="hint" style="margin-bottom:14px;">
       <strong>${C.esc(rec.title)}</strong><br>Vade: ${C.dmy(rec.due_date)}${rec.legal_basis ? ` · ${C.esc(rec.legal_basis)}` : ''}
     </p>
     <div class="field"><label>Yapılma tarihi *</label>
@@ -492,11 +499,11 @@ function openTamamlaModal(rec, seriId = null) {
           <option value="fund">Yedek akçeden ödendi</option>
         </select></div>
     </div>
-    <p class="muted" style="font-size:12.5px;margin:-6px 0 14px">Kasadan ödendiyse tutar gider olarak işlenir ve bakiyeden düşer. Ücretsiz ya da kayıt dışıysa tutarı boş bırakın.</p>
+    <p class="hint" style="margin:-6px 0 14px">Kasadan ödendiyse tutar gider olarak işlenir ve bakiyeden düşer. Ücretsiz ya da kayıt dışıysa tutarı boş bırakın.</p>
     <div class="field"><label>Belge / fatura bağlantısı</label>
       <input id="tm-url" placeholder="Rapor, fatura ya da etiket fotoğrafı" value="${C.esc(rec.evidence_url || '')}" /></div>
     <div class="field"><label>Not</label><input id="tm-notes" placeholder="Örn: kırmızı etiket kaldırıldı" /></div>
-    <p class="muted" id="tm-sonraki" style="font-size:12.5px;margin-bottom:14px"></p>
+    <p class="hint" id="tm-sonraki" style="margin-bottom:14px"></p>
     <button class="btn btn-block" id="m-save">Kaydet</button>
   `);
 
@@ -541,20 +548,20 @@ function openGecmisModal(s) {
   const bugun = C.todayISO();
   const tekrarli = !!t.recurrence_months;
   C.openModal('Geçmiş kayıt ekle', `
-    <p class="muted" style="font-size:13px;margin-bottom:14px;"><strong>${C.esc(t.title)}</strong><br>
-      Daha önce yapılmış bir dönemi takvime işler. Yıllık dökümde ✓ olarak görünür, ortalama maliyete katılır.</p>
+    <p class="hint" style="margin-bottom:14px;"><strong>${C.esc(t.title)}</strong><br>
+      Daha önce yapılmış bir dönemi takvime işler. Yıllık dökümde "yapıldı" olarak görünür, ortalama maliyete katılır.</p>
     <div class="field"><label>Yapılma tarihi *</label>
       <input id="gm-date" type="date" max="${bugun}" /></div>
     ${kimHTML('gm', s.kim !== 'Kendimiz' ? s.kim : '', s.kim === 'Kendimiz')}
-    <div class="field"><label>Tutar (₺) <span class="muted" style="font-weight:400">— biliyorsanız</span></label>
+    <div class="field"><label>Tutar (₺) <span class="hint">— biliyorsanız</span></label>
       <input id="gm-cost" inputmode="decimal" placeholder="Boş bırakılabilir" /></div>
     <div class="field"><label>Not</label><input id="gm-notes" /></div>
-    ${tekrarli ? `<label style="display:flex;gap:10px;align-items:flex-start;font-size:13.5px;margin-bottom:14px;cursor:pointer">
-      <input type="checkbox" id="gm-due" ${s.siradaki?.due_estimated ? 'checked' : ''} style="margin-top:3px">
+    ${tekrarli ? `<label class="check-row">
+      <input type="checkbox" id="gm-due" ${s.siradaki?.due_estimated ? 'checked' : ''}>
       <span><strong>Sıradaki tarihi buna göre güncelle</strong><br>
       <span class="muted">Vade = serideki son yapılma + ${t.recurrence_months} ay olur. ${s.siradaki?.due_estimated ? 'Şu anki vade tahminî olduğu için önerilir.' : ''}</span></span>
     </label>` : ''}
-    <p class="muted" style="font-size:12.5px;margin-bottom:14px">Bu kayıt kasaya işlenmez; o dönemin gideri zaten defterinizdeyse çift kayıt olmaz.</p>
+    <p class="hint" style="margin-bottom:14px">Bu kayıt kasaya işlenmez; o dönemin gideri zaten defterinizdeyse çift kayıt olmaz.</p>
     <button class="btn btn-block" id="m-save">Kaydet</button>
   `);
   const oku = bindKim('gm');
@@ -580,14 +587,14 @@ function openTahminModal(seriler) {
   const bugun = C.todayISO();
   C.el('modal').classList.add('genis');
   C.openModal('Son yapılma tarihleri', `
-    <p class="muted" style="font-size:13px;margin-bottom:14px">
+    <p class="hint" style="margin-bottom:14px">
       Şablon yüklenirken bu görevlerin son yapılma tarihi girilmemişti. Bildiklerinizi yazın;
       sıradaki vade <strong>son yapılma + periyot</strong> olarak yeniden hesaplanır. Bilmediklerinizi boş bırakın.</p>
     <div id="th-list">
       ${seriler.map(s => `<div class="sablon-satir">
         <div></div>
         <div><strong>${C.esc(s.temsil.title)}</strong>
-          <div class="muted" style="font-size:12px">${s.temsil.recurrence_months} ayda bir · şu anki vade ${C.dmy(s.siradaki.due_date)}</div></div>
+          <div class="hint">${s.temsil.recurrence_months} ayda bir · şu anki vade ${C.dmy(s.siradaki.due_date)}</div></div>
         <input type="date" max="${bugun}" data-seri="${s.id}" />
       </div>`).join('')}
     </div>
@@ -615,20 +622,20 @@ function openSablonModal(all) {
   const mevcut = new Set(all.filter(t => t.status === 'pending').map(t => t.title));
   C.el('modal').classList.add('genis');
   C.openModal('Hazır şablonlar', `
-    <p class="muted" style="font-size:13px;margin-bottom:14px">
+    <p class="hint" style="margin-bottom:14px">
       Binanız için geçerli olanları seçin. <strong>En son ne zaman yapıldı</strong> sütununu doldurursanız sıradaki
       tarih ondan hesaplanır (ör. Mart'ta yapılan yıllık bakım gelecek Mart'a düşer). Boş bırakırsanız tarih tahminî
       atanır ve sonradan düzeltmeniz istenir.</p>
-    <div class="sablon-satir" style="font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700">
+    <div class="sablon-satir section-title" style="margin:0">
       <div></div><div>Görev</div><div>En son ne zaman?</div></div>
     <div id="sb-list">
       ${SABLONLAR.map((s, i) => {
         const var_ = mevcut.has(s.title);
         return `<div class="sablon-satir ${var_ ? 'pasif' : ''}">
           <input type="checkbox" data-i="${i}" ${var_ ? 'disabled' : 'checked'} />
-          <div><strong>${TASK_CATEGORIES[s.category].icon} ${C.esc(s.title)}</strong>
+          <div><strong class="inline-ico">${C.ikon(TASK_CATEGORIES[s.category].icon)} ${C.esc(s.title)}</strong>
             ${var_ ? '<span class="badge b-gray">zaten takvimde</span>' : ''}
-            <div class="muted" style="font-size:12px">${[s.legal, `${s.months} ayda bir`, s.ipucu].filter(Boolean).map(C.esc).join(' · ')}</div></div>
+            <div class="hint">${[s.legal, `${s.months} ayda bir`, s.ipucu].filter(Boolean).map(C.esc).join(' · ')}</div></div>
           <input type="date" max="${bugun}" data-d="${i}" ${var_ ? 'disabled' : ''} />
         </div>`;
       }).join('')}
@@ -655,11 +662,11 @@ function openSablonModal(all) {
    iş tamamlandığında görev de kapanır (panel.js → openJobPaymentModal). */
 function openTaskToJobModal(rec) {
   C.openModal('İşe Dönüştür', `
-    <p class="muted" style="font-size:13px;margin-bottom:14px;">
+    <p class="hint" style="margin-bottom:14px;">
       <strong>${C.esc(rec.title)}</strong><br>
       Son tarih: ${C.dmy(rec.due_date)}${rec.legal_basis ? ` · ${C.esc(rec.legal_basis)}` : ''}
     </p>
-    <div class="info-banner" style="font-size:12.5px">Küçük işleri doğrudan <strong>Yapıldı</strong> ile kapatabilirsiniz. İşe dönüştürmek,
+    <div class="info-banner">Küçük işleri doğrudan <strong>Yapıldı</strong> ile kapatabilirsiniz. İşe dönüştürmek,
       firmaya <strong>iş emri</strong> ve bitince <strong>teslim tutanağı</strong> üretmek istediğiniz büyük işler içindir.</div>
     <div class="field"><label>Sorumlu Kişi / Firma *</label>
       <input id="tj-assignee" placeholder="Örn: Öz Asansör Ltd." value="${C.esc(rec.assigned_to || '')}" /></div>
@@ -667,7 +674,7 @@ function openTaskToJobModal(rec) {
       <div class="field"><label>Planlanan Ücret (₺)</label><input id="tj-price" inputmode="decimal" value="${rec.expected_cost ?? 0}" /></div>
       <div class="field"><label>Termin Tarihi</label><input id="tj-due" type="date" value="${C.esc(rec.due_date || C.todayISO())}" /></div>
     </div>
-    <p class="muted" style="font-size:12.5px;margin-bottom:14px;">
+    <p class="hint" style="margin-bottom:14px;">
       Buradaki ücret plandır. İş tamamlanırken gerçekte ödenen tutar sorulur, kasaya o tutar işlenir
       ve bu takvim görevi otomatik kapanır.</p>
     <button class="btn btn-block" id="m-save">İşi Oluştur</button>
@@ -708,7 +715,7 @@ function openTaskModal(rec, seriId = null) {
     <div class="grid-2">
       <div class="field"><label>Tür</label>
         <select id="t-cat">${Object.entries(TASK_CATEGORIES).map(([v, o]) =>
-          `<option value="${v}" ${isEdit && rec.category === v ? 'selected' : ''}>${o.icon} ${o.label}</option>`).join('')}</select></div>
+          `<option value="${v}" ${isEdit && rec.category === v ? 'selected' : ''}>${o.label}</option>`).join('')}</select></div>
       <div class="field"><label>${isEdit ? 'Sıradaki tarih' : 'İlk tarih'} *</label>
         <input id="t-due" type="date" value="${isEdit ? C.esc(rec.due_date) : C.todayISO()}" /></div>
     </div>
@@ -732,13 +739,13 @@ function openTaskModal(rec, seriId = null) {
         <option value="">Tüm Site (sigorta, yönetim planı gibi)</option>
         ${C.S.buildings.map(b => `<option value="${b.id}" ${isEdit && rec.scope === 'building' && rec.building_id === b.id ? 'selected' : ''}>${C.esc(b.name)}</option>`).join('')}
       </select>
-      <p class="muted" style="font-size:12.5px;margin-top:6px">
+      <p class="hint" style="margin-top:6px">
         Bloğa özel yükümlülükler (asansör muayenesi gibi) yalnızca o bloğun listesinde sayılır;
         site geneli olanlar her blokta görünür.</p></div>`}
     <div class="field"><label>Açıklama</label>
       <textarea id="t-desc" rows="2">${isEdit ? C.esc(rec.description || '') : ''}</textarea></div>
-    ${isEdit && rec.due_estimated ? '<p class="muted" style="font-size:12.5px;margin-bottom:14px">Bu vade tahminîydi; tarihi değiştirdiğinizde işaret kalkar.</p>' : ''}
-    ${!isEdit ? '<p class="muted" style="font-size:12.5px;margin-bottom:14px">Daha önce yapılmış dönemleri eklemek için görevi kaydettikten sonra <strong>Detay → Geçmiş kayıt ekle</strong> kullanın.</p>' : ''}
+    ${isEdit && rec.due_estimated ? '<p class="hint" style="margin-bottom:14px">Bu vade tahminîydi; tarihi değiştirdiğinizde işaret kalkar.</p>' : ''}
+    ${!isEdit ? '<p class="hint" style="margin-bottom:14px">Daha önce yapılmış dönemleri eklemek için görevi kaydettikten sonra <strong>Detay → Geçmiş kayıt ekle</strong> kullanın.</p>' : ''}
     <button class="btn btn-block" id="m-save">${isEdit ? 'Kaydet' : 'Görevi Ekle'}</button>
   `);
   kaydetBagla(async () => {
@@ -803,45 +810,45 @@ export async function renderExtraCharges() {
     const tahsil = Number(o?.tahsil_edilen || 0);
     const bekleyen = Number(o?.bekleyen || 0);
     const oran = (tahsil + bekleyen) > 0 ? Math.round(tahsil / (tahsil + bekleyen) * 100) : 0;
-    return `<div class="card" style="margin-bottom:14px;">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+    return `<div class="card">
+      <div class="card-head" style="align-items:flex-start;margin-bottom:0">
         <div>
-          <h3 style="margin:0">${C.esc(c.title)}</h3>
-          <p class="muted" style="margin:4px 0 0;font-size:13px;">
+          <h3>${C.esc(c.title)}</h3>
+          <p class="hint" style="margin-top:4px;">
             Toplam ${C.TL(c.total_amount)} ·
             ${c.installments > 1 ? `${c.installments} taksit` : 'tek seferlik'} ·
             ${C.MONTHS[c.start_month - 1]} ${c.start_year}'den itibaren
             ${c.note ? `<br>${C.esc(c.note)}` : ''}
           </p>
         </div>
-        <div style="text-align:right;white-space:nowrap;">
-          <div style="font-size:20px;font-weight:800;">${oran}%</div>
-          <div class="muted" style="font-size:12px;">tahsil edildi</div>
+        <div class="stat" style="text-align:right;white-space:nowrap;padding:10px 16px;box-shadow:none">
+          <div class="val">%${oran}</div>
+          <div class="lbl">tahsil edildi</div>
         </div>
       </div>
 
       ${o ? `<div class="info-banner" style="margin:14px 0 0;">
         <strong>${o.daire_sayisi} daireye bölündü</strong> — daire başına ${C.TL(o.daire_payi)}.
         ${Number(o.bos_daire) > 0
-          ? `<br>⚠️ <strong>${o.bos_daire} daire boş.</strong> Bu dairelerin toplam
+          ? `<br><strong>${o.bos_daire} daire boş.</strong> Bu dairelerin toplam
              <strong>${C.TL(o.bos_daire_payi_toplami)}</strong> tutarındaki payı için
              kat maliklerinden tahsilat yapmanız gerekir; uygulamada sakini olmadığı için
              kimseye bildirim gitmez.`
           : ''}
       </div>` : ''}
 
-      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-        <button class="btn btn-sm btn-ghost" data-detay="${c.id}">Daire Dökümü</button>
-        <button class="btn btn-sm btn-outline-red" data-sil="${c.id}" data-baslik="${C.esc(c.title)}">Sil</button>
+      <div class="row-actions" style="margin-top:12px;">
+        <button class="btn btn-sm btn-ghost" data-detay="${c.id}">${C.ikon('list')} Daire Dökümü</button>
+        <button class="btn btn-sm btn-outline-red" data-sil="${c.id}" data-baslik="${C.esc(c.title)}">${C.ikon('trash')} Sil</button>
       </div>
       <div id="detay-${c.id}" hidden style="margin-top:14px;"></div>
     </div>`;
   };
 
   C.$content().innerHTML = `
-    <div class="page-head"><h2>Ek Ödemeler</h2></div>
-    <div class="info-banner">Aidat dışı, bir işe bağlı ortak giderler buraya girilir (çatı tamiri, asansör bakımı…).
-      Tutar tüm dairelere eşit bölünür ve sakinlere <strong>aidattan ayrı bir kalem</strong> olarak görünür.</div>
+    ${C.sayfaBasi('Ek Ödemeler',
+      'Aidat dışında toplanacak paralar (çatı tamiri, asansör yenileme…). Tutarı girin; dairelere eşit bölünür, kimin ödediğini buradan işaretleyin.')}
+    <div class="info-banner">Tutar tüm dairelere eşit bölünür ve sakinlere <strong>aidattan ayrı bir kalem</strong> olarak görünür.</div>
 
     <div class="card">
       <h3>Yeni Ek Ödeme</h3>
@@ -858,16 +865,17 @@ export async function renderExtraCharges() {
         </div>
       </div>
       <div class="field"><label>Açıklama (isteğe bağlı)</label><input id="ec-note" placeholder="Sakinlerin göreceği kısa not"></div>
-      <button class="btn" id="ec-create">Ek Ödeme Oluştur</button>
-      <p class="muted" style="font-size:12.5px;margin-top:10px;">
+      <button class="btn" id="ec-create">${C.ikon('plus')} Ek Ödeme Oluştur</button>
+      <p class="hint" style="margin-top:10px;">
         Tutar tüm dairelere eşit bölünür, taksit sayısına göre aylara dağıtılır.
         Sakinler uygulamada "Aidatlarım" ekranında ayrı bir satır olarak görür.
       </p>
     </div>
 
-    ${list.length ? list.map(kart).join('') : `<div class="card"><p class="t-empty"><strong>Henüz ek ödeme yok.</strong><br>
-      Çatı tamiri, asansör bakımı gibi bir iş için para toplayacaksanız yukarıdaki formu doldurun;
-      tutar dairelere bölünür ve sakinler aidatından ayrı bir satır olarak görür.</p></div>`}`;
+    ${list.length ? `<h4 class="section-title">Oluşturulan ek ödemeler</h4>${list.map(kart).join('')}`
+      : `<div class="card">${C.bosDurum('receipt', 'Henüz ek ödeme yok',
+      `Çatı tamiri, asansör bakımı gibi bir iş için para toplayacaksanız yukarıdaki formu doldurun;
+      tutar dairelere bölünür ve sakinler aidatından ayrı bir satır olarak görür.`)}</div>`}`;
 
   C.el('ec-create').onclick = async () => {
     const title = String(C.el('ec-title').value || '').trim();
@@ -888,7 +896,7 @@ export async function renderExtraCharges() {
     renderExtraCharges();
   };
 
-  C.$content().addEventListener('click', async (e) => {
+  icerikDinle('click', async (e) => {
     const sil = e.target.closest('[data-sil]');
     if (sil) {
       if (!confirm(`"${sil.dataset.baslik}" ek ödemesi silinsin mi?\n\nTüm dairelerdeki payları ve ödeme kayıtları da silinir.`)) return;
@@ -903,7 +911,7 @@ export async function renderExtraCharges() {
       if (!host) return;
       if (!host.hidden) { host.hidden = true; return; }
       host.hidden = false;
-      host.innerHTML = '<p class="muted">Yükleniyor…</p>';
+      host.innerHTML = '<p class="hint">Yükleniyor…</p>';
 
       const [{ data: items }, { data: apts }, { data: mem }] = await Promise.all([
         C.supabase.from('extra_charge_items').select('*').eq('charge_id', det.dataset.detay),
@@ -916,7 +924,7 @@ export async function renderExtraCharges() {
         String(aptNo.get(x.apartment_id)).localeCompare(String(aptNo.get(y.apartment_id)), 'tr', { numeric: true })
         || x.year - y.year || x.month - y.month);
 
-      host.innerHTML = `<table><thead><tr>
+      host.innerHTML = !sirali.length ? C.bosDurum('list', 'Daire kaydı yok', 'Bu ek ödeme için dairelere pay oluşturulmamış.') : `<table><thead><tr>
           <th>Daire</th><th>Dönem</th><th class="t-right">Tutar</th><th>Durum</th>
         </tr></thead><tbody>${sirali.map(i => `<tr>
           <td><strong>${C.esc(aptNo.get(i.apartment_id) || '—')}</strong>${doluSet.has(i.apartment_id) ? '' : ' <span class="badge b-gray" title="Sakini yok — malikten tahsil edilmeli">Boş</span>'}</td>
@@ -930,7 +938,7 @@ export async function renderExtraCharges() {
     }
   });
 
-  C.$content().addEventListener('change', async (e) => {
+  icerikDinle('change', async (e) => {
     const box = e.target.closest('input[data-ec-pay]');
     if (!box) return;
     const odendi = box.checked;
@@ -988,18 +996,16 @@ export async function renderBoard() {
   const yeniSite = (C.siteYasiGun ? C.siteYasiGun() : Infinity) < (C.YENI_SITE_GUN ?? 90);
 
   C.$content().innerHTML = `
-    <div class="page-head"><h2>Kurul & Denetim</h2>
-      <div class="tools">
-        <button class="btn btn-ghost" id="board-belge">📄 Kurul Belgesi</button>
-        <button class="btn btn-ghost" id="audit-add">+ Denetim Raporu</button>
-        <button class="btn" id="board-add">+ Kurul Üyesi</button>
-      </div>
-    </div>
+    ${C.sayfaBasi('Kurul & Denetim',
+      'Yönetici, denetçi ve kurul üyelerini kaydedin; yapılan hesap denetimlerini işleyin. Belgeler ve ihtarnameler bu isimleri kullanır.',
+      `<button class="btn btn-ghost" id="board-belge">${C.ikon('file')} Kurul Belgesi</button>
+       <button class="btn btn-ghost" id="audit-add">${C.ikon('plus')} Denetim Raporu</button>
+       <button class="btn" id="board-add">${C.ikon('plus')} Kurul Üyesi</button>`)}
 
-    ${(!yeniSite && (!hasYonetici || !hasDenetci || auditOverdue)) ? `<div class="info-banner" style="margin-bottom:18px;">
-      ${!hasYonetici ? '⚠️ Kayıtlı bir <strong>yönetici</strong> yok. KMK m.34: 8 veya daha fazla bağımsız bölümü olan yapılarda yönetici atanması zorunludur.<br>' : ''}
-      ${!hasDenetci ? '⚠️ Kayıtlı bir <strong>denetçi</strong> yok (KMK m.41).<br>' : ''}
-      ${auditOverdue ? '⚠️ Son denetimin üzerinden 3 aydan fazla geçmiş. KMK m.41: yönetim planında süre yoksa denetim <strong>3 ayda bir</strong> yapılır.' : ''}
+    ${(!yeniSite && (!hasYonetici || !hasDenetci || auditOverdue)) ? `<div class="info-banner" style="background:var(--amber-bg);border-color:var(--line);">
+      ${!hasYonetici ? 'Kayıtlı bir <strong>yönetici</strong> yok. KMK m.34: 8 veya daha fazla bağımsız bölümü olan yapılarda yönetici atanması zorunludur.<br>' : ''}
+      ${!hasDenetci ? 'Kayıtlı bir <strong>denetçi</strong> yok (KMK m.41).<br>' : ''}
+      ${auditOverdue ? 'Son denetimin üzerinden 3 aydan fazla geçmiş. KMK m.41: yönetim planında süre yoksa denetim <strong>3 ayda bir</strong> yapılır.' : ''}
     </div>` : ''}
 
     <div class="card">
@@ -1012,35 +1018,36 @@ export async function renderBoard() {
         <td>${C.esc(m.phone || m.email || '—')}</td>
         <td>${C.dmy(m.term_start)} → ${m.term_end ? C.dmy(m.term_end) : 'devam ediyor'}</td>
         <td>${m.is_active ? '<span class="badge b-green">Aktif</span>' : '<span class="badge b-gray">Görevi bitti</span>'}</td>
-        <td class="t-right">
-          <button class="btn btn-sm btn-ghost" data-act="edit" data-id="${m.id}">Düzenle</button>
-          <button class="btn btn-sm btn-outline-red" data-act="del" data-id="${m.id}">Sil</button>
-        </td>
-      </tr>`).join('') : `<tr><td colspan="7" class="t-empty"><strong>Henüz kurul üyesi yok.</strong><br>
-        Yönetici ve denetçiyi <strong>+ Kurul Üyesi</strong> ile kaydedin; kurul belgesi ve ihtarnameler bu isimleri kullanır.</td></tr>`}</tbody></table>
+        <td><div class="row-actions">
+          <button class="btn btn-sm btn-ghost" data-act="edit" data-id="${m.id}">${C.ikon('edit')} Düzenle</button>
+          <button class="btn btn-sm btn-outline-red" data-act="del" data-id="${m.id}">${C.ikon('trash')} Sil</button>
+        </div></td>
+      </tr>`).join('') : `<tr><td colspan="7">${C.bosDurum('users', 'Henüz kurul üyesi yok',
+        'Yönetici ve denetçiyi kaydedin; kurul belgesi ve ihtarnameler bu isimleri kullanır.',
+        '<button class="btn" type="button" data-bos="board-add">Kurul Üyesi Ekle</button>')}</td></tr>`}</tbody></table>
     </div>
 
     <div class="card">
       <h3>Denetim Raporları</h3>
-      <p class="muted" style="font-size:12.5px;margin:-4px 0 12px;">KMK m.41 — Kat malikleri kurulu yöneticinin işlerini denetler.
+      <p class="hint" style="margin:-4px 0 12px;">KMK m.41 — Kat malikleri kurulu yöneticinin işlerini denetler.
       Yönetim planında süre belirtilmemişse hesap denetimi <strong>üç ayda bir</strong> yapılır.</p>
       <div id="audit-list">${audits.length ? audits.map(a => `
         <div class="decision-card" style="margin-bottom:12px;">
           <div class="decision-top">
             <div class="decision-head">
               <h3>${C.dmy(a.period_start)} — ${C.dmy(a.period_end)} dönemi</h3>
-              <div class="muted" style="font-size:12.5px;">Denetçi: ${C.esc(a.auditor_name || '—')}</div>
+              <div class="hint">Denetçi: ${C.esc(a.auditor_name || '—')}</div>
             </div>
             <div class="decision-actions">
               ${AUDIT_RESULTS[a.result] || ''}
-              <button class="btn btn-sm" data-audit-belge="${a.id}">📄 Belge</button>
-              <button class="btn btn-sm btn-outline-red" data-audit-del="${a.id}">Sil</button>
+              <button class="btn btn-sm" data-audit-belge="${a.id}">${C.ikon('file')} Belge</button>
+              <button class="btn btn-sm btn-outline-red" data-audit-del="${a.id}">${C.ikon('trash')} Sil</button>
             </div>
           </div>
           ${a.findings ? `<div class="decision-body rich-content">${a.findings}</div>` : ''}
-        </div>`).join('') : `<div class="t-empty"><strong>Henüz denetim raporu yok.</strong><br>
-          Geçmiş bir denetiminiz varsa sağ üstteki <strong>+ Denetim Raporu</strong> ile tarihini işleyin;
-          sistem bir daha "denetim yapılmamış" diye uyarmaz.</div>`}</div>
+        </div>`).join('') : C.bosDurum('shield', 'Henüz denetim raporu yok',
+          'Geçmiş bir denetiminiz varsa tarihini işleyin; sistem bir daha "denetim yapılmamış" diye uyarmaz.',
+          '<button class="btn" type="button" data-bos="audit-add">Denetim Raporu Ekle</button>')}</div>
     </div>`;
 
   C.el('board-belge').onclick = (e) => belgeButonu(e.currentTarget, () => belgeUret({
@@ -1074,6 +1081,8 @@ export async function renderBoard() {
 
   C.el('board-add').onclick = () => openBoardModal(null);
   C.el('audit-add').onclick = () => openAuditModal();
+  C.$content().querySelector('[data-bos="board-add"]')?.addEventListener('click', () => openBoardModal(null));
+  C.$content().querySelector('[data-bos="audit-add"]')?.addEventListener('click', () => openAuditModal());
 
   C.el('board-body').addEventListener('click', async (e) => {
     const b = e.target.closest('button[data-act]'); if (!b) return;
@@ -1210,10 +1219,10 @@ export async function renderAssembly() {
   const MON = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
 
   C.$content().innerHTML = `
-    <div class="page-head"><h2>Genel Kurul</h2>
-      <div class="tools"><button class="btn" id="gk-add">+ Toplantı Oluştur</button></div>
-    </div>
-    <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
+    ${C.sayfaBasi('Genel Kurul',
+      'Kat malikleri toplantılarını buradan hazırlayın: gündemi yazın, sakinlere duyurun, katılanları işaretleyin ve tutanağı belgeye dökün.',
+      `<button class="btn" id="gk-add">${C.ikon('plus')} Toplantı Oluştur</button>`)}
+    <p class="info-banner">
       KMK m.29 — Olağan toplantı yılda bir, yönetim planında belirtilen ayda yapılır.
       KMK m.30 — Toplantı yeter sayısı: kat maliklerinin <strong>yarıdan fazlası</strong>.
       İlk toplantıda yeter sayı sağlanamazsa ikinci toplantı, katılanların salt çoğunluğuyla karar alır.
@@ -1229,31 +1238,32 @@ export async function renderAssembly() {
             </div>
             <div class="decision-head">
               <h3>${C.esc(m.title)}</h3>
-              <div class="muted" style="font-size:12.5px;">
+              <div class="hint">
                 ${KIND[m.meeting_kind] || 'Toplantı'}${m.is_second_call ? ' · 2. toplantı' : ''}
                 ${m.location ? ` · ${C.esc(m.location)}` : ''}
               </div>
             </div>
             <div class="decision-actions">
-              <button class="btn btn-sm btn-ghost" data-act="hazirun" data-id="${m.id}">Hazirun</button>
-              <button class="btn btn-sm btn-ghost" data-act="edit" data-id="${m.id}">Düzenle</button>
-              <button class="btn btn-sm" data-act="cagri" data-id="${m.id}">📄 Çağrı</button>
-              ${m.minutes ? `<button class="btn btn-sm" data-act="tutanak" data-id="${m.id}">📄 Tutanak</button>` : ''}
+              <button class="btn btn-sm btn-ghost" data-act="hazirun" data-id="${m.id}">${C.ikon('users')} Hazirun</button>
+              <button class="btn btn-sm btn-ghost" data-act="edit" data-id="${m.id}">${C.ikon('edit')} Düzenle</button>
+              <button class="btn btn-sm" data-act="cagri" data-id="${m.id}">${C.ikon('file')} Çağrı</button>
+              ${m.minutes ? `<button class="btn btn-sm" data-act="tutanak" data-id="${m.id}">${C.ikon('file')} Tutanak</button>` : ''}
               ${m.announced_at
                 ? `<span class="badge b-green" title="${C.dmyhm(m.announced_at)}">Duyuruldu</span>`
-                : `<button class="btn btn-sm btn-ghost" data-act="duyur" data-id="${m.id}">📢 Sakinlere Duyur</button>`}
-              ${m.minutes ? `<button class="btn btn-sm btn-ghost" data-act="karar" data-id="${m.id}">📜 Karar Defterine İşle</button>` : ''}
+                : `<button class="btn btn-sm btn-ghost" data-act="duyur" data-id="${m.id}">${C.ikon('megaphone')} Sakinlere Duyur</button>`}
+              ${m.minutes ? `<button class="btn btn-sm btn-ghost" data-act="karar" data-id="${m.id}">${C.ikon('book')} Karar Defterine İşle</button>` : ''}
             </div>
           </div>
-          ${m.agenda ? `<div class="decision-body"><strong style="font-size:13px;">Gündem</strong>
+          ${m.agenda ? `<div class="decision-body"><div class="section-title" style="margin:0">Gündem</div>
             <div class="rich-content" style="margin-top:6px;">${m.agenda}</div></div>` : ''}
         </article>`).join('')
-        : `<div class="card decision-empty"><div style="font-size:38px;">📅</div>
-           <h3 style="margin:10px 0 6px;">Henüz toplantı yok</h3>
-           <p class="muted" style="font-size:13.5px;">İlk genel kurulunuzu oluşturarak gündem ve hazirun cetveli hazırlayın.</p></div>`}
+        : `<div class="card">${C.bosDurum('calendar', 'Henüz toplantı yok',
+           'İlk genel kurulunuzu oluşturarak gündem ve hazirun cetveli hazırlayın.',
+           '<button class="btn" type="button" data-bos="gk-add">Toplantı Oluştur</button>')}</div>`}
     </div>`;
 
   C.el('gk-add').onclick = () => openMeetingModal(null);
+  C.$content().querySelector('[data-bos="gk-add"]')?.addEventListener('click', () => openMeetingModal(null));
   C.el('gk-list').addEventListener('click', async (e) => {
     const b = e.target.closest('button[data-act]'); if (!b) return;
     const rec = list.find(x => x.id === b.dataset.id); if (!rec) return;
@@ -1469,7 +1479,7 @@ async function openAttendance(meeting) {
       <td>${C.esc(a.owner_name || '—')}</td>
 
       <td><label class="pay-check"><input type="checkbox" data-apt="${C.esc(a.apartment_number)}" ${rec?.attended ? 'checked' : ''}><span>Katıldı</span></label></td>
-      <td><input data-proxy="${C.esc(a.apartment_number)}" placeholder="Vekil (varsa)" value="${C.esc(rec?.proxy_name || '')}" style="width:100%;padding:7px 10px;border:1.5px solid var(--line);border-radius:9px;font-family:inherit;font-size:13px;" /></td>
+      <td><input class="search" data-proxy="${C.esc(a.apartment_number)}" placeholder="Vekil (varsa)" value="${C.esc(rec?.proxy_name || '')}" style="width:100%;min-width:0;" /></td>
     </tr>`;
   }).join('');
 
@@ -1477,11 +1487,11 @@ async function openAttendance(meeting) {
     <div id="quorum-box" class="info-banner" style="margin:0 0 14px;"></div>
     <div style="max-height:52vh;overflow-y:auto;">
       <table><thead><tr><th>Daire</th><th>Ev Sahibi</th><th>Katılım</th><th>Vekalet</th></tr></thead>
-      <tbody id="haz-body">${rows || '<tr><td colspan="5" class="t-empty">Daire kaydı yok</td></tr>'}</tbody></table>
+      <tbody id="haz-body">${rows || `<tr><td colspan="4">${C.bosDurum('home', 'Daire kaydı yok', 'Hazirun cetveli için önce dolu daire kaydı gerekir.')}</td></tr>`}</tbody></table>
     </div>
     <div style="display:flex;gap:8px;margin-top:14px;">
       <button class="btn" id="m-save" style="flex:1">Hazirun Cetvelini Kaydet</button>
-      <button class="btn btn-ghost" id="haz-belge" type="button">📄 Cetveli Belgele</button>
+      <button class="btn btn-ghost" id="haz-belge" type="button">${C.ikon('file')} Cetveli Belgele</button>
     </div>
   `, async () => {
     const rowsOut = apts.map(a => {
@@ -1513,7 +1523,7 @@ async function openAttendance(meeting) {
     box.innerHTML = meeting.is_second_call
       ? `<strong>İkinci toplantı</strong> — Katılım: ${cnt}/${total} daire.
          KMK m.30: ikinci toplantıda yeter sayı aranmaz, katılanların salt çoğunluğuyla karar alınır.`
-      : `${ok ? '✅ <strong>Yeter sayı sağlandı</strong>' : '⚠️ <strong>Yeter sayı sağlanamadı</strong>'} —
+      : `${ok ? `<span class="badge b-green">Yeter sayı sağlandı</span>` : `<span class="badge b-amber">Yeter sayı sağlanamadı</span>`} —
          Katılım: ${cnt}/${total} daire.
          ${!ok ? 'İkinci toplantı çağrısı yapılabilir.' : ''}`;
   };
@@ -1609,13 +1619,11 @@ export async function renderDebts() {
   const totalPrincipal = list.reduce((s, d) => s + d.principal, 0);
 
   C.$content().innerHTML = `
-    <div class="page-head"><h2>Borç Takibi</h2>
-      <div class="tools">
-        <button class="btn btn-ghost" id="debt-csv">⬇ CSV İndir</button>
-        <button class="btn" id="debt-belge">📄 Borç Raporu</button>
-      </div>
-    </div>
-    <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
+    ${C.sayfaBasi('Borç Takibi',
+      'Vadesi geçmiş aidatı olan daireler. Tahsilat girin, ihtar kaydı açın veya ihtarname hazırlayın.',
+      `<button class="btn btn-ghost" id="debt-csv">${C.ikon('download')} CSV İndir</button>
+       <button class="btn" id="debt-belge">${C.ikon('file')} Borç Raporu</button>`)}
+    <p class="hint" style="margin-bottom:18px;">
       Borç, <strong>vadesi geçmiş</strong> ödenmemiş aidatların toplamıdır. Vade ilgili ayın son günüdür;
       henüz vadesi gelmemiş tahakkuklar burada borç olarak gösterilmez.
     </p>
@@ -1633,12 +1641,13 @@ export async function renderDebts() {
         <td>${C.esc(d.apt.owner_name || '—')}</td>
         <td class="t-right">${d.months}</td>
         <td class="t-right"><strong>${C.TL(d.principal)}</strong></td>
-        <td class="t-right" style="white-space:nowrap">
-          <button class="btn btn-sm btn-green" data-tahsil="${d.apt.id}">💰 Tahsilat</button>
-          <button class="btn btn-sm btn-ghost" data-notice="${d.apt.id}">İhtar Kaydı Aç</button>
-          <button class="btn btn-sm" data-ihtarname="${d.apt.id}">📄 İhtarname</button>
-        </td>
-      </tr>`).join('') : '<tr><td colspan="5" class="t-empty">Vadesi geçmiş borç yok 🎉</td></tr>'}</tbody></table>
+        <td><div class="row-actions">
+          <button class="btn btn-sm btn-green" data-tahsil="${d.apt.id}">${C.ikon('cash')} Tahsilat</button>
+          <button class="btn btn-sm btn-ghost" data-notice="${d.apt.id}">${C.ikon('bell')} Takibe al</button>
+          <button class="btn btn-sm btn-ghost" data-ihtarname="${d.apt.id}">${C.ikon('file')} İhtarname</button>
+        </div></td>
+      </tr>`).join('') : `<tr><td colspan="5">${C.bosDurum('check-square', 'Vadesi geçmiş borç yok',
+        'Tüm dairelerin vadesi gelen aidatları ödenmiş görünüyor.')}</td></tr>`}</tbody></table>
     </div>
 
     <div class="card">
@@ -1650,14 +1659,15 @@ export async function renderDebts() {
         <td class="t-right">${C.TL(Number(n.principal) + Number(n.late_fee))}</td>
         <td>${DEBT_STAGES[n.stage] || n.stage}</td>
         <td>${C.dmy(n.created_at)}</td>
-        <td class="t-right">
-          <select class="mini" data-stage="${n.id}">
+        <td><div class="row-actions">
+          <select class="mini" data-stage="${n.id}" aria-label="Aşamayı değiştir">
             ${['reminder','ihtar','icra','closed'].map(s =>
               `<option value="${s}" ${n.stage===s?'selected':''}>${STAGE_LABELS[s]}</option>`).join('')}
           </select>
-          <button class="btn btn-sm btn-outline-red" data-notice-del="${n.id}">Sil</button>
-        </td>
-      </tr>`).join('') : '<tr><td colspan="6" class="t-empty">Henüz takip kaydı yok</td></tr>'}</tbody></table>
+          <button class="btn btn-sm btn-outline-red" data-notice-del="${n.id}">${C.ikon('trash')} Sil</button>
+        </div></td>
+      </tr>`).join('') : `<tr><td colspan="6">${C.bosDurum('bell', 'Henüz takip kaydı yok',
+        'Borçlu bir daire için "Takibe al" veya "İhtarname" dediğinizde kayıt burada izlenir.')}</td></tr>`}</tbody></table>
     </div>`;
 
   C.el('debt-belge').onclick = (e) => belgeButonu(e.currentTarget, () => belgeUret({
@@ -1765,12 +1775,17 @@ export async function renderDebts() {
 
     const b = e.target.closest('[data-notice]'); if (!b) return;
     const d = debts.get(b.dataset.notice); if (!d) return;
+    // Aynı daireye ikinci açık takip kaydı açılmasın (tekrar tıklamada çift kayıt oluşuyordu)
+    if (notices.some(n => n.apartment_id === d.apt.id && n.stage !== 'closed')) {
+      return C.toast('Bu dairenin zaten açık bir takip kaydı var; aşağıdaki listeden güncelleyin.', true);
+    }
+    b.disabled = true;
     const { error } = await C.supabase.from('debt_notices').insert({
       site_id: C.sId(), building_id: d.apt.building_id, apartment_id: d.apt.id,
       apartment_no: d.apt.apartment_number, owner_name: d.apt.owner_name,
       principal: d.principal, late_fee: d.late,
     });
-    if (error) return C.toast(error.message, true);
+    if (error) { b.disabled = false; return C.toast(error.message, true); }
     C.toast('Takip kaydı açıldı'); renderDebts();
   });
 
@@ -1803,7 +1818,7 @@ async function openTahsilatModal(d) {
   if (!aylar.length) return C.toast('Bu daireye ait ödenmemiş aidat kaydı yok');
 
   C.openModal(`Tahsilat — ${C.daireEtiketi(d.apt.building_id, d.apt.apartment_number)}`, `
-    <p class="muted" style="font-size:13px;margin-bottom:14px;">
+    <p class="hint" style="margin-bottom:14px;">
       ${C.esc(d.apt.owner_name || 'Kat maliki')} · Ödemesi alınan ayları işaretleyin.
       İşaretlenen tutar <strong>site kasasına gelir olarak</strong> işlenir${
         C.cokBloklu() ? ` ve <strong>${C.esc(C.blokAdi(d.apt.building_id))}</strong> defterine yazılır` : ''}.
@@ -1895,16 +1910,14 @@ export async function renderArchive() {
   const expiringSoon = contracts.filter(c => c.is_active && c.end_date && daysUntil(c.end_date) <= 60);
 
   C.$content().innerHTML = `
-    <div class="page-head"><h2>Belgeler & Devir</h2>
-      <div class="tools">
-        <button class="btn btn-ghost" id="ho-add">+ Devir Teslim</button>
-        <button class="btn btn-ghost" id="con-add">+ Sözleşme</button>
-        <button class="btn" id="doc-add">+ Belge</button>
-      </div>
-    </div>
+    ${C.sayfaBasi('Belgeler & Devir',
+      'Sözleşmeler, poliçeler, panelin ürettiği belgeler ve yönetici devir teslim tutanakları tek arşivde. Süresi yaklaşanlar burada uyarılır.',
+      `<button class="btn btn-ghost" id="ho-add">${C.ikon('share')} Devir Teslim</button>
+       <button class="btn btn-ghost" id="con-add">${C.ikon('plus')} Sözleşme</button>
+       <button class="btn" id="doc-add">${C.ikon('upload')} Belge</button>`)}
 
-    ${expiringSoon.length ? `<div class="info-banner" style="margin-bottom:18px;">
-      ⏳ <strong>${expiringSoon.length} sözleşme</strong> 60 gün içinde bitiyor:
+    ${expiringSoon.length ? `<div class="info-banner" style="background:var(--amber-bg);border-color:var(--line);">
+      <strong>${expiringSoon.length} sözleşme</strong> 60 gün içinde bitiyor:
       ${expiringSoon.map(c => `${C.esc(c.vendor_name)} (${C.dmy(c.end_date)})`).join(', ')}
     </div>` : ''}
 
@@ -1914,20 +1927,22 @@ export async function renderArchive() {
       <tbody id="con-body">${contracts.length ? contracts.map(c => {
         const d = c.end_date ? daysUntil(c.end_date) : null;
         return `<tr>
-          <td><strong>${C.esc(c.vendor_name)}</strong>${c.contact_person ? `<div class="muted" style="font-size:12px">${C.esc(c.contact_person)}</div>` : ''}</td>
+          <td><strong>${C.esc(c.vendor_name)}</strong>${c.contact_person ? `<div class="hint">${C.esc(c.contact_person)}</div>` : ''}</td>
           <td>${C.esc(c.service_type)}</td>
           <td>${C.esc(c.phone || c.email || '—')}</td>
           <td>${c.start_date ? C.dmy(c.start_date) : '—'} → ${c.end_date ? C.dmy(c.end_date) : '—'}
             ${d !== null && d <= 60 && d >= 0 ? ` <span class="badge b-amber">${d} gün</span>` : ''}
             ${d !== null && d < 0 ? ' <span class="badge b-red">süresi doldu</span>' : ''}</td>
           <td class="t-right">${c.amount ? C.TL(c.amount) : '—'}</td>
-          <td class="t-right"><button class="btn btn-sm btn-outline-red" data-con-del="${c.id}">Sil</button></td>
-        </tr>`; }).join('') : '<tr><td colspan="6" class="t-empty">Sözleşme kaydı yok</td></tr>'}</tbody></table>
+          <td><div class="row-actions"><button class="btn btn-sm btn-outline-red" data-con-del="${c.id}">${C.ikon('trash')} Sil</button></div></td>
+        </tr>`; }).join('') : `<tr><td colspan="6">${C.bosDurum('file', 'Sözleşme kaydı yok',
+          'Asansör, temizlik, güvenlik gibi firmalarla yaptığınız sözleşmeleri ekleyin; bitiş tarihi yaklaşınca uyarılırsınız.',
+          '<button class="btn" type="button" data-bos="con-add">Sözleşme Ekle</button>')}</td></tr>`}</tbody></table>
     </div>
 
     <div class="card">
       <h3>Panelin Ürettiği Belgeler</h3>
-      <p class="muted" style="font-size:12.5px;margin:-4px 0 12px;">
+      <p class="hint" style="margin:-4px 0 12px;">
         Aidat raporundan ihtarnameye, tutanaktan devir teslime kadar panelde üretilen her belge
         sıra numarasıyla burada saklanır.</p>
       <table><thead><tr><th>Belge No</th><th>Belge</th><th>Tür</th><th>Dönem</th><th>Tarih</th><th></th></tr></thead>
@@ -1937,8 +1952,9 @@ export async function renderArchive() {
         <td>${DOC_CATEGORIES[d.category] || d.category}</td>
         <td>${C.esc(d.period || '—')}</td>
         <td>${C.dmy(d.created_at)}</td>
-        <td class="t-right"><button class="btn btn-sm btn-ghost" data-gen-open="${C.esc(d.storage_path || '')}">Aç</button></td>
-      </tr>`).join('') : '<tr><td colspan="6" class="t-empty">Henüz belge üretilmemiş. Belge Merkezi ya da ilgili ekranlardan üretebilirsiniz.</td></tr>'}</tbody></table>
+        <td><div class="row-actions"><button class="btn btn-sm btn-ghost" data-gen-open="${C.esc(d.storage_path || '')}">${C.ikon('eye')} Aç</button></div></td>
+      </tr>`).join('') : `<tr><td colspan="6">${C.bosDurum('folder', 'Henüz belge üretilmemiş',
+        'Belge Merkezi ya da ilgili ekranlardan (Borç Takibi, Genel Kurul…) üretilen belgeler burada saklanır.')}</td></tr>`}</tbody></table>
     </div>
 
     <div class="card">
@@ -1947,35 +1963,39 @@ export async function renderArchive() {
       <tbody id="doc-body">${docs.length ? docs.map(d => {
         const exp = d.expires_at ? daysUntil(d.expires_at) : null;
         return `<tr>
-          <td><strong>${C.esc(d.title)}</strong>${d.notes ? `<div class="muted" style="font-size:12px">${C.esc(d.notes)}</div>` : ''}</td>
+          <td><strong>${C.esc(d.title)}</strong>${d.notes ? `<div class="hint">${C.esc(d.notes)}</div>` : ''}</td>
           <td>${DOC_CATEGORIES[d.category] || d.category}</td>
           <td>${d.issued_date ? C.dmy(d.issued_date) : '—'}</td>
           <td>${d.expires_at ? C.dmy(d.expires_at) + (exp < 0 ? ' <span class="badge b-red">doldu</span>' : exp <= 30 ? ` <span class="badge b-amber">${exp} gün</span>` : '') : '—'}</td>
-          <td class="t-right">
-            ${d.file_url ? `<a class="btn btn-sm btn-ghost" href="${C.esc(d.file_url)}" target="_blank" rel="noopener">Aç</a>` : ''}
-            <button class="btn btn-sm btn-outline-red" data-doc-del="${d.id}">Sil</button>
-          </td>
-        </tr>`; }).join('') : '<tr><td colspan="5" class="t-empty">Belge yok. Yönetim planı, sigorta poliçesi ve ruhsatları buraya ekleyin.</td></tr>'}</tbody></table>
+          <td><div class="row-actions">
+            ${d.file_url ? `<a class="btn btn-sm btn-ghost" href="${C.esc(d.file_url)}" target="_blank" rel="noopener">${C.ikon('eye')} Aç</a>` : ''}
+            <button class="btn btn-sm btn-outline-red" data-doc-del="${d.id}">${C.ikon('trash')} Sil</button>
+          </div></td>
+        </tr>`; }).join('') : `<tr><td colspan="5">${C.bosDurum('folder', 'Belge yok',
+          'Yönetim planı, sigorta poliçesi ve ruhsatları buraya ekleyin.',
+          '<button class="btn" type="button" data-bos="doc-add">Belge Ekle</button>')}</td></tr>`}</tbody></table>
     </div>
 
     <div class="card">
       <h3>Devir Teslim Kayıtları</h3>
-      <p class="muted" style="font-size:12.5px;margin:-4px 0 12px;">Yönetici değişiminde kasa, defterler ve belgelerin teslim tutanağı.</p>
+      <p class="hint" style="margin:-4px 0 12px;">Yönetici değişiminde kasa, defterler ve belgelerin teslim tutanağı.</p>
       <div id="ho-list">${handovers.length ? handovers.map(h => `
         <div class="decision-card" style="margin-bottom:12px;">
           <div class="decision-top">
             <div class="decision-head">
               <h3>${C.esc(h.from_name || '—')} → ${C.esc(h.to_name || '—')}</h3>
-              <div class="muted" style="font-size:12.5px;">${C.dmy(h.handover_date)} ·
+              <div class="hint">${C.dmy(h.handover_date)} ·
                 Kasa: ${C.TL(h.cash_balance || 0)} · Banka: ${C.TL(h.bank_balance || 0)}</div>
             </div>
             <div class="decision-actions">
-              <button class="btn btn-sm" data-ho-belge="${h.id}">📄 Tutanak</button>
-              <button class="btn btn-sm btn-outline-red" data-ho-del="${h.id}">Sil</button>
+              <button class="btn btn-sm" data-ho-belge="${h.id}">${C.ikon('file')} Tutanak</button>
+              <button class="btn btn-sm btn-outline-red" data-ho-del="${h.id}">${C.ikon('trash')} Sil</button>
             </div>
           </div>
           ${h.items ? `<div class="decision-body rich-content">${h.items}</div>` : ''}
-        </div>`).join('') : '<div class="t-empty">Devir teslim kaydı yok</div>'}</div>
+        </div>`).join('') : C.bosDurum('share', 'Devir teslim kaydı yok',
+          'Yönetici değiştiğinde kasa, defter ve belgelerin teslimini tutanakla kayda geçirin.',
+          '<button class="btn" type="button" data-bos="ho-add">Devir Teslim Tutanağı</button>')}</div>
     </div>`;
 
   /* Depodaki belgeler özel bucket'ta; açmak için kısa ömürlü imzalı bağlantı üretilir. */
@@ -2039,6 +2059,9 @@ export async function renderArchive() {
   C.el('doc-add').onclick = () => openDocModal();
   C.el('con-add').onclick = () => openContractModal();
   C.el('ho-add').onclick = () => openHandoverModal();
+  C.$content().querySelector('[data-bos="doc-add"]')?.addEventListener('click', () => openDocModal());
+  C.$content().querySelector('[data-bos="con-add"]')?.addEventListener('click', () => openContractModal());
+  C.$content().querySelector('[data-bos="ho-add"]')?.addEventListener('click', () => openHandoverModal());
 
   const del = (hostId, attr, table, msg) => {
     const host = C.el(hostId); if (!host) return;
@@ -2184,7 +2207,7 @@ async function openHandoverModal() {
       items: C.richValue('h-items') || null,
     });
     if (error) throw new Error(error.message);
-    C.toast('Devir teslim tutanağı kaydedildi — "📄 Tutanak" ile imzalı belgesini üretebilirsiniz');
+    C.toast('Devir teslim tutanağı kaydedildi — "Tutanak" düğmesiyle imzalı belgesini üretebilirsiniz');
     renderArchive();
   });
   C.bindRichEditor('h-items');

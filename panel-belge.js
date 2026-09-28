@@ -574,9 +574,12 @@ export async function belgeBaglantisi(storagePath) {
 /** Butonu kilitler, belgeyi üretir, sonucu tost olarak bildirir. */
 export async function belgeButonu(btn, uretici) {
   if (!btn) return uretici();
-  const eskiMetin = btn.textContent;
+  // innerHTML: butondaki ikon da geri gelsin. Yalnız ikonlu küçük butonda
+  // metin sığmaz; orada dönen gösterge kullanılır.
+  const eskiIcerik = btn.innerHTML;
   btn.disabled = true;
-  btn.textContent = 'Belge hazırlanıyor…';
+  if (btn.classList.contains('icon-btn')) btn.innerHTML = '<span class="spinner sm"></span>';
+  else btn.textContent = 'Belge hazırlanıyor…';
   try {
     const sonuc = await uretici();
     C.toast(sonuc?.arsivlendi
@@ -588,6 +591,6 @@ export async function belgeButonu(btn, uretici) {
     throw err;
   } finally {
     btn.disabled = false;
-    btn.textContent = eskiMetin;
+    btn.innerHTML = eskiIcerik;
   }
 }

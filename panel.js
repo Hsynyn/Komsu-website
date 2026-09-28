@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { initYonetim, yonetimRoutes } from './panel-yonetim.js';
+import { initYonetim, yonetimRoutes, icerikDinleyicileriniTemizle } from './panel-yonetim.js';
 import { initBelge, belgeUret, belgeButonu, htmlDuzMetin, para, tarih } from './panel-belge.js';
 import { initYardim, yardimSayfaDegisti, ilkGirisKontrol, kurulumDurumu, kurulumKartiHTML, bindKurulumKarti, siteYasiGun, YENI_SITE_GUN } from './panel-yardim.js';
 
@@ -95,6 +95,26 @@ const TL = (n) => new Intl.NumberFormat('tr-TR', { style:'currency', currency:'T
 const dmy = (v) => v ? new Date(v).toLocaleDateString('tr-TR') : '—';
 const dmyhm = (v) => v ? new Date(v).toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
 
+/* ---- Arayüz parçaları: tüm ekranlar aynı dili konuşsun ---- */
+const basHarf = (ad) => String(ad || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toLocaleUpperCase('tr-TR') || '?';
+// Çizgi ikon (panel.html'deki <symbol id="i-...">)
+const ikon = (ad, cls = '') => `<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${ad}"/></svg>`;
+// Sayfa başlığı: başlık + "bu sayfa ne işe yarar" cümlesi + sağda eylemler.
+// baslik/aciklama çağıran tarafından güvenli verilmeli (sabit metin veya esc()).
+function sayfaBasi(baslik, aciklama = '', araclar = '') {
+  return `<div class="page-head">
+    <div><h2>${baslik}</h2>${aciklama ? `<p class="page-sub">${aciklama}</p>` : ''}</div>
+    ${araclar ? `<div class="tools">${araclar}</div>` : ''}
+  </div>`;
+}
+// Boş durum: liste boşken ne yapılacağını söyleyen kart
+function bosDurum(ad, baslik, metin = '', eylem = '') {
+  return `<div class="empty">
+    <span class="empty-ico">${ikon(ad)}</span>
+    <h4>${baslik}</h4>${metin ? `<p>${metin}</p>` : ''}${eylem ? `<div class="empty-act">${eylem}</div>` : ''}
+  </div>`;
+}
+
 /* Daire no'su metin kolonu olduğu için Postgres "1, 10, 11, 2" diye sıralıyor.
    Intl.Collator numeric:true ile "2" < "10" olur; "3A"/"Zemin" gibi karışık
    değerler de doğal sırada kalır. */
@@ -174,7 +194,7 @@ const RICH_TOOLS = [
   { cmd:'insertUnorderedList', label:'• Liste',  title:'Madde listesi' },
   { cmd:'insertOrderedList',   label:'1. Liste', title:'Numaralı liste' },
   { sep:true },
-  { cmd:'removeFormat', label:'✕ Biçimi sil', title:'Seçili metnin biçimini temizle' },
+  { cmd:'removeFormat', label:'Biçimi sil', title:'Seçili metnin biçimini temizle' },
 ];
 
 const richEditorHTML = (id, initialHTML = '') => `
@@ -334,19 +354,19 @@ function accessBannerHTML() {
   let icon, head, text, cta;
 
   if (a.kind === 'warning') {
-    icon = '⏳';
+    icon = ikon('clock');
     head = isTrial
       ? `Ücretsiz deneme süreniz ${a.daysLeft} gün sonra doluyor`
       : `Aboneliğiniz ${a.daysLeft} gün sonra doluyor`;
     text = 'Süre dolduğunda davet kodlarınız kapanır ve sakinleriniz uygulamayı kullanamaz. Şimdi ödeyerek kesintisiz devam edin.';
     cta  = isTrial ? 'Aboneliği Başlat' : 'Aboneliği Yenile';
   } else if (a.kind === 'grace') {
-    icon = '⚠️';
+    icon = ikon('alert');
     head = `${isTrial ? 'Deneme süreniz' : 'Aboneliğiniz'} doldu — ${a.graceDaysLeft} gün ek süreniz var`;
     text = `Sisteminiz şu an çalışıyor ama ${a.graceDaysLeft} gün içinde ödeme yapılmazsa sakinleriniz uygulamaya giremeyecek.`;
     cta  = 'Hemen Öde';
   } else {
-    icon = '🔒';
+    icon = ikon('lock');
     head = 'Sisteminiz kapandı';
     text = 'Aboneliğiniz sona erdi ve sakinleriniz uygulamaya giremiyor. Ödemeyi tamamladığınızda her şey olduğu gibi geri gelir.';
     cta  = 'Ödeme Yap ve Aç';
@@ -359,11 +379,15 @@ function accessBannerHTML() {
   </div>`;
 }
 
+let toastZamanlayici = null;
 function toast(msg, isErr) {
   const t = el('toast');
-  t.textContent = msg; t.className = 'toast' + (isErr ? ' err' : '');
-  t.classList.remove('hidden');
-  setTimeout(() => t.classList.add('hidden'), 2800);
+  // Baştaki emojiyi at: ikon zaten durumdan geliyor
+  const metin = String(msg ?? '').replace(/^[\p{Extended_Pictographic}\uFE0F\u200D\s]+/u, '');
+  t.innerHTML = `${ikon(isErr ? 'alert' : 'check')}<span>${esc(metin)}</span>`;
+  t.className = 'toast' + (isErr ? ' err' : '');
+  clearTimeout(toastZamanlayici);
+  toastZamanlayici = setTimeout(() => t.classList.add('hidden'), isErr ? 4500 : 3000);
 }
 function show(id) { el(id).classList.remove('hidden'); }
 function hide(id) { el(id).classList.add('hidden'); }
@@ -399,11 +423,7 @@ let loginType = 'admin'; // 'admin' veya 'security'
 el('tab-admin').addEventListener('click', () => {
   loginType = 'admin';
   el('tab-admin').classList.add('active');
-  el('tab-admin').style.background = '#fff';
-  el('tab-admin').style.color = 'var(--ink)';
   el('tab-security').classList.remove('active');
-  el('tab-security').style.background = 'transparent';
-  el('tab-security').style.color = 'var(--muted)';
   
   el('login-title').textContent = 'Yönetici Girişi';
   el('login-sub').textContent = 'Kayıt sırasında belirlediğiniz e-posta ve şifre ile giriş yapın.';
@@ -415,11 +435,7 @@ el('tab-admin').addEventListener('click', () => {
 el('tab-security').addEventListener('click', () => {
   loginType = 'security';
   el('tab-security').classList.add('active');
-  el('tab-security').style.background = '#fff';
-  el('tab-security').style.color = 'var(--ink)';
   el('tab-admin').classList.remove('active');
-  el('tab-admin').style.background = 'transparent';
-  el('tab-admin').style.color = 'var(--muted)';
   
   el('login-title').textContent = 'Güvenlik Girişi';
   el('login-sub').textContent = 'Yöneticinizin bu bina için belirlediği güvenlik kullanıcı adı ve şifresi ile giriş yapın.';
@@ -812,7 +828,7 @@ el('login-form').addEventListener('submit', async (e) => {
       S.activeBuildingId = building.building_id;
       
       showScreen('app');
-      el('top-user').textContent = 'Güvenlik Görevlisi';
+      setTopUser('Güvenlik Görevlisi');
       
       // Güvenlik moduna yönlendir
       navigate('security_mode');
@@ -884,7 +900,7 @@ async function boot(user) {
   S.activeBuildingId = S.buildings[0].id;
 
   showScreen('app');
-  el('top-user').textContent = `${profile.name || ''} ${profile.surname || ''}`.trim();
+  setTopUser(`${profile.name || ''} ${profile.surname || ''}`.trim());
 
   renderBuildingSelector();
 
@@ -906,6 +922,11 @@ async function boot(user) {
 
   navigate('overview');
   ilkGirisKontrol();
+}
+
+/* Sağ üstte baş harfli avatar + ad */
+function setTopUser(name) {
+  el('top-user').innerHTML = `<span class="avatar">${esc(basHarf(name))}</span><span class="top-user-name">${esc(name || '')}</span>`;
 }
 
 /* ============ Üst Çubuk: Site Bilgisi + Blok Seçici ============ */
@@ -974,10 +995,34 @@ el('hamburger').addEventListener('click', () => {
   document.body.appendChild(bd);
 });
 
+/* Hızlı işlem: bölüme git, varsa o bölümün "ekle" düğmesine bas.
+   Bölümler asenkron çizildiği için düğme görünene kadar kısa süre beklenir. */
+function hizliMenuKapat() { hide('quick-menu'); el('quick-btn').setAttribute('aria-expanded', 'false'); }
+el('quick-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const acik = !el('quick-menu').classList.contains('hidden');
+  if (acik) return hizliMenuKapat();
+  show('quick-menu'); el('quick-btn').setAttribute('aria-expanded', 'true');
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('#quick')) hizliMenuKapat(); });
+el('quick-menu').addEventListener('click', (e) => {
+  const item = e.target.closest('[data-quick]'); if (!item) return;
+  hizliMenuKapat();
+  navigate(item.dataset.quick);
+  const hedef = item.dataset.click; if (!hedef) return;
+  const bitis = Date.now() + 4000;
+  (function bekle() {
+    const b = el(hedef);
+    if (b) return b.click();
+    if (Date.now() < bitis) setTimeout(bekle, 120);
+  })();
+});
+
 /* Yardımcı modüllere bağımlılıkları geçir. panel.js'i refactor etmemek için
    fonksiyonlar bir bağlam nesnesiyle aktarılıyor; modüller bunları C.* ile kullanır. */
 const modulBaglami = {
   supabase, S, el, $content, esc, TL, dmy, dmyhm, toast, openModal, closeModal,
+  ikon, sayfaBasi, bosDurum,
   bId, sId, siteBIds, needBuilding, navigate, activeBuilding,
   cokBloklu, blokAdi, daireEtiketi, kapsamEtiketi, blokRozeti, kapsamRozeti,
   richEditorHTML, bindRichEditor, richValue,
@@ -998,6 +1043,7 @@ function navigate(section) {
   
   // Güvenlik modunda sidebar'ı ve yardım düğmesini gizle
   el('help-btn')?.classList.toggle('hidden', section === 'security_mode');
+  el('quick')?.classList.toggle('hidden', section === 'security_mode' || S.profile?.role === 'security');
   if (section === 'security_mode') {
     el('sidebar').classList.add('hidden');
     document.querySelector('.main').style.marginLeft = '0';
@@ -1023,7 +1069,8 @@ function navigate(section) {
     security_mode: renderSecurityPanel,
     ...yonetimRoutes,          // tasks, budget, board, assembly, debts, archive
   };
-  $content().innerHTML = '<p class="muted">Yükleniyor…</p>';
+  icerikDinleyicileriniTemizle();
+  $content().innerHTML = '<div class="loading inline"><span class="spinner"></span>Yükleniyor…</div>';
 
   // Erişim kapandıysa (süre + ek süre doldu) yönetici yalnızca abonelik
   // ekranını görebilir; oradan ödeyip sistemi geri açar. Güvenlik modu
@@ -1179,10 +1226,17 @@ let buildingMeshes = [];
 async function renderOverview() {
   if (!needBuilding()) return;
 
+  const saat = new Date().getHours();
+  const selam = saat < 6 ? 'İyi geceler' : saat < 12 ? 'Günaydın' : saat < 18 ? 'İyi günler' : 'İyi akşamlar';
+  const bugun = new Date().toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' });
+
   $content().innerHTML = `
     <div class="page-head">
-      <h2>Genel Bakış</h2>
-      <div class="tools"><button class="btn btn-ghost" id="dash-refresh">↻ Yenile</button></div>
+      <div>
+        <h2>${selam}${S.profile?.name ? ', ' + esc(S.profile.name) : ''}</h2>
+        <p class="page-sub">${esc(bugun)} · Sitenizde bugün olup bitenler</p>
+      </div>
+      <div class="tools"><button class="btn btn-ghost btn-sm" id="dash-refresh">Yenile</button></div>
     </div>
 
     <!-- Yöneticinin "bugün ne yapmalıyım" panosu -->
@@ -1194,39 +1248,48 @@ async function renderOverview() {
       <div class="loading" style="padding: 24px;">Yükleniyor…</div>
     </div>
 
-    <!-- Tam Genişlik 3D Sahne -->
-    <div class="canvas-card canvas-card-wide">
-      <div class="canvas-overlay-ui">
-        <div class="site-toolbar" id="site-toolbar">
-          <button class="btn btn-sm" id="edit-layout-btn">🔧 Yerleşimi Düzenle</button>
-          <div id="edit-tools" class="hidden site-edit-tools">
-            <button class="btn btn-sm btn-ghost" data-add="pool">🏊 Havuz</button>
-            <button class="btn btn-sm btn-ghost" data-add="guard">🛡️ Kulübe</button>
-            <button class="btn btn-sm btn-ghost" data-add="parking">🅿️ Otopark</button>
-            <button class="btn btn-sm btn-ghost" data-add="playground">🛝 Oyun Parkı</button>
-            <button class="btn btn-sm btn-ghost" data-add="tree">🌳 Ağaç</button>
-            <button class="btn btn-sm btn-ghost" data-add="lamp">💡 Lamba</button>
-            <button class="btn btn-sm btn-ghost" data-add="bench">🪑 Bank</button>
-            <button class="btn btn-sm btn-ghost" id="rotate-btn">↻ Döndür</button>
-            <button class="btn btn-sm btn-outline-red" id="delete-item-btn">🗑 Sil</button>
-            <button class="btn btn-sm btn-green" id="save-layout-btn">💾 Kaydet</button>
-          </div>
-        </div>
-        <p class="muted site-hint" id="site-hint">
-          🖱 Sol Tık + Sürükle: Döndür · Sağ Tık: Kaydır · Scroll: Yakınlaş
-        </p>
-      </div>
-      <div class="canvas-legend" id="canvas-legend">
-        <span>🏢 Bina</span><span>🏊 Havuz</span><span>🛡️ Güvenlik</span><span>🅿️ Otopark</span><span>🛝 Oyun Parkı</span>
-      </div>
-      <div id="canvas-container"></div>
+    <!-- 3D site görünümü: isteğe bağlı, tıklanınca kurulur -->
+    <div id="site-3d-host">
+      <button class="card site-3d-toggle" id="site-3d-open">
+        <span class="s3-ico"><svg class="ic"><use href="#i-cube"/></svg></span>
+        <span class="s3-text"><b>3D site görünümü</b><small>Binalarınızı, otoparkı ve ortak alanları maket üzerinde görün, yerleşimi düzenleyin.</small></span>
+        <span class="btn btn-ghost btn-sm">Göster</span>
+      </button>
     </div>
   `;
 
   el('dash-refresh').onclick = () => navigate('overview');
+  el('site-3d-open').onclick = siteMaketiniAc;
 
-  // Pano ile bina detayı birbirini beklemesin; 3D sahne en son kurulur.
   await Promise.all([renderDashboard(), updateOverviewDetails(S.activeBuildingId)]);
+}
+
+async function siteMaketiniAc() {
+  const host = el('site-3d-host'); if (!host) return;
+  host.innerHTML = `
+    <div class="canvas-card canvas-card-wide">
+      <div class="canvas-overlay-ui">
+        <div class="site-toolbar" id="site-toolbar">
+          <button class="btn btn-sm" id="edit-layout-btn">Yerleşimi Düzenle</button>
+          <div id="edit-tools" class="hidden site-edit-tools">
+            <button class="btn btn-sm btn-ghost" data-add="pool">Havuz</button>
+            <button class="btn btn-sm btn-ghost" data-add="guard">Kulübe</button>
+            <button class="btn btn-sm btn-ghost" data-add="parking">Otopark</button>
+            <button class="btn btn-sm btn-ghost" data-add="playground">Oyun Parkı</button>
+            <button class="btn btn-sm btn-ghost" data-add="tree">Ağaç</button>
+            <button class="btn btn-sm btn-ghost" data-add="lamp">Lamba</button>
+            <button class="btn btn-sm btn-ghost" data-add="bench">Bank</button>
+            <button class="btn btn-sm btn-ghost" id="rotate-btn">Döndür</button>
+            <button class="btn btn-sm btn-outline-red" id="delete-item-btn">Sil</button>
+            <button class="btn btn-sm btn-green" id="save-layout-btn">Kaydet</button>
+          </div>
+        </div>
+        <p class="muted site-hint" id="site-hint">
+          Sürükleyerek döndürün · Sağ tık ile kaydırın · Tekerlek ile yakınlaşın
+        </p>
+      </div>
+      <div id="canvas-container"></div>
+    </div>`;
   await loadSiteLayout();
   init3DScene();
 }
@@ -1235,6 +1298,11 @@ async function renderOverview() {
    Panelin 20 ekranına dağılmış "işlem bekliyor" bilgilerini tek yerde toplar.
    Her uyarı satırı, işi yapacağın ekrana götürür — pano okunacak değil,
    üzerinden çalışılacak bir liste. */
+const UYARI_IKON = {
+  transactions: 'i-cash', tasks: 'i-calendar', debts: 'i-alert', maintenance: 'i-wrench',
+  archive: 'i-folder', board: 'i-scale', assembly: 'i-users',
+};
+
 async function renderDashboard() {
   const kpiHost = el('dash-kpi');
   const alertHost = el('dash-alerts');
@@ -1452,16 +1520,16 @@ async function renderDashboard() {
       </div>
       ${uyarilar.map((u, i) => `
         <div class="todo-row t-${u.seviye}">
-          <span class="todo-ico">${u.ikon}</span>
+          <span class="todo-ico"><svg class="ic"><use href="#${UYARI_IKON[u.bolum] || 'i-alert'}"/></svg></span>
           <div class="todo-text">
             <strong>${esc(u.baslik)}</strong>
             <span class="muted">${esc(u.detay)}</span>
           </div>
-          <button class="btn btn-sm" data-todo="${i}">${esc(u.eylem)} →</button>
+          <button class="btn btn-sm btn-ghost" data-todo="${i}">${esc(u.eylem)}</button>
         </div>`).join('')}
     </div>` : `
     <div class="card dash-todo dash-clear">
-      <span style="font-size:30px;line-height:1">✅</span>
+      <span class="clear-ico"><svg class="ic"><use href="#i-check"/></svg></span>
       <div>
         <strong>Bekleyen bir iş görünmüyor</strong>
         <p class="muted" style="font-size:13px;margin-top:2px;">
@@ -1530,13 +1598,13 @@ async function updateOverviewDetails(buildingId) {
     detailsContainer.innerHTML = `
       <div class="detail-card ${isCurrent ? 'active-building' : ''}">
         <div class="detail-identity">
-          <div class="building-icon-3d">🏢</div>
+          <div class="building-icon-3d"><svg class="ic"><use href="#i-home"/></svg></div>
           <div class="detail-identity-text">
             <h3>${esc(b.name)}</h3>
             <span class="muted detail-addr">${esc(b.address || 'Adres belirtilmemiş')}</span>
             <div class="detail-tags">
-              <span class="detail-tag">${hasAccess() ? `🔑 ${esc(b.building_code || '—')}` : '🔒 Kod ödemeyle açılır'}</span>
-              <span class="detail-tag">🏗 ${b.floor_count || 5} Kat</span>
+              <span class="detail-tag">${hasAccess() ? `Davet kodu: <b>${esc(b.building_code || '—')}</b>` : 'Davet kodu ödemeyle açılır'}</span>
+              <span class="detail-tag">${b.floor_count || 5} kat</span>
             </div>
           </div>
         </div>
@@ -1549,9 +1617,9 @@ async function updateOverviewDetails(buildingId) {
         </div>
 
         <div class="detail-action">
-          <button class="btn btn-sm btn-ghost" id="rename-building-btn" data-id="${b.id}">✏️ Adını Değiştir</button>
+          <button class="btn btn-sm btn-ghost" id="rename-building-btn" data-id="${b.id}">Adını değiştir</button>
           ${isCurrent
-            ? `<span class="detail-managed-badge">✓ Seçili Blok</span>`
+            ? `<span class="detail-managed-badge">Seçili blok</span>`
             : `<button class="btn" id="manage-building-btn" data-id="${b.id}">Bu Bloğu Seç →</button>`
           }
         </div>
@@ -2217,10 +2285,10 @@ function init3DScene() {
   editBtn.onclick = () => {
     editMode = !editMode;
     toolsEl.classList.toggle('hidden', !editMode);
-    editBtn.textContent = editMode ? '✖ Düzenlemeyi Kapat' : '🔧 Yerleşimi Düzenle';
+    editBtn.textContent = editMode ? 'Düzenlemeyi kapat' : 'Yerleşimi düzenle';
     hintEl.textContent = editMode
-      ? '🖐 Bina/eklentiyi sürükleyerek gerçek yerine taşıyın · Döndür/Sil için önce üzerine tıklayın · Kaydet\'meden çıkarsanız değişiklikler kaybolur'
-      : '🖱 Sol Tık + Sürükle: Döndür · Sağ Tık: Kaydır · Scroll: Yakınlaş';
+      ? 'Bina/eklentiyi sürükleyerek gerçek yerine taşıyın · Döndür/Sil için önce üzerine tıklayın · Kaydet\'meden çıkarsanız değişiklikler kaybolur'
+      : 'Sürükleyerek döndürün · Sağ tık ile kaydırın · Tekerlek ile yakınlaşın';
     if (!editMode) setSelection(null);
   };
 
@@ -2265,7 +2333,7 @@ function init3DScene() {
     };
     try {
       await saveSiteLayout();
-      toast('Site yerleşimi kaydedildi 🏘');
+      toast('Site yerleşimi kaydedildi');
     } catch (err) {
       toast(siteLayoutAvailable ? err.message : 'Kayıt için veritabanı güncellemesi (0012) gerekli', true);
     }
@@ -2349,39 +2417,59 @@ async function renderApartments() {
   const rows = (filter='') => list
     .filter(a => !filter || `${a.apartment_number} ${a.owner_name||''} ${a.username||''} ${a.vehicle_plate_number||''}`.toLowerCase().includes(filter.toLowerCase()))
     .map(a => `<tr>
-      <td><strong>${esc(a.apartment_number)}</strong></td>
+      <td><span class="apt-no">${esc(a.apartment_number)}</span></td>
       <td>${uyeler(a.id).length
         ? uyeler(a.id).map(m => `<div class="uye-satir">
-            <span>${esc(m.ad)}</span>
-            ${m.tel ? `<a class="t-muted" href="tel:${esc(m.tel)}">${esc(m.tel)}</a>` : '<span class="t-muted">telefon yok</span>'}
+            <span class="avatar sm">${esc(basHarf(m.ad))}</span>
+            <span class="uye-ad"><b>${esc(m.ad)}</b>${m.tel ? `<a class="t-muted" href="tel:${esc(m.tel)}">${esc(m.tel)}</a>` : '<span class="t-muted">Telefon yok</span>'}</span>
             <button class="btn btn-xs btn-outline-red" data-act="rm-member" data-uid="${esc(m.uid)}" data-ad="${esc(m.ad)}" data-no="${esc(a.apartment_number)}" title="Bu sakini daireden çıkar">Çıkar</button>
           </div>`).join('')
-        : '<span class="t-muted">—</span>'}</td>
+        : '<span class="t-muted">Henüz sakin yok</span>'}</td>
       <td>${uyeler(a.id).some(m => m.plaka)
         ? uyeler(a.id).filter(m => m.plaka).map(m => esc(m.plaka)).join('<br>')
         : esc(a.vehicle_plate_number||'—')}</td>
       <td>${isOccupied(a)
         ? `<button class="badge chip-toggle ${a.is_active?'b-green':'b-red'}" data-act="toggle" data-id="${a.id}" data-on="${a.is_active}">${a.is_active?'Aktif':'Pasif'}</button>`
         : '<span class="badge b-gray" title="Sakin katılmamış — aidat ve borç hesabına girmez">Boş</span>'}</td>
-      <td class="t-right"><button class="btn btn-sm btn-outline-red" data-act="del" data-id="${a.id}" data-no="${esc(a.apartment_number)}">Sil</button></td>
+      <td class="t-right"><button class="icon-btn danger" data-act="del" data-id="${a.id}" data-no="${esc(a.apartment_number)}" title="Daireyi sil" aria-label="Daireyi sil">${ikon('trash')}</button></td>
     </tr>`).join('');
 
+  const doluSayi = list.filter(isOccupied).length;
+  const sakinSayi = list.reduce((t, a) => t + uyeler(a.id).length, 0);
+  const kod = activeBuilding()?.building_code || '';
+
   $content().innerHTML = `
-    <div class="page-head"><h2>Daireler &amp; Sakinler</h2>
-      <div class="tools"><input class="search" id="apt-search" placeholder="Daire, sahip, plaka ara…"></div>
+    ${sayfaBasi('Daireler &amp; Sakinler',
+      'Sakinler mobil uygulamada davet koduyla kendi dairelerine katılır; burada kimin nerede oturduğunu görür ve yönetirsiniz.',
+      `<div class="search-wrap">${ikon('search')}<input class="search" id="apt-search" placeholder="Daire, sakin veya plaka ara…"></div>`)}
+
+    <div class="mini-stats">
+      <div><b>${list.length}</b><span>Daire</span></div>
+      <div><b>${doluSayi}</b><span>Dolu</span></div>
+      <div><b>${list.length - doluSayi}</b><span>Boş</span></div>
+      <div><b>${sakinSayi}</b><span>Kayıtlı sakin</span></div>
     </div>
-    <div class="info-banner">Daireler, sakinlerin mobil uygulamada <strong>bina kodu</strong> ile kendilerini eklemesiyle otomatik oluşur. Buradan yeni daire eklenmez; mevcut daireleri yönetebilirsiniz.
-      <br>Bir daireye en fazla <strong>iki sakin</strong> kaydolabilir. Ad ve telefon, sakinin kendi kaydından gelir.</div>
-    <div class="card"><table><thead><tr><th>Daire</th><th>Sakinler</th><th>Plaka</th><th>Durum</th><th></th></tr></thead>
-      <tbody id="apt-body">${list.length ? rows() : `<tr><td colspan="5" class="t-empty">
-        <strong>Henüz sakin katılmadı.</strong><br>
-        Sakinler mobil uygulamada davet koduyla kendi dairelerine katılır. Kodunuz:
-        <strong style="letter-spacing:1px">${esc(activeBuilding()?.building_code || '—')}</strong>
-        <button class="btn btn-sm btn-ghost" data-act="copy-code" data-code="${esc(activeBuilding()?.building_code || '')}" style="margin-left:6px">Kopyala</button>
-      </td></tr>`}</tbody></table></div>`;
+
+    <div class="invite-card">
+      <span class="ico-tile brand">${ikon('key')}</span>
+      <div class="invite-text">
+        <b>Davet kodu: <span class="invite-code">${esc(kod || '—')}</span></b>
+        <span>Sakinlere bu kodu verin. Uygulamayı indirip kodu girdiklerinde dairelerine otomatik eklenirler. Bir daireye en fazla iki sakin kaydolabilir.</span>
+      </div>
+      ${kod ? `<button class="btn btn-ghost btn-sm copy-code" id="apt-copy-code" data-code="${esc(kod)}">${ikon('copy')}Kopyala</button>` : ''}
+    </div>
+
+    <div class="card table-card"><table><thead><tr><th style="width:90px">Daire</th><th>Sakinler</th><th>Plaka</th><th>Durum</th><th></th></tr></thead>
+      <tbody id="apt-body">${list.length ? rows() : `<tr><td colspan="5">${bosDurum('home', 'Henüz sakin katılmadı',
+        'Davet kodunu sakinlerle paylaşın. Uygulamadan katıldıkça daireler burada otomatik görünür.')}</td></tr>`}</tbody></table></div>`;
+
+  el('apt-copy-code')?.addEventListener('click', async (e) => {
+    try { await navigator.clipboard.writeText(e.currentTarget.dataset.code); toast('Davet kodu kopyalandı'); }
+    catch { toast('Kopyalanamadı — kodu elle seçin', true); }
+  });
 
   el('apt-search')?.addEventListener('input', (e) => {
-    el('apt-body').innerHTML = rows(e.target.value) || '<tr><td colspan="5" class="t-empty">Eşleşen daire yok</td></tr>';
+    el('apt-body').innerHTML = rows(e.target.value) || `<tr><td colspan="5">${bosDurum('search', 'Eşleşen daire yok', 'Aramayı değiştirip tekrar deneyin.')}</td></tr>`;
   });
   el('apt-body').addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-act]'); if (!btn) return;
@@ -2482,7 +2570,7 @@ async function renderFees() {
     // Ödeme kontrolü onay kutusu: dolu yeşil buton "zaten ödenmiş" izlenimi
     // veriyordu. Kutu boşsa ödenmemiş, işaretlenince ödenmiş — tek bakışta belli.
     const payCell = !f
-      ? `<button class="btn btn-sm btn-ghost" data-act="mk" data-apt="${a.id}" data-no="${esc(a.apartment_number)}">Aidat Gir</button>`
+      ? `<button class="btn btn-sm btn-ghost" data-act="mk" data-apt="${a.id}" data-no="${esc(a.apartment_number)}">${ikon('plus')}Aidat gir</button>`
       : `<label class="pay-check${f.is_paid ? ' is-paid' : ''}">
            <input type="checkbox" data-act="toggle" data-id="${f.id}" data-on="${f.is_paid}"
                   data-amt="${f.amount}" data-no="${esc(a.apartment_number)}"
@@ -2492,44 +2580,90 @@ async function renderFees() {
     const borc = borcByApt.get(a.id);
     // Birden fazla ay borçluysa uyar; tek ay borç zaten "Bekliyor" rozetinde görünüyor
     const borcRozeti = borc && borc.ay > 1
-      ? `<span class="badge b-red" title="Tüm dönemler dahil ödenmemiş toplam">${borc.ay} ay · ${TL(borc.tutar)}</span>`
+      ? `<span class="badge b-red" title="Tüm dönemler dahil ödenmemiş toplam">${borc.ay} ay borç · ${TL(borc.tutar)}</span>`
       : '';
-    return `<tr>
-      <td><strong>${esc(a.apartment_number)}</strong> ${borcRozeti}</td>
+    return `<tr data-durum="${!f ? 'yok' : f.is_paid ? 'odendi' : 'bekliyor'}">
+      <td><span class="apt-no">${esc(a.apartment_number)}</span> ${borcRozeti}</td>
       <td>${esc(sakinler(a.id))}</td>
-      <td>${f ? TL(f.amount) : '—'}</td>
-      <td>${f ? `<span class="badge ${f.is_paid?'b-green':'b-amber'}">${f.is_paid?'Ödendi':'Bekliyor'}</span>` : '<span class="badge b-gray">Kayıt yok</span>'}</td>
+      <td class="t-num">${f ? TL(f.amount) : '—'}</td>
+      <td>${f ? `<span class="badge ${f.is_paid?'b-green':'b-amber'}">${f.is_paid?'Ödendi':'Bekliyor'}</span>` : '<span class="badge b-gray">Aidat girilmedi</span>'}</td>
       <td>${f?.paid_date ? dmy(f.paid_date) : '—'}</td>
       <td class="t-right">${payCell}</td>
     </tr>`;
   }).join('');
 
+  const oran = totalExpected ? Math.round((totalPaid / totalExpected) * 100) : 0;
+  const bekleyenSayi = fees.filter(f => !f.is_paid).length;
+  const kayitsizSayi = apts.filter(a => !feeByApt.has(a.id)).length;
+
   $content().innerHTML = `
-    <div class="page-head"><h2>Aidat Takibi</h2>
-      <div class="tools">
-        <select class="mini" id="fee-month">${monthOpts}</select>
-        <select class="mini" id="fee-year">${yearOpts}</select>
-        <button class="btn btn-ghost" id="fee-goto-debts">⚠️ Borç Takibi</button>
+    ${sayfaBasi('Aidat Takibi',
+      'Ödeyen daireyi işaretleyin; tutar kasaya otomatik eklenir ve sakine bildirim gider.',
+      `<div class="month-nav-inner">
+         <button class="month-btn" id="fee-prev" aria-label="Önceki ay">‹</button>
+         <select class="mini bare" id="fee-month" aria-label="Ay">${monthOpts}</select>
+         <select class="mini bare" id="fee-year" aria-label="Yıl">${yearOpts}</select>
+         <button class="month-btn" id="fee-next" aria-label="Sonraki ay">›</button>
+       </div>
+       <button class="btn btn-ghost" id="fee-goto-debts">${ikon('alert')}Borç Takibi</button>`)}
+
+    <div class="card collect-card">
+      <div class="collect-top">
+        <div>
+          <span class="kpi-lbl">${MONTHS[month-1]} ${year} tahsilatı</span>
+          <div class="collect-val">${TL(totalPaid)} <small>/ ${TL(totalExpected)}</small></div>
+        </div>
+        <div class="collect-pct ${oran >= 80 ? 'k-green' : oran >= 50 ? 'k-amber' : 'k-red'}">%${oran}</div>
+      </div>
+      <div class="progress"><i style="width:${oran}%"></i></div>
+      <div class="collect-meta">
+        <span><i class="dot g"></i>${paid.length} daire ödedi</span>
+        <span><i class="dot a"></i>${bekleyenSayi} daire bekliyor</span>
+        ${kayitsizSayi ? `<span><i class="dot n"></i>${kayitsizSayi} dairede aidat girilmedi</span>` : ''}
+        <span class="collect-debt ${borcToplam ? 'red' : ''}">Toplam borç: <b>${TL(borcToplam)}</b> (${borcluDaire} daire)</span>
       </div>
     </div>
-    <div class="stat-grid">
-      <div class="stat"><div class="val">${paid.length}/${apts.length}</div><div class="lbl">Ödeyen Daire</div></div>
-      <div class="stat"><div class="val">${TL(totalPaid)}</div><div class="lbl">Bu Ay Toplanan</div></div>
-      <div class="stat"><div class="val">${TL(totalExpected-totalPaid)}</div><div class="lbl">Bu Ay Bekleyen</div></div>
-      <div class="stat"><div class="val" style="color:${borcToplam ? 'var(--red)' : 'var(--green)'}">${TL(borcToplam)}</div>
-        <div class="lbl">Toplam Borç (${borcluDaire} daire)</div></div>
-    </div>
-    <div class="card">
-      <h3>Tüm Dairelere ${MONTHS[month-1]} ${year} Aidatı Uygula</h3>
-      <div class="grid-2">
-        <div class="field" style="margin:0"><input id="bulk-amt" inputmode="decimal" placeholder="Örn: 1500"></div>
-        <button class="btn" id="bulk-apply">Uygula</button>
+
+    <div class="card bulk-card">
+      <span class="ico-tile brand">${ikon('sparkle')}</span>
+      <div class="bulk-text">
+        <b>${MONTHS[month-1]} ${year} aidatını tüm dairelere tek seferde girin</b>
+        <span class="hint">Aidatı olmayan dairelere oluşturur, ödenmemişlerin tutarını günceller; ödenmişlere dokunmaz.${emptyCount ? ` ${emptyCount} boş daire hesaba katılmaz.` : ''}</span>
       </div>
-      <p class="muted" style="font-size:12.5px;margin-top:10px">Kaydı olmayan dairelere aidat oluşturur; ödenmemiş kayıtların tutarını günceller (ödenmiş olanlara dokunmaz).
-      ${emptyCount ? `<br><strong>${emptyCount} boş daire</strong> hesaba katılmaz — sakin katılınca otomatik dahil olur.` : ''}</p>
+      <div class="bulk-form">
+        <div class="input-affix"><input id="bulk-amt" inputmode="decimal" placeholder="Tutar"><span>₺</span></div>
+        <button class="btn" id="bulk-apply">Tümüne uygula</button>
+      </div>
     </div>
-    <div class="card"><table><thead><tr><th>Daire</th><th>Sakinler</th><th>Tutar</th><th>Durum</th><th>Ödeme Tarihi</th><th></th></tr></thead>
-      <tbody id="fee-body">${apts.length ? rows : '<tr><td colspan="6" class="t-empty">Önce sakinler daire eklemeli</td></tr>'}</tbody></table></div>`;
+
+    <div class="card table-card">
+      <div class="table-toolbar">
+        <div class="seg-tabs compact" id="fee-filter">
+          <button class="seg active" data-f="">Tümü <em>${apts.length}</em></button>
+          <button class="seg" data-f="bekliyor">Ödemeyenler <em>${bekleyenSayi}</em></button>
+          <button class="seg" data-f="odendi">Ödeyenler <em>${paid.length}</em></button>
+        </div>
+      </div>
+      <table><thead><tr><th style="width:120px">Daire</th><th>Sakinler</th><th class="t-right">Tutar</th><th>Durum</th><th>Ödeme tarihi</th><th></th></tr></thead>
+      <tbody id="fee-body">${apts.length ? rows : `<tr><td colspan="6">${bosDurum('home', 'Henüz dolu daire yok', 'Sakinler davet koduyla katıldıkça daireler burada listelenir.', `<button class="btn btn-ghost btn-sm" id="fee-goto-apts">Daireler &amp; Sakinler</button>`)}</td></tr>`}</tbody></table>
+    </div>`;
+
+  el('fee-goto-apts')?.addEventListener('click', () => navigate('apartments'));
+  const ayKaydir = (d) => {
+    let m = feeState.month + d, y = feeState.year;
+    if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
+    feeState.month = m; feeState.year = y; renderFees();
+  };
+  el('fee-prev').onclick = () => ayKaydir(-1);
+  el('fee-next').onclick = () => ayKaydir(1);
+  el('fee-filter').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-f]'); if (!b) return;
+    el('fee-filter').querySelectorAll('.seg').forEach(x => x.classList.toggle('active', x === b));
+    const f = b.dataset.f;
+    el('fee-body').querySelectorAll('tr[data-durum]').forEach(tr => {
+      tr.style.display = !f || tr.dataset.durum === f || (f === 'bekliyor' && tr.dataset.durum === 'yok') ? '' : 'none';
+    });
+  });
 
   el('fee-month').addEventListener('change', e => { feeState.month = +e.target.value; renderFees(); });
   el('fee-year').addEventListener('change', e => { feeState.year = +e.target.value; renderFees(); });
@@ -2643,24 +2777,22 @@ async function renderTransactions() {
     }
     const satirlar = [...kova.values()];
     if (!satirlar.some(d => d.gelir || d.gider)) return '';
-    return `<div class="card">
-      <h3>Blok Defteri — ${MONTHS[month-1]} ${year}</h3>
+    return `<div class="card table-card">
+      <div class="table-toolbar"><div><h3 style="margin:0">Blok defteri — ${MONTHS[month-1]} ${year}</h3>
+        <p class="hint">Kasa site ortaktır; bu tablo paranın hangi bloğun hesabına yazıldığını gösterir.</p></div></div>
       <table><thead><tr><th>Blok</th><th class="t-right">Gelir</th><th class="t-right">Gider</th><th class="t-right">Net</th></tr></thead>
       <tbody>${satirlar.map(d => `<tr>
         <td><strong>${esc(d.ad)}</strong></td>
-        <td class="t-right" style="color:var(--green)">${TL(d.gelir)}</td>
-        <td class="t-right" style="color:var(--red)">${TL(d.gider)}</td>
-        <td class="t-right"><strong style="color:${d.gelir - d.gider >= 0 ? 'var(--green)' : 'var(--red)'}">${TL(d.gelir - d.gider)}</strong></td>
+        <td class="t-num income">${TL(d.gelir)}</td>
+        <td class="t-num expense">${TL(d.gider)}</td>
+        <td class="t-num"><strong class="${d.gelir - d.gider >= 0 ? 'income' : 'expense'}">${TL(d.gelir - d.gider)}</strong></td>
       </tr>`).join('')}</tbody></table>
-      <p class="muted" style="font-size:12.5px;margin-top:10px;">
-        Kasa site ortaktır; bu tablo paranın hangi bloğun hesabına yazıldığını gösterir.
-        Bloğa özel giderler yalnızca o bloğun defterinde görünür.</p>
     </div>`;
   };
 
   const txCard = (t) => `
     <div class="tx-card">
-      <div class="tx-icon ${t.type}">${t.type === 'income' ? '↙' : '↗'}</div>
+      <div class="tx-icon ${t.type}">${ikon(t.type === 'income' ? 'in' : 'out')}</div>
       <div class="tx-info">
         <div class="tx-desc">${esc(t.description)}</div>
         <div class="tx-cat">${WALLET_CATEGORY_LABELS[t.category] || t.category}${kapsamRozeti(t.scope, t.building_id)}</div>
@@ -2669,73 +2801,101 @@ async function renderTransactions() {
       <div class="tx-right">
         <div class="tx-amount ${t.type}">${t.type === 'income' ? '+' : '-'}${TL(t.amount)}</div>
         ${statusBadge(t.status)}
-        ${t.receipt_url ? `<button class="btn btn-sm btn-ghost" onclick="window.showReceiptModal('${esc(t.receipt_url)}')">📄 Makbuz</button>` : ''}
+        ${t.receipt_url ? `<button class="btn btn-xs btn-ghost" onclick="window.showReceiptModal('${esc(t.receipt_url)}')">${ikon('file')}Makbuz</button>` : ''}
       </div>
     </div>`;
 
-  $content().innerHTML = `
-    <div class="page-head"><h2>Kasa Yönetimi</h2>
-      <div class="tools"><button class="btn" id="tx-add">+ İşlem Ekle</button></div>
-    </div>
+  // Ayın kesinleşmiş hareketleri (onay bekleyen ve reddedilenler hariç)
+  const kesinAy = inMonth.filter(t => t.status !== 'pending' && t.status !== 'rejected');
+  const ayGelir = kesinAy.filter(t => t.type === 'income').reduce((x, t) => x + Number(t.amount || 0), 0);
+  const ayGider = kesinAy.filter(t => t.type !== 'income').reduce((x, t) => x + Number(t.amount || 0), 0);
+  const ayNet = ayGelir - ayGider;
 
-    <div class="wallet-card ${isNeg ? 'neg' : ''}">
-      <div class="wallet-head">💼 <span>Ana Kasa</span></div>
-      <div class="wallet-amount">${isNeg ? '-' : ''}${TL(Math.abs(bank)).replace('₺','').trim()} ₺</div>
-      ${isNeg ? '<div class="wallet-warn">⚠️ Kasa ekside - Borçlanma durumu</div>' : ''}
+  $content().innerHTML = `
+    ${sayfaBasi('Kasa &amp; Harcamalar',
+      'Sitenin tüm gelir ve giderleri. Fatura veya harcama olduğunda "İşlem ekle" deyin; bakiye kendiliğinden güncellenir.',
+      `<div class="month-nav-inner">
+         <button class="month-btn" id="month-prev" aria-label="Önceki ay">‹</button>
+         <span class="month-label">${MONTHS[month-1]} ${year}</span>
+         <button class="month-btn" id="month-next" aria-label="Sonraki ay">›</button>
+       </div>
+       <button class="btn" id="tx-add">${ikon('plus')}İşlem ekle</button>`)}
+
+    <div class="dash-kpi">
+      <div class="kpi static ${isNeg ? 'neg' : ''}">
+        <span class="kpi-lbl inline-ico">${ikon('wallet')}Kasa bakiyesi</span>
+        <span class="kpi-val ${isNeg ? 'k-red' : ''}">${TL(bank)}</span>
+        <span class="kpi-sub">${isNeg ? 'Kasa ekside — borçlanma durumu' : 'Şu an kasada olan'}</span>
+      </div>
+      <div class="kpi static">
+        <span class="kpi-lbl inline-ico">${ikon('in')}${MONTHS[month-1]} geliri</span>
+        <span class="kpi-val k-green">${TL(ayGelir)}</span>
+        <span class="kpi-sub">${kesinAy.filter(t => t.type === 'income').length} hareket</span>
+      </div>
+      <div class="kpi static">
+        <span class="kpi-lbl inline-ico">${ikon('out')}${MONTHS[month-1]} gideri</span>
+        <span class="kpi-val k-red">${TL(ayGider)}</span>
+        <span class="kpi-sub">${kesinAy.filter(t => t.type !== 'income').length} hareket</span>
+      </div>
+      <div class="kpi static">
+        <span class="kpi-lbl">Ay sonucu</span>
+        <span class="kpi-val ${ayNet >= 0 ? 'k-green' : 'k-red'}">${ayNet >= 0 ? '+' : ''}${TL(ayNet)}</span>
+        <span class="kpi-sub">${ayNet >= 0 ? 'Gelir giderden fazla' : 'Gider gelirden fazla'}</span>
+      </div>
     </div>
 
     ${showDrift ? `<div class="drift-card">
-      <div class="drift-head">⚖️ Kasa mutabakatsızlığı</div>
-      <p class="muted" style="font-size:13px;margin:8px 0 12px;">Kayıtlı bakiye ile işlem hareketlerinin toplamı uyuşmuyor.
-        Bir işlem yazılırken kaydedilememiş ya da bakiye elle değiştirilmiş olabilir.</p>
+      <div class="drift-head inline-ico">${ikon('scale')}Kasa tutmuyor</div>
+      <p class="hint" style="margin:6px 0 12px;">Kayıtlı bakiye ile işlemlerin toplamı uyuşmuyor. Bir işlem eksik girilmiş ya da bakiye elle değiştirilmiş olabilir.
+        Eksik gelir/gideri "İşlem ekle" ile girdiğinizde bu uyarı kaybolur.</p>
       <div class="drift-rows">
         <div><span>Görünen bakiye</span><strong>${TL(bank)}</strong></div>
-        <div><span>Hareketlerden hesaplanan</span><strong>${TL(expectedBank)}</strong></div>
-        <div><span>Fark</span><strong style="color:var(--red)">${drift > 0 ? '+' : ''}${TL(drift)}</strong></div>
+        <div><span>İşlemlerden hesaplanan</span><strong>${TL(expectedBank)}</strong></div>
+        <div><span>Fark</span><strong class="expense">${drift > 0 ? '+' : ''}${TL(drift)}</strong></div>
       </div>
-      <p class="muted" style="font-size:12px;margin-top:10px;">Farkı kapatmak için eksik kalan gelir/gideri
-        Kasa &amp; Harcamalar'dan elle ekleyin; kayıt eklendiğinde bu uyarı kaybolur.</p>
     </div>` : ''}
 
     ${pending.length ? `<div class="pending-alert-card">
-      <div class="pending-alert-head">⏳ ${pending.length} işlem onay bekliyor</div>
+      <div class="pending-alert-head inline-ico">${ikon('clock')}${pending.length} işlem onayınızı bekliyor</div>
+      <p class="hint" style="margin:-4px 0 6px">Onaylayana kadar kasaya yansımaz.</p>
       <div id="pending-body">${pending.map(t => `
         <div class="pending-row">
-          <div style="flex:1"><strong>${esc(t.description)}</strong>
-            <div class="muted" style="font-size:12px">${dmy(t.created_at)} · ${WALLET_CATEGORY_LABELS[t.category]||t.category}${kapsamRozeti(t.scope, t.building_id)}</div></div>
-          <div class="tx-amount expense" style="margin-right:12px">${TL(t.amount)}</div>
-          <button class="btn btn-sm btn-green" data-act="ok" data-id="${t.id}">Onayla</button>
+          <div style="flex:1;min-width:0"><strong>${esc(t.description)}</strong>
+            <div class="hint">${dmy(t.created_at)} · ${WALLET_CATEGORY_LABELS[t.category]||t.category}${kapsamRozeti(t.scope, t.building_id)}</div></div>
+          <div class="tx-amount expense">${TL(t.amount)}</div>
+          <button class="btn btn-sm btn-green" data-act="ok" data-id="${t.id}">${ikon('check')}Onayla</button>
           <button class="btn btn-sm btn-outline-red" data-act="no" data-id="${t.id}">Reddet</button>
         </div>`).join('')}</div>
     </div>` : ''}
 
-    <div class="month-nav">
-      <span class="muted" style="font-size:13px;font-weight:600;">Dönem Seçin:</span>
-      <div class="month-nav-inner">
-        <button class="month-btn" id="month-prev">‹</button>
-        <span class="month-label">${MONTHS[month-1]} ${year}</span>
-        <button class="month-btn" id="month-next">›</button>
-      </div>
-    </div>
-
     ${blokDefteriKarti(inMonth)}
 
-    <div class="seg-tabs" id="tx-tabs">
-      <button class="seg ${tab==='all'?'active':''}" data-tab="all">Tümü</button>
-      <button class="seg ${tab==='income'?'active':''}" data-tab="income">Gelir</button>
-      <button class="seg ${tab==='expense'?'active':''}" data-tab="expense">Gider</button>
+    <div class="card table-card">
+      <div class="table-toolbar">
+        <div class="seg-tabs compact" id="tx-tabs">
+          <button class="seg ${tab==='all'?'active':''}" data-tab="all">Tümü</button>
+          <button class="seg ${tab==='income'?'active':''}" data-tab="income">Gelir</button>
+          <button class="seg ${tab==='expense'?'active':''}" data-tab="expense">Gider</button>
+        </div>
+        <span class="hint">${filtered.length} hareket</span>
+      </div>
+      <div id="tx-list" class="tx-list">${filtered.length ? filtered.map(txCard).join('')
+        : bosDurum('cash', `${MONTHS[month-1]} ${year} için ${tab==='income'?'gelir':tab==='expense'?'gider':'hareket'} yok`,
+            'Yeni bir fatura, harcama ya da tahsilat olduğunda buradan ekleyin.',
+            `<button class="btn btn-sm" onclick="document.getElementById('tx-add').click()">${ikon('plus')}İşlem ekle</button>`)}</div>
     </div>
 
-    <div id="tx-list">${filtered.length ? filtered.map(txCard).join('')
-      : `<div class="card"><p class="t-empty">${MONTHS[month-1]} ${year} için ${tab==='income'?'gelir':tab==='expense'?'gider':'işlem'} yok</p></div>`}</div>
-
-    <div class="grid-2" style="margin-top:16px;">
-      <button class="btn" id="share-report">📊 ${MONTHS[month-1]} ${year} Raporunu Paylaş</button>
-      <button class="btn btn-ghost" id="tx-belge">📄 Resmî Belge Oluştur</button>
-    </div>
-    <p class="muted" style="font-size:12.5px;margin-top:8px;text-align:center;">
-      Soldaki buton raporu sohbete gönderir, tüm sakinler görür.
-      Sağdaki, imza alanlı ve numaralı PDF üretip <strong>arşive</strong> kaydeder.</p>`;
+    <div class="card report-card">
+      <span class="ico-tile brand">${ikon('chart')}</span>
+      <div class="report-text">
+        <b>${MONTHS[month-1]} ${year} ay sonu raporu</b>
+        <span class="hint">"Sakinlerle paylaş" raporu uygulamadaki sohbete gönderir. "Resmî belge" imza alanlı, numaralı bir PDF üretip arşive kaydeder.</span>
+      </div>
+      <div class="report-actions">
+        <button class="btn btn-ghost" id="tx-belge">${ikon('file')}Resmî belge</button>
+        <button class="btn" id="share-report">${ikon('send')}Sakinlerle paylaş</button>
+      </div>
+    </div>`;
 
   el('tx-add').addEventListener('click', openTxModal);
   el('month-prev').addEventListener('click', () => {
@@ -2856,18 +3016,16 @@ async function shareMonthlyReport(monthTxs, bankBalance) {
     toast(err.message, true);
   } finally {
     btn.disabled = false;
-    btn.textContent = `📊 ${MONTHS[walletState.month-1]} ${walletState.year} Raporunu Paylaş`;
+    btn.innerHTML = `${ikon('send')}Sakinlerle paylaş`;
   }
 }
 
 // Makbuz Görselini Modalda Göster
 window.showReceiptModal = function(url) {
-  openModal('Makbuz / Fatura Görseli', `
-    <div style="text-align: center; max-height: 70vh; overflow: auto;">
-      <img src="${esc(url)}" alt="Makbuz Fatura" style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);" />
-    </div>
-    <div style="margin-top: 14px; text-align: center;">
-      <a href="${esc(url)}" target="_blank" class="btn btn-sm btn-ghost">Yeni Sekmede Aç</a>
+  openModal('Makbuz / fatura', `
+    <div class="receipt-view"><img src="${esc(url)}" alt="Makbuz veya fatura görseli" /></div>
+    <div style="margin-top:14px;text-align:center;">
+      <a href="${esc(url)}" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">${ikon('eye')}Yeni sekmede aç</a>
     </div>
   `);
 };
@@ -2901,15 +3059,15 @@ function openTxModal() {
         <button type="button" class="cat-chip active" data-blok="">Tüm Site</button>
         ${S.buildings.map(b => `<button type="button" class="cat-chip" data-blok="${b.id}">${esc(b.name)}</button>`).join('')}
       </div>
-      <p class="muted" style="font-size:12.5px;margin-top:6px" id="m-scope-info">
+      <p class="hint" style="margin-top:6px" id="m-scope-info">
         Tüm siteyi ilgilendiren ortak gelir/gider olarak kaydedilir.</p>
     </div>`;
 
   openModal('Yeni İşlem', `
     <div class="field"><label>İşlem Türü</label>
       <div class="seg-tabs" id="m-types" style="margin:0;">
-        <button type="button" class="seg" data-type="income">📥 Gelir</button>
-        <button type="button" class="seg active" data-type="expense">📤 Gider</button>
+        <button type="button" class="seg" data-type="income">Gelir (para girişi)</button>
+        <button type="button" class="seg active" data-type="expense">Gider (harcama)</button>
       </div>
     </div>
     ${kapsamAlani()}
@@ -2917,7 +3075,7 @@ function openTxModal() {
     <div class="field"><label>Kategori</label><div class="cat-grid" id="m-cats">${catChips()}</div></div>
     <div class="field"><label>Açıklama</label><input id="m-desc" placeholder="Örn: Asansör bakımı"></div>
     <div class="field"><label>Not (opsiyonel)</label><textarea id="m-notes" rows="2" placeholder="Ek bilgi"></textarea></div>
-    <p class="muted" style="font-size:12.5px;margin-bottom:14px">Onay limitinin (${TL(ab?.approval_threshold||5000)}) üstündeki giderler ve "İş Ödemesi" kategorisi önce onaya düşer.</p>
+    <p class="hint" style="margin-bottom:14px">${TL(ab?.approval_threshold||5000)} üstündeki giderler ve "İş Ödemesi" kategorisi önce onayınıza düşer.</p>
     <button class="btn btn-block" id="m-save">Kaydet</button>`);
 
   el('m-types').addEventListener('click', (e) => {
@@ -2980,41 +3138,44 @@ async function renderAnnouncements() {
   const isNew = (d) => (Date.now() - new Date(d).getTime()) / 86400000 <= 7; // mobil: son 7 gün "YENİ"
 
   $content().innerHTML = `
-    <div class="page-head"><h2>Duyurular</h2><div class="tools"><button class="btn" id="ann-add">+ Duyuru</button></div></div>
-    <div class="info-banner">İlk <strong>4 duyuru panoda</strong> görünür (mobil ana ekran). ${orderingAvailable ? 'Kartları <strong>sürükleyip bırakarak</strong> pano sırasını değiştirebilirsiniz.' : ''}</div>
+    ${sayfaBasi('Duyurular',
+      'Yazdığınız duyuru tüm sakinlerin telefonuna bildirim olarak gider ve uygulamadaki panoda görünür.',
+      `<button class="btn" id="ann-add">${ikon('megaphone')}Yeni duyuru</button>`)}
+    ${list.length ? `<div class="info-banner inline-ico">${ikon('pin')}<span>İlk <strong>4 duyuru</strong> uygulamanın ana ekranındaki panoda görünür.${orderingAvailable && list.length > 1 ? ' Sırayı değiştirmek için kartları sürükleyip bırakın.' : ''}</span></div>` : ''}
     <div id="ann-list">${list.length ? list.map((a, i) => `
-      <div class="ann-card" draggable="${orderingAvailable}" data-id="${a.id}">
-        ${orderingAvailable ? '<div class="drag-handle" title="Sürükleyerek sırala">⠿</div>' : ''}
-        <div class="ann-icon">🔔</div>
+      <div class="ann-card ${i < 4 ? 'on-board' : ''}" draggable="${orderingAvailable}" data-id="${a.id}">
+        ${orderingAvailable ? `<div class="drag-handle" title="Sürükleyerek sırala">⠿</div>` : ''}
+        <div class="ico-tile ${i < 4 ? 'brand' : ''}">${ikon('megaphone')}</div>
         <div class="lr-body" style="flex:1">
           <div class="lr-title">${esc(a.title)}</div>
-          <div class="lr-meta">
-            ${dmy(a.created_at)}
-            ${isNew(a.created_at) ? '<span class="badge b-green">YENİ</span>' : ''}
-            <span class="board-badge ${i < 4 ? '' : 'off'}">${i < 4 ? '📍 Panoda' : 'Panoda değil'}</span>
+          <div class="lr-meta ann-meta">
+            <span>${dmy(a.created_at)}</span>
+            ${isNew(a.created_at) ? '<span class="badge b-green">Yeni</span>' : ''}
+            <span class="board-badge ${i < 4 ? '' : 'off'}">${i < 4 ? 'Panoda' : 'Panoda değil'}</span>
             ${kapsamRozeti(a.scope, a.building_id)}
           </div>
           <div class="lr-text">${esc(a.detail)}</div>
         </div>
-        <button class="btn btn-sm btn-outline-red" data-del="${a.id}">Sil</button>
-      </div>`).join('') : `<div class="card"><p class="t-empty"><strong>Henüz duyuru yok.</strong><br>
-        Sağ üstteki <strong>Yeni Duyuru</strong> ile yazın; gönderince tüm sakinlerin telefonuna bildirim düşer.</p></div>`}</div>`;
+        <button class="icon-btn danger" data-del="${a.id}" title="Duyuruyu sil" aria-label="Duyuruyu sil">${ikon('trash')}</button>
+      </div>`).join('') : `<div class="card">${bosDurum('megaphone', 'Henüz duyuru yok',
+        'Su kesintisi, toplantı, temizlik günü… Yazdığınız duyuru tüm sakinlerin telefonuna anında düşer.',
+        `<button class="btn btn-sm" onclick="document.getElementById('ann-add').click()">${ikon('plus')}İlk duyuruyu yaz</button>`)}</div>`}</div>`;
 
   el('ann-add').addEventListener('click', () => {
     // Bloğa özel duyuru yalnızca o bloğun sakinlerine görünür ve bildirim gider
     const annState = { hedefBlok: null };
-    openModal('Yeni Duyuru', `
-      <div class="field"><label>Başlık</label><input id="a-title"></div>
-      <div class="field"><label>Detay</label><textarea id="a-detail" rows="4"></textarea></div>
+    openModal('Yeni duyuru', `
+      <div class="field"><label>Başlık</label><input id="a-title" placeholder="Örn: Yarın 10:00–14:00 arası su kesintisi"></div>
+      <div class="field"><label>Detay</label><textarea id="a-detail" rows="4" placeholder="Sakinlerin bilmesi gerekenleri kısaca yazın."></textarea></div>
       ${!cokBloklu() ? '' : `<div class="field"><label>Duyuru kime gidecek?</label>
         <div class="cat-grid" id="a-scope">
           <button type="button" class="cat-chip active" data-blok="">Tüm Site</button>
           ${S.buildings.map(b => `<button type="button" class="cat-chip" data-blok="${b.id}">${esc(b.name)}</button>`).join('')}
         </div>
-        <p class="muted" style="font-size:12.5px;margin-top:6px" id="a-scope-info">
+        <p class="hint" style="margin-top:6px" id="a-scope-info">
           Sitedeki tüm sakinler görür ve bildirim alır.</p></div>`}
-      <p class="muted" style="font-size:12.5px;margin-bottom:14px;">Yeni duyuru panonun en üstünde yayınlanır ve mobil sohbete düşer.</p>
-      <button class="btn btn-block" id="a-save">Yayınla</button>`);
+      <p class="hint inline-ico" style="margin-bottom:14px;">${ikon('bell')}Yayınlayınca sakinlere bildirim gider, duyuru panonun en üstüne eklenir.</p>
+      <button class="btn btn-block" id="a-save">${ikon('send')}Yayınla ve bildir</button>`);
     el('a-scope')?.addEventListener('click', (e) => {
       const chip = e.target.closest('button[data-blok]'); if (!chip) return;
       annState.hedefBlok = chip.dataset.blok || null;
@@ -3094,25 +3255,29 @@ async function renderMaintenance() {
   const open = (data || []).filter(r => r.status !== 'completed' && r.status !== 'cancelled');
 
   $content().innerHTML = `
-    <div class="page-head"><h2>Arıza Bildirimleri</h2></div>
-    <div class="info-banner">Gelen arızaların bekleme alanı. Bir arızayı <strong>iş olarak tanımladığınızda</strong> İş Takibi'ne düşer ve buradan kalkar; işlem gerektirmeyenleri kapatabilirsiniz.</div>
+    ${sayfaBasi('Arıza Bildirimleri',
+      'Sakinlerin uygulamadan bildirdiği arızalar. Usta veya firma atamak için "İşe dönüştür" deyin; gerek yoksa kapatın.')}
     <div id="maint-list">${open.length ? open.map(r => `
-      <div class="fault-card">
+      <div class="fault-card prio-${r.priority || 'low'}">
         <div class="fault-head">
-          <div>
-            <div class="lr-title">${esc(r.title)}
-              <span class="badge ${r.priority==='high'?'b-red':r.priority==='medium'?'b-amber':'b-green'}">${PRIORITIES[r.priority]||r.priority}</span>
+          <div class="ico-tile ${r.priority==='high'?'red':r.priority==='medium'?'amber':''}">${ikon('wrench')}</div>
+          <div style="flex:1;min-width:0">
+            <div class="lr-title">${esc(r.title)}</div>
+            <div class="lr-meta ann-meta">
+              <span class="inline-ico">${ikon('home')}${esc(daireEtiketi(r.building_id, r.apartments?.apartment_number || '—'))}</span>
+              <span class="inline-ico">${ikon('clock')}${dmyhm(r.created_at)}</span>
+              <span class="badge ${r.priority==='high'?'b-red':r.priority==='medium'?'b-amber':'b-gray'}">${PRIORITIES[r.priority]||r.priority} öncelik</span>
               <span class="badge b-gray">${MAINT_STATUS[r.status]||r.status}</span>
             </div>
-            <div class="lr-meta">🏠 ${esc(daireEtiketi(r.building_id, r.apartments?.apartment_number || '—'))} · ${dmyhm(r.created_at)}</div>
+            ${r.description ? `<div class="lr-text">${esc(r.description)}</div>` : ''}
           </div>
         </div>
-        <div class="lr-text">${esc(r.description || '')}</div>
         <div class="fault-actions">
-          <button class="btn btn-sm" data-job="${r.id}">🔧 İş Olarak Tanımla</button>
-          <button class="btn btn-sm btn-outline-red" data-close="${r.id}">Kapat</button>
+          <button class="btn btn-sm btn-ghost" data-close="${r.id}">Gerek yok, kapat</button>
+          <button class="btn btn-sm" data-job="${r.id}">${ikon('check-square')}İşe dönüştür</button>
         </div>
-      </div>`).join('') : '<div class="card"><p class="t-empty">Bekleyen arıza bildirimi yok 🎉</p></div>'}</div>`;
+      </div>`).join('') : `<div class="card">${bosDurum('check', 'Bekleyen arıza yok',
+        'Sakinler uygulamadan arıza bildirdiğinde burada görünür ve size bildirim gelir.')}</div>`}</div>`;
 
   el('maint-list').addEventListener('click', async (e) => {
     const jobBtn = e.target.closest('button[data-job]');
@@ -3132,15 +3297,15 @@ async function renderMaintenance() {
 // Arızayı işe dönüştürme — mobil fault-detail ekranıyla aynı: sorumlu + ücret + vade,
 // iş oluşturulur ve arıza tamamlandı olarak işaretlenir.
 function openFaultToJobModal(r) {
-  openModal('İş Olarak Tanımla', `
-    <p class="muted" style="font-size:13px;margin-bottom:14px;">Bu arızayı iş olarak tanımlayın. İş, İş Takibi listesine eklenecek ve arıza tamamlandı olarak işaretlenecek.</p>
+  openModal('Arızayı işe dönüştür', `
+    <p class="hint" style="margin-bottom:14px;">Kimin yapacağını yazın. İş, İş Takibi'ne eklenir ve arıza bu listeden kalkar.</p>
     <div class="field"><label>Arıza</label><input value="${esc(r.title)}" disabled></div>
-    <div class="field"><label>Sorumlu Kişi / Firma *</label><input id="fj-assignee" placeholder="Örn: Usta Mehmet, X Asansör Ltd."></div>
+    <div class="field"><label>Kim yapacak? (usta / firma)</label><input id="fj-assignee" placeholder="Örn: Usta Mehmet, X Asansör Ltd."></div>
     <div class="grid-2">
-      <div class="field"><label>Ücret (₺)</label><input id="fj-price" inputmode="decimal" value="0"></div>
-      <div class="field"><label>Vade Tarihi (opsiyonel)</label><input id="fj-due" type="date"></div>
+      <div class="field"><label>Tahmini ücret (₺)</label><input id="fj-price" inputmode="decimal" value="0"></div>
+      <div class="field"><label>Ne zamana kadar? (isteğe bağlı)</label><input id="fj-due" type="date"></div>
     </div>
-    <button class="btn btn-block" id="fj-save">İşi Oluştur</button>`);
+    <button class="btn btn-block" id="fj-save">İşi oluştur</button>`);
 
   el('fj-save').addEventListener('click', async () => {
     const assignee = el('fj-assignee').value.trim();
@@ -3182,36 +3347,93 @@ async function renderJobs() {
   const { data } = await supabase.from('building_jobs').select('*').in('building_id', siteBIds()).order('created_at', { ascending:false });
   const list = data || [];
   const badge = (j) => { const s = j.status || (j.is_active?'planned':'completed'); const cls = s==='completed'?'b-green':s==='cancelled'?'b-red':s==='in_progress'?'b-blue':'b-amber'; return `<span class="badge ${cls}">${JOB_STATUS[s]||s}</span>`; };
+  const durumOf = (j) => j.status || (j.is_active ? 'planned' : 'completed');
+  const acikSay = list.filter(j => ['planned', 'in_progress'].includes(durumOf(j))).length;
+  const bitenSay = list.filter(j => durumOf(j) === 'completed').length;
+  const jobEylem = (j) => {
+    const d = durumOf(j);
+    if (d === 'planned') return `<button class="btn btn-sm btn-ghost" data-set="in_progress" data-id="${j.id}">Başlat</button>
+      <button class="btn btn-sm" data-set="completed" data-id="${j.id}">${ikon('check')}Tamamla</button>`;
+    if (d === 'in_progress') return `<button class="btn btn-sm" data-set="completed" data-id="${j.id}">${ikon('check')}Tamamla</button>`;
+    return '';
+  };
+
   $content().innerHTML = `
-    <div class="page-head"><h2>İş Takibi</h2><div class="tools"><button class="btn" id="job-add">+ İş Ekle</button></div></div>
-    <div class="card"><table><thead><tr><th>İş</th><th>Sorumlu</th><th>Ücret</th><th>Durum</th><th></th></tr></thead>
-      <tbody id="job-body">${list.length ? list.map(j=>`<tr>
-        <td><strong>${esc(j.title)}</strong>${kapsamRozeti(j.scope, j.building_id)}<div class="muted" style="font-size:12px">${esc(j.description||'')}</div></td>
-        <td>${esc(j.assigned_to||'—')}</td><td>${TL(j.price)}</td><td>${badge(j)}</td>
-        <td class="t-right" style="white-space:nowrap">
-          <select class="mini" data-status="${j.id}"><option value="">Durum…</option><option value="in_progress">Başlat</option><option value="completed">Tamamla</option><option value="cancelled">İptal</option></select>
-          <button class="btn btn-sm" data-belge="${j.id}">📄 ${j.status === 'completed' ? 'Teslim Tutanağı' : 'İş Emri'}</button>
-          <button class="btn btn-sm btn-outline-red" data-del="${j.id}">Sil</button>
-        </td></tr>`).join('') : `<tr><td colspan="5" class="t-empty"><strong>Henüz iş yok.</strong><br>
-        Sağ üstteki <strong>Yeni İş</strong> ile ekleyin. Sakinlerden gelen arıza bildirimleri de "İş olarak tanımla" ile buraya düşer.</td></tr>`}</tbody></table></div>`;
+    ${sayfaBasi('İş Takibi',
+      'Bakım, tamir, temizlik gibi işler. İş bitince "Tamamla" deyin; ödenen tutar kasadan otomatik düşülür.',
+      `<button class="btn" id="job-add">${ikon('plus')}Yeni iş</button>`)}
+    <div class="card table-card">
+      <div class="table-toolbar">
+        <div class="seg-tabs compact" id="job-filter">
+          <button class="seg active" data-f="acik">Açık işler <em>${acikSay}</em></button>
+          <button class="seg" data-f="completed">Tamamlanan <em>${bitenSay}</em></button>
+          <button class="seg" data-f="">Tümü <em>${list.length}</em></button>
+        </div>
+      </div>
+      <table><thead><tr><th>İş</th><th>Kim yapıyor</th><th class="t-right">Ücret</th><th>Durum</th><th></th></tr></thead>
+      <tbody id="job-body">${list.length ? list.map(j=>`<tr data-durum="${durumOf(j)}">
+        <td><strong>${esc(j.title)}</strong>${kapsamRozeti(j.scope, j.building_id)}${j.description ? `<div class="hint clamp">${esc(j.description)}</div>` : ''}</td>
+        <td>${esc(j.assigned_to||'—')}</td><td class="t-num">${TL(j.price)}</td><td>${badge(j)}</td>
+        <td><div class="row-actions">
+          ${jobEylem(j)}
+          <button class="icon-btn" data-belge="${j.id}" title="${j.status === 'completed' ? 'Teslim tutanağı (PDF)' : 'İş emri (PDF)'}" aria-label="Belge oluştur">${ikon('file')}</button>
+          ${['planned','in_progress'].includes(durumOf(j)) ? `<button class="icon-btn" data-set="cancelled" data-id="${j.id}" title="İşi iptal et" aria-label="İşi iptal et">${ikon('x')}</button>` : ''}
+          <button class="icon-btn danger" data-del="${j.id}" title="İşi sil" aria-label="İşi sil">${ikon('trash')}</button>
+        </div></td></tr>`).join('') : `<tr><td colspan="5">${bosDurum('check-square', 'Henüz iş yok',
+          'Asansör bakımı, boya, bahçe düzenlemesi gibi işleri buradan takip edin. Arıza bildirimleri de "İşe dönüştür" ile buraya gelir.',
+          `<button class="btn btn-sm" onclick="document.getElementById('job-add').click()">${ikon('plus')}İlk işi ekle</button>`)}</td></tr>`}</tbody></table>
+    </div>`;
+
+  const jobFiltrele = (f) => el('job-body').querySelectorAll('tr[data-durum]').forEach(tr => {
+    const d = tr.dataset.durum;
+    tr.style.display = !f || (f === 'acik' ? ['planned', 'in_progress'].includes(d) : d === f) ? '' : 'none';
+  });
+  jobFiltrele('acik');
+  el('job-filter').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-f]'); if (!b) return;
+    el('job-filter').querySelectorAll('.seg').forEach(x => x.classList.toggle('active', x === b));
+    jobFiltrele(b.dataset.f);
+  });
+
+  // Durum değiştirme: satırdaki Başlat / Tamamla / İptal düğmeleri
+  async function isDurumunuDegistir(id, status) {
+    const job = list.find(j => j.id === id);
+    if (status === 'completed' && job) { openJobPaymentModal(job); return; }
+    if (status === 'cancelled' && !confirm('Bu iş iptal edilsin mi?')) return;
+    const payload = { status, is_active: status==='in_progress' };
+    const { error } = await supabase.from('building_jobs').update(payload).eq('id', id);
+    if (error) return toast(error.message, true);
+    if (status === 'cancelled') {
+      // İptal edilen işin (eski modelden kalma) onay bekleyen ödemesi varsa reddet
+      await supabase.from('transactions').update({ status:'rejected', approved_by:S.user.id, approved_at:new Date().toISOString() })
+        .eq('related_id', id).eq('status', 'pending').eq('category', 'job');
+      await supabase.from('help_requests').delete().in('building_id', siteBIds()).eq('related_id', id);
+    }
+    toast(status === 'in_progress' ? 'İş başlatıldı' : status === 'cancelled' ? 'İş iptal edildi' : 'İş durumu güncellendi');
+    renderJobs();
+  }
+  el('job-body').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-set]'); if (!b) return;
+    isDurumunuDegistir(b.dataset.id, b.dataset.set);
+  });
   el('job-add').addEventListener('click', () => {
     // İşin kapsamı: bloğa özel iş, ücreti o bloğun defterine yazılır
     const jobState = { hedefBlok: null };
-    openModal('Yeni İş', `
-      <div class="field"><label>İş Adı</label><input id="j-title" placeholder="Örn: Asansör bakımı"></div>
-      <div class="field"><label>Açıklama</label><textarea id="j-desc" rows="2"></textarea></div>
+    openModal('Yeni iş', `
+      <div class="field"><label>Ne yapılacak?</label><input id="j-title" placeholder="Örn: Asansör bakımı"></div>
+      <div class="field"><label>Açıklama (isteğe bağlı)</label><textarea id="j-desc" rows="2" placeholder="Detay, adres, not…"></textarea></div>
       ${!cokBloklu() ? '' : `<div class="field"><label>Bu iş hangi blok için?</label>
         <div class="cat-grid" id="j-scope">
           <button type="button" class="cat-chip active" data-blok="">Tüm Site</button>
           ${S.buildings.map(b => `<button type="button" class="cat-chip" data-blok="${b.id}">${esc(b.name)}</button>`).join('')}
         </div>
-        <p class="muted" style="font-size:12.5px;margin-top:6px" id="j-scope-info">
+        <p class="hint" style="margin-top:6px" id="j-scope-info">
           Tüm siteyi ilgilendiren ortak iş olarak kaydedilir.</p></div>`}
       <div class="grid-2">
-        <div class="field"><label>Sorumlu Kişi/Firma</label><input id="j-assignee"></div>
-        <div class="field"><label>Ücret (₺)</label><input id="j-price" inputmode="decimal" value="0"></div>
+        <div class="field"><label>Kim yapacak?</label><input id="j-assignee" placeholder="Usta veya firma adı"></div>
+        <div class="field"><label>Tahmini ücret (₺)</label><input id="j-price" inputmode="decimal" value="0"></div>
       </div>
-      <p class="muted" style="font-size:12.5px;margin-bottom:14px">Buradaki ücret plandır; iş <strong>tamamlanırken</strong> gerçekte ödenen tutar sorulur ve kasaya o tutar işlenir.</p>
+      <p class="hint" style="margin-bottom:14px">Bu tutar tahmindir. İşi tamamlarken gerçekte ödenen tutarı sorarız, kasaya o işlenir.</p>
       <button class="btn btn-block" id="j-save">Kaydet</button>`);
     el('j-scope')?.addEventListener('click', (e) => {
       const chip = e.target.closest('button[data-blok]'); if (!chip) return;
@@ -3239,26 +3461,6 @@ async function renderJobs() {
         closeModal(); toast('İş oluşturuldu'); renderJobs();
       } catch (err) { toast(err.message, true); el('j-save').disabled=false; }
     });
-  });
-  el('job-body').addEventListener('change', async (e) => {
-    const sel = e.target.closest('select[data-status]'); if (!sel || !sel.value) return;
-    const status = sel.value;
-    const job = list.find(j => j.id === sel.dataset.status);
-    if (status === 'completed' && job) {
-      sel.value = '';
-      openJobPaymentModal(job); // Ödeme sorusu: gerçekleşen tutar kasaya işlenir
-      return;
-    }
-    const payload = { status, is_active: status==='in_progress' };
-    const { error } = await supabase.from('building_jobs').update(payload).eq('id', sel.dataset.status);
-    if (error) return toast(error.message, true);
-    if (status === 'cancelled') {
-      // İptal edilen işin (eski modelden kalma) onay bekleyen ödemesi varsa reddet
-      await supabase.from('transactions').update({ status:'rejected', approved_by:S.user.id, approved_at:new Date().toISOString() })
-        .eq('related_id', sel.dataset.status).eq('status', 'pending').eq('category', 'job');
-      await supabase.from('help_requests').delete().in('building_id', siteBIds()).eq('related_id', sel.dataset.status);
-    }
-    toast('İş durumu güncellendi'); renderJobs();
   });
   /* İş emri: işe başlamadan önce firmaya verilen yazı.
      Teslim tutanağı: iş bittikten sonra ödenen tutarla birlikte imzalanan belge.
@@ -3321,20 +3523,19 @@ async function renderJobs() {
 // planlanan ücret bilgidir; burada GERÇEKTE ödenen tutar sorulur ve kasa o tutarla güncellenir.
 function openJobPaymentModal(job) {
   const state = { paid: Number(job.price) > 0 };
-  openModal('✅ İşi Tamamla', `
-    <p class="muted" style="font-size:13px;margin-bottom:14px;">
-      <strong>${esc(job.title)}</strong><br>Planlanan ücret: ${TL(job.price)}
-    </p>
+  openModal('İşi tamamla', `
+    <div class="modal-summary"><span class="ico-tile green">${ikon('check')}</span>
+      <div><b>${esc(job.title)}</b><span class="hint">Tahmini ücret: ${TL(job.price)}</span></div></div>
     <div class="field"><label>Ücret ödendi mi?</label>
       <div class="seg-tabs" id="jp-toggle" style="margin:0;">
-        <button type="button" class="seg ${state.paid?'active':''}" data-paid="1">Evet, Ödendi</button>
-        <button type="button" class="seg ${state.paid?'':'active'}" data-paid="0">Hayır</button>
+        <button type="button" class="seg ${state.paid?'active':''}" data-paid="1">Evet, ödendi</button>
+        <button type="button" class="seg ${state.paid?'':'active'}" data-paid="0">Hayır, ödenmedi</button>
       </div>
     </div>
     <div class="field" id="jp-amount-field" style="${state.paid?'':'display:none'}">
       <label>Gerçekte ödenen tutar (₺)</label>
       <input id="jp-amount" inputmode="decimal" value="${Number(job.price) > 0 ? job.price : ''}" placeholder="Örn: 6000">
-      <p class="muted" style="font-size:12px;margin-top:6px;">Planlanandan farklıysa gerçek tutarı yazın; kasa ve işin ücreti bu tutarla güncellenir.</p>
+      <p class="hint" style="margin-top:6px;">Tahminden farklıysa gerçek tutarı yazın; kasadan bu tutar düşülür.</p>
     </div>
     <button class="btn btn-block" id="jp-save">Tamamla</button>`);
 
@@ -3453,24 +3654,26 @@ async function postAnnouncementToChat(title, detail) {
 }
 
 /* ============ 9) KURALLAR (mobil ile aynı akış: kategoriler + hazır şablonlar) ============ */
+// Web'de kategori emojisi yerine çizgi ikon (DB'deki icon alanı mobil için korunur)
+const KURAL_IKON = { silence: 'volume-x', waste: 'trash', parking: 'car', pets: 'paw', common: 'building', other: 'list' };
 async function renderRules() {
   if (!needBuilding()) return;
   const { data } = await supabase.from('building_rules').select('*').in('building_id', siteBIds()).order('created_at', { ascending:false });
   const list = data || [];
   const catOf = (id) => RULE_CATEGORIES.find(c => c.id === id);
-  const catLabel = (id) => { const c = catOf(id); return c ? `${c.icon} ${c.name}` : esc(id || 'Diğer'); };
+  const catLabel = (id) => { const c = catOf(id); return c ? esc(c.name) : esc(id || 'Diğer'); };
 
   const ruleCards = list.map(r => `
     <div class="rule-card">
-      <div class="rule-icon">${esc(r.icon || (catOf(r.category)?.icon ?? '📋'))}</div>
+      <div class="ico-tile ${r.priority==='critical' ? 'red' : ''}">${ikon(KURAL_IKON[r.category] || 'list')}</div>
       <div class="lr-body" style="flex:1">
-        <div class="lr-title">${esc(r.title)} ${r.priority==='critical'?'<span class="badge b-red">Kritik</span>':'<span class="badge b-blue">Bilgi</span>'}</div>
+        <div class="lr-title">${esc(r.title)} ${r.priority==='critical'?'<span class="badge b-red">Kritik</span>':'<span class="badge b-gray">Bilgi</span>'}</div>
         <div class="lr-meta">${catLabel(r.category)}</div>
         <div class="lr-text">${esc(r.description)}</div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:6px;">
-        <button class="btn btn-sm btn-ghost" data-edit="${r.id}">Düzenle</button>
-        <button class="btn btn-sm btn-outline-red" data-del="${r.id}">Sil</button>
+      <div class="row-actions">
+        <button class="icon-btn" data-edit="${r.id}" title="Düzenle" aria-label="Kuralı düzenle">${ikon('edit')}</button>
+        <button class="icon-btn danger" data-del="${r.id}" title="Sil" aria-label="Kuralı sil">${ikon('trash')}</button>
       </div>
     </div>`).join('');
 
@@ -3480,25 +3683,24 @@ async function renderRules() {
     if (!tpls.length) return '';
     return `
       <div class="tpl-group">
-        <div class="tpl-group-title">${cat.icon} ${cat.name}</div>
+        <div class="tpl-group-title inline-ico">${ikon(KURAL_IKON[cat.id] || 'list')}${esc(cat.name)}</div>
         <div class="tpl-chips">${tpls.map((t) => `
           <button class="tpl-chip" data-tpl="${RULE_TEMPLATES.indexOf(t)}" title="${esc(t.description)}">
-            ${esc(t.icon)} ${esc(t.title)} ${t.priority==='critical'?'<span class="tpl-crit">!</span>':''}
+            ${ikon('plus')}${esc(t.title)} ${t.priority==='critical'?'<span class="tpl-crit">!</span>':''}
           </button>`).join('')}</div>
       </div>`;
   }).join('');
 
   $content().innerHTML = `
-    <div class="page-head"><h2>Site Kuralları</h2>
-      <div class="tools">
-        ${list.length ? `<button class="btn btn-ghost" id="rule-duyur">📢 Sakinlere Duyur</button>
-        <button class="btn btn-ghost" id="rule-belge">📄 Kural Kitapçığı</button>` : ''}
-        <button class="btn" id="rule-add">+ Yeni Kural</button>
-      </div>
-    </div>
-    <div class="card" id="rule-list">${list.length ? ruleCards : '<p class="t-empty">Henüz kural yok — aşağıdaki hazır şablonlardan seçerek başlayabilirsiniz</p>'}</div>
+    ${sayfaBasi('Site Kuralları',
+      'Sessizlik saatleri, çöp, otopark… Kurallar sakinlerin uygulamasında görünür. Hazır şablonlardan tek tıkla ekleyebilirsiniz.',
+      `${list.length ? `<button class="btn btn-ghost" id="rule-belge">${ikon('printer')}Kural kitapçığı</button>
+        <button class="btn btn-ghost" id="rule-duyur">${ikon('send')}Sakinlere duyur</button>` : ''}
+        <button class="btn" id="rule-add">${ikon('plus')}Yeni kural</button>`)}
+    <div class="card" id="rule-list">${list.length ? ruleCards : bosDurum('list', 'Henüz kural yok',
+      'Aşağıdaki hazır kurallardan birine tıklayın; metni kontrol edip kaydedin.')}</div>
     <div class="card" id="tpl-list">
-      <h3>⚡ Hızlı Şablonlar <span class="muted" style="font-weight:600;font-size:13px;">(${RULE_TEMPLATES.length} hazır kural — seçip düzenleyebilirsiniz)</span></h3>
+      <div class="card-head"><h3>Hazır kurallar</h3><span class="hint">${RULE_TEMPLATES.length} şablon — tıklayın, düzenleyin, kaydedin</span></div>
       ${templateGroups}
     </div>`;
 
@@ -3525,7 +3727,7 @@ async function renderRules() {
         const grup = list.filter(r => r.category === cat.id);
         if (!grup.length) return null;
         return {
-          tip: 'tablo', baslik: `${cat.icon} ${cat.name}`,
+          tip: 'tablo', baslik: cat.name,
           kolonlar: [{ baslik: 'Kural', genislik: 52 }, { baslik: 'Açıklama' }, { baslik: 'Öncelik', genislik: 22 }],
           satirlar: grup.map(r => [r.title, r.description || '—', r.priority === 'critical' ? 'Kritik' : 'Bilgi']),
         };
@@ -3588,16 +3790,16 @@ function openRuleModal(rule) {
     priority: rule?.priority || 'info',
   };
 
-  openModal(isEdit ? 'Kuralı Düzenle' : (rule ? 'Şablondan Kural Ekle' : 'Yeni Kural Ekle'), `
+  openModal(isEdit ? 'Kuralı düzenle' : (rule ? 'Hazır kuralı ekle' : 'Yeni kural'), `
     <div class="field"><label>Kategori</label>
       <div class="cat-grid" id="r-cats">${RULE_CATEGORIES.map(c => `
-        <button type="button" class="cat-chip ${c.id===state.category?'active':''}" data-cat="${c.id}" data-icon="${c.icon}">${c.icon} ${c.name}</button>`).join('')}
+        <button type="button" class="cat-chip ${c.id===state.category?'active':''}" data-cat="${c.id}" data-icon="${c.icon}">${esc(c.name)}</button>`).join('')}
       </div>
     </div>
-    <div class="field"><label>Önem Derecesi</label>
+    <div class="field"><label>Önem derecesi</label>
       <div class="prio-row" id="r-prios">
-        <button type="button" class="prio-chip ${state.priority==='info'?'active':''}" data-prio="info">ℹ️ Bilgi</button>
-        <button type="button" class="prio-chip ${state.priority==='critical'?'active':''}" data-prio="critical">⚠️ Kritik</button>
+        <button type="button" class="prio-chip ${state.priority==='info'?'active':''}" data-prio="info">Bilgi</button>
+        <button type="button" class="prio-chip ${state.priority==='critical'?'active':''}" data-prio="critical">Kritik (uyulması zorunlu)</button>
       </div>
     </div>
     <div class="field"><label>Başlık</label><input id="r-title" value="${esc(rule?.title || '')}" placeholder="Örn: Sessizlik Saatleri"></div>
@@ -3639,43 +3841,50 @@ async function renderSettings() {
   const s = S.site || b; // site kaydı yoksa (eski veri) binaya düş
   const { data: feeSettings } = await supabase.from('building_monthly_fee_settings').select('*').eq('building_id', bId()).maybeSingle();
   const blockOptions = S.buildings.map(x => `<option value="${x.id}" ${x.id === bId() ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+  const ortak = S.site && S.site.site_type === 'site' ? '<span class="badge b-gray">Tüm site için ortak</span>' : '';
   $content().innerHTML = `
-    <div class="page-head"><h2>${S.site ? 'Site Ayarları' : 'Bina Ayarları'}</h2></div>
-    <div class="card">
-      <h3>Genel Bilgiler ${S.site && S.site.site_type === 'site' ? '<span class="muted" style="font-size:12px;font-weight:400;">(tüm site için ortak)</span>' : ''}</h3>
-      <div class="grid-2">
-        <div class="field"><label>${S.site ? 'Site Adı' : 'Bina Adı'}</label><input id="s-name" value="${esc(s.name||'')}"></div>
-        <div class="field"><label>Adres</label><input id="s-addr" value="${esc(s.address||'')}"></div>
-        <div class="field"><label>Onay Gerektiren Harcama Limiti (₺)</label><input id="s-threshold" inputmode="decimal" value="${s.approval_threshold||5000}"></div>
-        <div class="field"><label>Varsayılan Aidat Tutarı (₺)${S.buildings.length > 1 ? ' — seçili blok' : ''}</label><input id="s-fee" inputmode="decimal" value="${feeSettings?.default_amount||0}"></div>
-      </div>
-      <button class="btn" id="s-save-general">Kaydet</button>
-    </div>
+    ${sayfaBasi(S.site ? 'Site Ayarları' : 'Bina Ayarları', 'Sitenizin temel bilgileri, aidat tutarı, banka hesabı ve güvenlik görevlisi girişi.')}
 
-    ${S.buildings.length > 1 ? `<div class="card">
-      <h3>🏢 Blok Seçimi</h3>
-      <p class="muted" style="margin-top:-8px;margin-bottom:12px;font-size:13px;">Güvenlik girişi ve varsayılan aidat blok bazlıdır; düzenlemek istediğiniz bloğu seçin. Blok adlarını Genel Bakış'taki maketten değiştirebilirsiniz.</p>
-      <select class="building-dropdown" id="s-block-select" style="max-width:280px;">${blockOptions}</select>
+    ${S.buildings.length > 1 ? `<div class="invite-card">
+      <span class="ico-tile">${ikon('building')}</span>
+      <div class="invite-text"><b>Blok seçimi</b><span>Varsayılan aidat ve güvenlik girişi bloğa göre ayrıdır. Düzenlemek istediğiniz bloğu seçin.</span></div>
+      <select class="building-dropdown" id="s-block-select">${blockOptions}</select>
     </div>` : ''}
 
-    <div class="card">
-      <h3>🛡️ Güvenlik Görevlisi Giriş Bilgileri${S.buildings.length > 1 ? ` — ${esc(b.name)}` : ''}</h3>
-      <p class="muted" style="margin-top: -8px; margin-bottom: 16px; font-size: 13px;">Sitenizde/binanızda çalışan güvenlik görevlilerinin panele girmesi için kullanıcı adı ve şifre belirleyin.</p>
-      <div class="grid-2">
-        <div class="field"><label>Güvenlik Kullanıcı Adı</label><input id="s-sec-user" value="${esc(b.security_username||'')}" placeholder="Örn: guvenlik-a-blok"></div>
-        <div class="field"><label>Güvenlik Şifresi</label><input id="s-sec-pass" type="text" value="${esc(b.security_password||'')}" placeholder="En az 6 karakterli bir şifre"></div>
+    <div class="settings-sec">
+      <div class="settings-info"><h3>Genel bilgiler</h3><p>Sakinlerin uygulamada gördüğü ad ve adres. Onay limiti üstündeki harcamalar önce onayınıza düşer.</p>${ortak}</div>
+      <div class="card">
+        <div class="grid-2">
+          <div class="field"><label>${S.site ? 'Site adı' : 'Bina adı'}</label><input id="s-name" value="${esc(s.name||'')}"></div>
+          <div class="field"><label>Adres</label><input id="s-addr" value="${esc(s.address||'')}"></div>
+          <div class="field"><label>Onay gerektiren harcama limiti</label><div class="input-affix wide"><input id="s-threshold" inputmode="decimal" value="${s.approval_threshold||5000}"><span>₺</span></div></div>
+          <div class="field"><label>Aylık aidat tutarı${S.buildings.length > 1 ? ` — ${esc(b.name)}` : ''}</label><div class="input-affix wide"><input id="s-fee" inputmode="decimal" value="${feeSettings?.default_amount||0}"><span>₺</span></div></div>
+        </div>
+        <div class="card-foot"><button class="btn" id="s-save-general">Kaydet</button></div>
       </div>
-      <button class="btn" id="s-save-security">Güvenlik Bilgilerini Kaydet</button>
     </div>
 
-    <div class="card">
-      <h3>Banka / IBAN Bilgileri ${S.site && S.site.site_type === 'site' ? '<span class="muted" style="font-size:12px;font-weight:400;">(tüm site için ortak)</span>' : ''}</h3>
-      <div class="grid-2">
-        <div class="field"><label>IBAN</label><input id="s-iban" value="${esc(s.iban||'')}"></div>
-        <div class="field"><label>Banka Adı</label><input id="s-bank" value="${esc(s.bank_name||'')}"></div>
-        <div class="field"><label>Hesap Sahibi</label><input id="s-holder" value="${esc(s.account_holder||'')}"></div>
+    <div class="settings-sec">
+      <div class="settings-info"><h3>Banka hesabı</h3><p>Sakinler aidatı bu hesaba yatırır; IBAN uygulamada sakinlere gösterilir.</p>${ortak}</div>
+      <div class="card">
+        <div class="field"><label>IBAN</label><input id="s-iban" value="${esc(s.iban||'')}" placeholder="TR00 0000 0000 0000 0000 0000 00"></div>
+        <div class="grid-2">
+          <div class="field"><label>Banka adı</label><input id="s-bank" value="${esc(s.bank_name||'')}"></div>
+          <div class="field"><label>Hesap sahibi</label><input id="s-holder" value="${esc(s.account_holder||'')}"></div>
+        </div>
+        <div class="card-foot"><button class="btn" id="s-save-bank">Kaydet</button></div>
       </div>
-      <button class="btn" id="s-save-bank">Kaydet</button>
+    </div>
+
+    <div class="settings-sec">
+      <div class="settings-info"><h3>Güvenlik görevlisi girişi${S.buildings.length > 1 ? ` — ${esc(b.name)}` : ''}</h3><p>Görevli bu kullanıcı adı ve şifreyle panelin "Güvenlik" sekmesinden girer; yalnızca ziyaretçi kaydı ekranını görür.</p></div>
+      <div class="card">
+        <div class="grid-2">
+          <div class="field"><label>Kullanıcı adı</label><input id="s-sec-user" value="${esc(b.security_username||'')}" placeholder="Örn: guvenlik-a-blok"></div>
+          <div class="field"><label>Şifre</label><input id="s-sec-pass" type="text" value="${esc(b.security_password||'')}" placeholder="En az 4 karakter"></div>
+        </div>
+        <div class="card-foot"><button class="btn" id="s-save-security">Kaydet</button></div>
+      </div>
     </div>`;
 
   const blockSel = el('s-block-select');
@@ -3773,84 +3982,79 @@ async function renderReports() {
   const yilOpts = [yil-1, yil, yil+1].map(y => `<option value="${y}" ${y === yil ? 'selected' : ''}>${y}</option>`).join('');
 
   $content().innerHTML = `
-    <div class="page-head"><h2>Belge Merkezi</h2>
-      <div class="tools"><button class="btn btn-ghost" id="rep-goto-archive">🗄 Arşive Git</button></div>
-    </div>
-    <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
-      Buradan üretilen her belge sıra numarası alır, imza alanlarıyla birlikte indirilir ve
-      <strong>Belgeler &amp; Devir</strong> arşivine kaydedilir. Böylece yönetici değişse bile
-      dönem boyunca üretilen tüm evrak tek yerde kalır.
-    </p>
+    ${sayfaBasi('Raporlar',
+      'Tek tıkla resmî PDF üretin. Her belge numaralanır, imza alanıyla iner ve Belgeler &amp; Devir arşivine kaydedilir.',
+      `<button class="btn btn-ghost" id="rep-goto-archive">${ikon('folder')}Arşive git</button>`)}
 
-    <h3 class="rep-group">Mali Belgeler</h3>
+    <h3 class="rep-group">Mali raporlar</h3>
     <div class="rep-grid">
       <div class="card rep-card">
-        <div class="rep-ico">📊</div>
+        <div class="rep-ico">${ikon('chart')}</div>
         <h3>Kasa Gelir–Gider Raporu</h3>
         <p class="muted">Seçtiğiniz aralıktaki tüm kasa hareketleri, kategori dağılımı ve net durum.</p>
         <div class="grid-2">
           <div class="field" style="margin:0"><label>Başlangıç</label><input type="date" id="rep-cash-start" value="${yil}-01-01" /></div>
           <div class="field" style="margin:0"><label>Bitiş</label><input type="date" id="rep-cash-end" value="${todayISO()}" /></div>
         </div>
-        <button class="btn btn-block" id="btn-rep-cash">Belge Oluştur</button>
+        <button class="btn btn-block" id="btn-rep-cash">${ikon('download')}PDF oluştur</button>
       </div>
 
       <div class="card rep-card">
-        <div class="rep-ico">₺</div>
+        <div class="rep-ico">${ikon('wallet')}</div>
         <h3>Aidat Tahakkuk ve Tahsilat</h3>
         <p class="muted">Seçtiğiniz ayda dairelerin aidat durumu, ödeyen/ödemeyen listesi ve tahsilat oranı.</p>
         <div class="grid-2">
           <div class="field" style="margin:0"><label>Ay</label><select id="rep-fee-month">${ayOpts}</select></div>
           <div class="field" style="margin:0"><label>Yıl</label><select id="rep-fee-year">${yilOpts}</select></div>
         </div>
-        <button class="btn btn-block" id="btn-rep-fees">Belge Oluştur</button>
+        <button class="btn btn-block" id="btn-rep-fees">${ikon('download')}PDF oluştur</button>
       </div>
 
       <div class="card rep-card">
-        <div class="rep-ico">⚠️</div>
+        <div class="rep-ico">${ikon('alert')}</div>
         <h3>Borç Raporu</h3>
         <p class="muted">Tüm sitedeki vadesi geçmiş ödenmemiş aidatlar, daire bazında.</p>
-        <button class="btn btn-block" id="btn-rep-debt">Belge Oluştur</button>
+        <button class="btn btn-block" id="btn-rep-debt">${ikon('download')}PDF oluştur</button>
       </div>
     </div>
 
-    <h3 class="rep-group">Yönetim Belgeleri</h3>
+    <h3 class="rep-group">Yönetim belgeleri</h3>
     <div class="rep-grid">
       <div class="card rep-card">
-        <div class="rep-ico">🗓</div>
+        <div class="rep-ico">${ikon('calendar')}</div>
         <h3>Yasal Yükümlülük Durumu</h3>
         <p class="muted">Yönetim takvimindeki gecikmiş, yaklaşan ve tamamlanmış yükümlülüklerin dökümü.</p>
-        <button class="btn btn-block" id="btn-rep-tasks">Belge Oluştur</button>
+        <button class="btn btn-block" id="btn-rep-tasks">${ikon('download')}PDF oluştur</button>
       </div>
 
       <div class="card rep-card">
-        <div class="rep-ico">📦</div>
+        <div class="rep-ico">${ikon('box')}</div>
         <h3>Demirbaş Sayım Listesi</h3>
         <p class="muted">Sitedeki tüm demirbaşlar, garanti ve bakım durumlarıyla — devir teslimin eki.</p>
-        <button class="btn btn-block" id="btn-rep-assets">Belge Oluştur</button>
+        <button class="btn btn-block" id="btn-rep-assets">${ikon('download')}PDF oluştur</button>
       </div>
 
       <div class="card rep-card">
-        <div class="rep-ico">🛠</div>
+        <div class="rep-ico">${ikon('check-square')}</div>
         <h3>İş ve Arıza Dökümü</h3>
         <p class="muted">Dönem içinde açılan arızalar, yapılan işler ve bunlara ödenen tutarlar.</p>
         <div class="grid-2">
           <div class="field" style="margin:0"><label>Başlangıç</label><input type="date" id="rep-job-start" value="${yil}-01-01" /></div>
           <div class="field" style="margin:0"><label>Bitiş</label><input type="date" id="rep-job-end" value="${todayISO()}" /></div>
         </div>
-        <button class="btn btn-block" id="btn-rep-jobs">Belge Oluştur</button>
+        <button class="btn btn-block" id="btn-rep-jobs">${ikon('download')}PDF oluştur</button>
       </div>
     </div>
 
     <h3 class="rep-group">Yıllık</h3>
     <div class="rep-grid">
       <div class="card rep-card rep-card-wide">
-        <div class="rep-ico">📘</div>
+        <div class="rep-ico">${ikon('book')}</div>
         <h3>Yıllık Faaliyet Raporu</h3>
         <p class="muted">Genel kurula sunulan kapsamlı rapor: mali durum, tahsilat, borçlar, yapılan işler,
         alınan kararlar, denetimler ve yükümlülükler tek belgede toplanır.</p>
         <div class="field" style="max-width:200px"><label>Yıl</label><select id="rep-year-annual">${yilOpts}</select></div>
-        <button class="btn btn-block" id="btn-rep-annual">Faaliyet Raporunu Oluştur</button>
+        <button class="btn btn-block" id="btn-rep-annual">${ikon('download')}Faaliyet raporunu oluştur</button>
       </div>
     </div>`;
 
@@ -4406,8 +4610,8 @@ async function renderSubscription() {
 
   if (priceRes.error) {
     $content().innerHTML = `
-      <div class="page-head"><h2>💳 Abonelik</h2></div>
-      <div class="card"><p class="t-empty">Abonelik altyapısı henüz aktif değil (veritabanı güncellemesi bekleniyor).</p></div>`;
+      ${sayfaBasi('Abonelik')}
+      <div class="card">${bosDurum('card', 'Abonelik altyapısı henüz aktif değil', 'Veritabanı güncellemesi bekleniyor.')}</div>`;
     return;
   }
 
@@ -4431,71 +4635,75 @@ async function renderSubscription() {
   const state = { months: 1 };
   const total = () => monthly * state.months;
 
+  const durumAdi = isActive ? 'Aktif' : inTrial ? 'Ücretsiz deneme' : (b.subscription_type === 'free' || !expiry ? 'Ücretsiz plan' : 'Süresi doldu');
+  const durumAlt = inTrial
+    ? `Deneme sürenizin bitmesine <strong>${trialDaysLeft()} gün</strong> var. Kesintisiz devam için aşağıdan ödeyebilirsiniz.`
+    : expiry ? `Bitiş tarihi <strong>${dmy(expiry)}</strong>${isActive ? ` · ${daysLeft} gün kaldı` : ''}` : '';
+
   $content().innerHTML = `
-    <div class="page-head"><h2>💳 Abonelik</h2></div>
+    ${sayfaBasi('Abonelik', 'Tek abonelik sitedeki tüm binaları kapsar. Sakinler için uygulama her zaman ücretsizdir.')}
 
-    <div class="wallet-card ${access ? '' : 'neg'}">
-      <div class="wallet-head">${isActive ? '✅' : inTrial ? '🎁' : '⚠️'} <span>${esc(b.name)}${S.site && S.site.site_type === 'site' ? ` (${S.buildings.length} bina)` : ''} — Abonelik Durumu</span></div>
-      <div class="wallet-amount" style="font-size:26px;">${isActive ? 'Aktif' : inTrial ? 'Ücretsiz Deneme' : (b.subscription_type === 'free' || !expiry ? 'Ücretsiz Plan' : 'Süresi Doldu')}</div>
-      ${inTrial
-        ? `<div class="muted" style="margin-top:6px;font-size:13.5px;">Deneme süreniz <strong>${trialDaysLeft()} gün</strong> sonra doluyor. Kesintisiz devam için aşağıdan kart ile ödeyin.</div>`
-        : (expiry ? `<div class="muted" style="margin-top:6px;font-size:13.5px;">Bitiş: <strong>${dmy(expiry)}</strong>${isActive ? ` · ${daysLeft} gün kaldı` : ''}</div>` : '')}
-    </div>
-
-    <div class="card">
-      <h3>🔑 Bina Davet Kodları</h3>
-      ${access
-        ? `<p class="muted" style="font-size:12.5px;margin-top:-4px;margin-bottom:12px;">${inTrial ? '🎁 Deneme sürümünüz aktif — ' : ''}Bu kodları sakinlerinizle paylaşın; her sakin kendi binasının koduyla uygulamaya katılır.</p>
-           <table><thead><tr><th>Bina</th><th>Daire</th><th>Davet Kodu</th></tr></thead>
-           <tbody>${S.buildings.map(x => `<tr>
-             <td>${esc(x.name)}</td>
-             <td>${x.apartment_count || 0}</td>
-             <td><strong style="letter-spacing:1px;">${esc(x.building_code || '—')}</strong>
-               <button class="btn btn-sm btn-ghost copy-code" data-code="${esc(x.building_code || '')}" style="margin-left:8px;">Kopyala</button></td>
-           </tr>`).join('')}</tbody></table>`
-        : `<div class="info-banner" style="margin:0;">
-             🔒 Deneme süreniz doldu. Davet kodları <strong>ödeme yapıldıktan sonra</strong> yeniden görünür.
-           </div>`}
-    </div>
-
-    <div class="card">
-      <h3>Aboneliği Uzat</h3>
-
-      <div class="sub-breakdown">
-        <div class="sub-line"><span>İşletim ücreti (sabit)</span><span>${TL(pricing.base_fee)}</span></div>
-        <div class="sub-line"><span>Daire başına ücret × ${aptCount} daire</span><span>${TL(Number(pricing.per_apartment_fee) * aptCount)}</span></div>
-        <div class="sub-line sub-line-total"><span>Aylık toplam</span><span>${TL(monthly)}</span></div>
+    <div class="plan-hero ${access ? (isActive ? 'ok' : 'trial') : 'bad'}">
+      <span class="ico-tile ${access ? (isActive ? 'green' : 'brand') : 'red'}">${ikon(isActive ? 'check' : inTrial ? 'gift' : 'alert')}</span>
+      <div class="plan-hero-text">
+        <span class="kpi-lbl">${esc(b.name)}${S.site && S.site.site_type === 'site' ? ` · ${S.buildings.length} bina` : ''} · ${aptCount} daire</span>
+        <b>${durumAdi}</b>
+        ${durumAlt ? `<span class="hint">${durumAlt}</span>` : ''}
       </div>
-      <p class="muted" style="font-size:12.5px;margin:10px 0 18px;">Abonelik SİTE bazlıdır: tek ödeme sitedeki tüm binaları kapsar. Daire sayınız değişirse sonraki ödemede yeni sayı üzerinden hesaplanır.</p>
+      <div class="plan-hero-price"><span class="kpi-lbl">Aylık ücret</span><b>${TL(monthly)}</b></div>
+    </div>
 
-      <div class="field"><label>Kaç ay ödemek istersiniz?</label>
-        <div class="cat-grid" id="sub-months">
-          ${[1,3,6,12].map(m => `<button type="button" class="cat-chip ${m===1?'active':''}" data-m="${m}">${m} Ay</button>`).join('')}
+    <div class="sub-grid">
+      <div class="card">
+        <div class="card-head"><h3>Aboneliği uzat</h3></div>
+        <div class="field"><label>Kaç ay ödemek istersiniz?</label>
+          <div class="seg-tabs" id="sub-months">
+            ${[1,3,6,12].map(m => `<button type="button" class="seg ${m===1?'active':''}" data-m="${m}">${m} ay</button>`).join('')}
+          </div>
         </div>
+        <div class="sub-total-row">
+          <span>Ödenecek tutar</span>
+          <strong id="sub-total">${TL(total())}</strong>
+        </div>
+        <button class="btn btn-block" id="sub-pay">${ikon('lock')}Kartla güvenli öde</button>
+        <p class="hint inline-ico" style="margin-top:12px;justify-content:center">${ikon('shield')}iyzico altyapısı · 3D Secure · kart bilgisi bize iletilmez</p>
+        <!-- iyzico Checkout Form buraya yüklenir -->
+        <div id="iyzico-form" style="margin-top:16px;"></div>
       </div>
 
-      <div class="sub-total-row">
-        <span>Ödenecek tutar</span>
-        <strong id="sub-total">${TL(total())}</strong>
+      <div class="card">
+        <div class="card-head"><h3>Ücret dökümü</h3></div>
+        <div class="sub-breakdown">
+          <div class="sub-line"><span>Sabit işletim ücreti</span><span>${TL(pricing.base_fee)}</span></div>
+          <div class="sub-line"><span>Daire başı ${TL(pricing.per_apartment_fee)} × ${aptCount} daire</span><span>${TL(Number(pricing.per_apartment_fee) * aptCount)}</span></div>
+          <div class="sub-line sub-line-total"><span>Aylık toplam</span><span>${TL(monthly)}</span></div>
+        </div>
+        <p class="hint" style="margin-top:12px">Ödeme tamamlandığı anda aboneliğiniz uzar, ayrıca onay beklemezsiniz. Daire sayınız değişirse sonraki ödeme yeni sayıya göre hesaplanır.</p>
       </div>
-      <button class="btn btn-block" id="sub-pay">💳 Kart ile Öde</button>
-      <div class="info-banner" style="margin-top:14px;margin-bottom:0;">
-        Ödeme güvenli iyzico altyapısıyla alınır; kart bilgileriniz bize iletilmez.
-        Ödeme tamamlandığı anda aboneliğiniz uzar ve davet kodlarınız açılır — ayrıca onay beklemezsiniz.
-      </div>
-      <!-- iyzico Checkout Form buraya yüklenir -->
-      <div id="iyzico-form" style="margin-top:16px;"></div>
     </div>
 
-    <div class="card">
-      <h3>Ödeme Geçmişi</h3>
-      <table><thead><tr><th>Tarih</th><th>Süre</th><th>Daire</th><th>Tutar</th><th>Dönem</th><th>Durum</th></tr></thead>
+    <div class="card ${access ? 'table-card' : ''}">
+      ${access
+        ? `<div class="table-toolbar"><div><h3 style="margin:0">Davet kodları</h3><p class="hint">Sakinler kendi binasının koduyla uygulamaya katılır.</p></div></div>
+           <table><thead><tr><th>Bina</th><th>Daire</th><th>Davet kodu</th><th></th></tr></thead>
+           <tbody>${S.buildings.map(x => `<tr>
+             <td><strong>${esc(x.name)}</strong></td>
+             <td>${x.apartment_count || 0}</td>
+             <td><span class="invite-code">${esc(x.building_code || '—')}</span></td>
+             <td class="t-right"><button class="btn btn-sm btn-ghost copy-code" data-code="${esc(x.building_code || '')}">${ikon('copy')}Kopyala</button></td>
+           </tr>`).join('')}</tbody></table>`
+        : bosDurum('lock', 'Davet kodları ödemeden sonra açılır', 'Deneme süreniz doldu. Ödeme yaptığınız anda kodlar yeniden görünür.')}
+    </div>
+
+    <div class="card table-card">
+      <div class="table-toolbar"><h3 style="margin:0">Ödeme geçmişi</h3></div>
+      <table><thead><tr><th>Tarih</th><th>Süre</th><th>Daire</th><th class="t-right">Tutar</th><th>Dönem</th><th>Durum</th></tr></thead>
       <tbody>${payments.length ? payments.map(p => `<tr>
         <td>${dmy(p.created_at)}</td><td>${p.months} ay</td><td>${p.apartment_count}</td>
-        <td>${TL(p.amount)}</td>
+        <td class="t-num">${TL(p.amount)}</td>
         <td>${p.period_start ? `${dmy(p.period_start)} → ${dmy(p.period_end)}` : '—'}</td>
         <td>${PAY_STATUS[p.status] || p.status}</td>
-      </tr>`).join('') : '<tr><td colspan="6" class="t-empty">Henüz ödeme kaydı yok</td></tr>'}</tbody></table>
+      </tr>`).join('') : `<tr><td colspan="6">${bosDurum('receipt', 'Henüz ödeme yok', 'Yaptığınız ödemeler faturalarıyla burada listelenir.')}</td></tr>`}</tbody></table>
     </div>`;
 
   // Davet kodu kopyalama
@@ -4515,7 +4723,7 @@ async function renderSubscription() {
   el('sub-months').addEventListener('click', (e) => {
     const chip = e.target.closest('button[data-m]'); if (!chip) return;
     state.months = Number(chip.dataset.m);
-    el('sub-months').querySelectorAll('.cat-chip').forEach(c => c.classList.toggle('active', c === chip));
+    el('sub-months').querySelectorAll('.seg').forEach(c => c.classList.toggle('active', c === chip));
     el('sub-total').textContent = TL(total());
   });
 
@@ -4550,12 +4758,12 @@ async function renderSubscription() {
         document.body.appendChild(s);
       });
       container.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      btn.textContent = '💳 Kart ile Öde';
+      btn.innerHTML = `${ikon('lock')}Kartla güvenli öde`;
       btn.disabled = false;
     } catch (err) {
       // iyzico anahtarları henüz eklenmemişse buraya düşer
       toast(err.message || 'Ödeme başlatılamadı', true);
-      btn.textContent = '💳 Kart ile Öde'; btn.disabled = false;
+      btn.innerHTML = `${ikon('lock')}Kartla güvenli öde`; btn.disabled = false;
     }
   });
 }
@@ -4641,41 +4849,39 @@ async function renderAssets() {
 
     return `
       <div class="asset-card">
-        <span class="badge ${warrantyText.includes('Bitti') ? 'b-red' : 'b-green'} asset-badge">${warrantyText}</span>
-        <h3 style="margin-top: 0; margin-bottom: 8px;">${esc(a.name)}${blokRozeti(a.building_id)}</h3>
-        <p class="muted" style="font-size: 13px;">Marka/Model: <strong>${esc(a.brand || '—')} ${esc(a.model || '—')}</strong></p>
-        <p class="muted" style="font-size: 13px;">Seri No: <strong>${esc(a.serial_number || '—')}</strong></p>
-        <p class="muted" style="font-size: 13px; margin-top: 10px;">Son Bakım: <strong>${lastMaint}</strong></p>
-        <p class="muted" style="font-size: 13px;">Bakım Aralığı: <strong>${a.maintenance_interval_months || '—'} ayda bir</strong></p>
-        <p class="muted" style="font-size: 13px;">Sonraki Bakım: ${sonraki}</p>
-
-        <div style="margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
-          <button class="btn btn-sm btn-ghost" onclick="window.editAssetMaintenance('${a.id}')">🔧 Bakım Yapıldı</button>
-          <button class="btn btn-sm btn-ghost" data-asset-edit="${a.id}">Düzenle</button>
-          <button class="btn btn-sm btn-outline-red" onclick="window.deleteAsset('${a.id}')">Sil</button>
+        <div class="asset-top">
+          <span class="ico-tile">${ikon('box')}</span>
+          <div style="flex:1;min-width:0">
+            <h3>${esc(a.name)}${blokRozeti(a.building_id)}</h3>
+            <span class="hint">${esc([a.brand, a.model].filter(Boolean).join(' ') || 'Marka / model girilmedi')}</span>
+          </div>
+          <div class="row-actions">
+            <button class="icon-btn" data-asset-edit="${a.id}" title="Düzenle" aria-label="Demirbaşı düzenle">${ikon('edit')}</button>
+            <button class="icon-btn danger" onclick="window.deleteAsset('${a.id}')" title="Sil" aria-label="Demirbaşı sil">${ikon('trash')}</button>
+          </div>
         </div>
+        <dl class="kv">
+          <dt>Sonraki bakım</dt><dd>${sonraki}</dd>
+          <dt>Son bakım</dt><dd>${lastMaint}</dd>
+          <dt>Bakım aralığı</dt><dd>${a.maintenance_interval_months ? `${a.maintenance_interval_months} ayda bir` : '—'}</dd>
+          <dt>Garanti</dt><dd><span class="badge ${warrantyText.includes('Bitti') ? 'b-red' : a.warranty_expiry ? 'b-green' : 'b-gray'}">${warrantyText}</span></dd>
+          ${a.serial_number ? `<dt>Seri no</dt><dd>${esc(a.serial_number)}</dd>` : ''}
+        </dl>
+        <button class="btn btn-sm btn-ghost btn-block-sm" onclick="window.editAssetMaintenance('${a.id}')">${ikon('check')}Bugün bakım yapıldı</button>
       </div>
     `;
   }).join('');
 
   $content().innerHTML = `
-    <div class="page-head">
-      <h2>Bina Demirbaşları</h2>
-      <div class="tools">
-        <button class="btn btn-ghost" id="asset-goto-tasks">🗓 Bakım Takvimi</button>
-        <button class="btn" id="asset-add">+ Yeni Demirbaş</button>
-      </div>
-    </div>
-    <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
-      Bakım aralığı girilen her demirbaş için <strong>Yönetim Takvimi'nde</strong> otomatik bir bakım görevi açılır.
-      "Bakım Yapıldı" dediğinizde görev kapanır ve bir sonraki dönem takvime yazılır — aynı bakımı iki yere girmenize gerek yok.
-    </p>
-    
+    ${sayfaBasi('Demirbaşlar',
+      'Asansör, kazan, hidrofor gibi ekipmanlar. Bakım aralığı girerseniz zamanı gelince Yönetim Takvimi hatırlatır.',
+      `<button class="btn btn-ghost" id="asset-goto-tasks">${ikon('calendar')}Bakım takvimi</button>
+       <button class="btn" id="asset-add">${ikon('plus')}Yeni demirbaş</button>`)}
+
     <div class="asset-grid" id="asset-grid">
-      ${rows || `<div class="card" style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--muted);">
-        <strong>Henüz demirbaş yok.</strong><br>
-        Asansör, kazan, hidrofor, jeneratör… Sağ üstteki <strong>Demirbaş Ekle</strong> ile girin;
-        bakım periyodu yazarsanız Yönetim Takvimi zamanı gelince hatırlatır.</div>`}
+      ${rows || `<div class="card" style="grid-column: 1/-1">${bosDurum('box', 'Henüz demirbaş yok',
+        'Asansör, kazan, hidrofor, jeneratör… Ekleyin; bakım periyodu yazarsanız zamanı gelince hatırlatırız.',
+        `<button class="btn btn-sm" onclick="document.getElementById('asset-add').click()">${ikon('plus')}İlk demirbaşı ekle</button>`)}</div>`}
     </div>
   `;
 
@@ -4818,13 +5024,13 @@ async function renderDecisions() {
         <div class="decision-head">
           <h3>${esc(d.title)}</h3>
           ${d.meeting_id ? `<button class="decision-doc linklike" data-act="toplanti" data-id="${d.id}"
-              style="border:none;background:none;padding:0;cursor:pointer;">📅 Genel kurul tutanağından</button>` : ''}
-          ${d.content_url ? `<a class="decision-doc" href="${esc(d.content_url)}" target="_blank" rel="noopener">📄 Belgeyi aç</a>` : ''}
+              style="border:none;background:none;padding:0;cursor:pointer;">${ikon('users')}Genel kurul tutanağından</button>` : ''}
+          ${d.content_url ? `<a class="decision-doc" href="${esc(d.content_url)}" target="_blank" rel="noopener">${ikon('file')}Belgeyi aç</a>` : ''}
         </div>
         <div class="decision-actions">
-          <button class="btn btn-sm" data-act="belge" data-id="${d.id}">📄 Belge</button>
-          <button class="btn btn-sm btn-ghost" data-act="edit" data-id="${d.id}">Düzenle</button>
-          <button class="btn btn-sm btn-outline-red" data-act="del" data-id="${d.id}">Sil</button>
+          <button class="btn btn-sm btn-ghost" data-act="belge" data-id="${d.id}">${ikon('printer')}PDF</button>
+          <button class="icon-btn" data-act="edit" data-id="${d.id}" title="Düzenle" aria-label="Kararı düzenle">${ikon('edit')}</button>
+          <button class="icon-btn danger" data-act="del" data-id="${d.id}" title="Sil" aria-label="Kararı sil">${ikon('trash')}</button>
         </div>
       </div>
       <div class="decision-body rich-content">${body(d.description)}</div>
@@ -4832,25 +5038,14 @@ async function renderDecisions() {
   `).join('');
 
   $content().innerHTML = `
-    <div class="page-head">
-      <h2>Karar Defteri</h2>
-      <div class="tools"><button class="btn" id="decision-add">+ Yeni Karar Yaz</button></div>
-    </div>
-    <p class="muted" style="margin:-8px 0 18px;font-size:13px;">
-      Toplantılarda alınan kararları buraya işleyin. Metni kalınlaştırabilir, başlık ve
-      madde listesi ekleyebilirsiniz — yönetici değişse bile kayıtlar burada kalır.
-    </p>
+    ${sayfaBasi('Karar Defteri',
+      'Toplantılarda alınan kararları tarihiyle buraya yazın. Yönetici değişse bile kayıtlar kaybolmaz, tek tıkla PDF olur.',
+      `<button class="btn" id="decision-add">${ikon('plus')}Yeni karar</button>`)}
 
     <div class="decision-list" id="decision-list">
-      ${items || `<div class="card decision-empty">
-        <div style="font-size:38px;line-height:1">📜</div>
-        <h3 style="margin:10px 0 6px;">Karar defteriniz henüz boş</h3>
-        <p class="muted" style="font-size:13.5px;max-width:380px;margin:0 auto 16px;">
-          İlk kararınızı yazarak başlayın. Genel kurul kararları, aidat artışı,
-          site kuralı değişikliği — hepsi tarihiyle birlikte burada saklanır.
-        </p>
-        <button class="btn" id="decision-add-empty">+ İlk Kararı Yaz</button>
-      </div>`}
+      ${items || `<div class="card">${bosDurum('book', 'Karar defteriniz henüz boş',
+        'Genel kurul kararları, aidat artışı, kural değişikliği… Hepsi tarihiyle birlikte burada saklanır.',
+        `<button class="btn btn-sm" id="decision-add-empty">${ikon('plus')}İlk kararı yaz</button>`)}</div>`}
     </div>
   `;
 
@@ -4899,10 +5094,10 @@ window.deleteDecision = async function(id) {
 // Karar Ekleme / Düzenleme Modalı (rec === null ise yeni kayıt)
 function openDecisionModal(rec) {
   const isEdit = !!rec;
-  openModal(isEdit ? 'Kararı Düzenle' : 'Yeni Karar Yaz', `
-    <div class="field"><label>Karar Başlığı *</label>
+  openModal(isEdit ? 'Kararı düzenle' : 'Yeni karar', `
+    <div class="field"><label>Karar başlığı</label>
       <input id="d-title" placeholder="Örn: 2026 Olağan Genel Kurul Kararları" value="${isEdit ? esc(rec.title) : ''}" required /></div>
-    <div class="field"><label>Karar Tarihi</label>
+    <div class="field"><label>Karar tarihi</label>
       <input id="d-date" type="date" value="${isEdit ? esc(rec.decision_date) : todayISO()}" /></div>
     <div class="field"><label>Karar Metni *</label>
       ${richEditorHTML('d-desc', isEdit ? rec.description : '')}</div>
@@ -4955,19 +5150,20 @@ async function renderSecurityPanel() {
     return;
   }
 
+  const saatDk = (v) => new Date(v).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
   const visitorList = (activeVisitors || []).map(v => `
     <div class="active-visitor-row">
-      <div class="visitor-info-left">
-        <span style="font-weight: 800; font-size: 15px; color: var(--ink);">${esc(v.visitor_name)}</span>
-        <span style="font-size: 13px; color: var(--muted); margin-top: 3px;">
+      <span class="avatar sm">${esc(basHarf(v.visitor_name))}</span>
+      <div class="visitor-info-left" style="flex:1;min-width:0">
+        <b class="v-name">${esc(v.visitor_name)}</b>
+        <span class="v-meta">
           <span class="visitor-badge">${esc(v.purpose || 'Ziyaret')}</span>
-          Daire: <strong>${esc(v.destination_apartment)}</strong> · Plaka: <strong>${esc(v.plate_number || 'YAYAN')}</strong>
+          Daire <strong>${esc(v.destination_apartment)}</strong>
+          ${v.plate_number ? `<span class="plate">${esc(v.plate_number)}</span>` : '<span class="hint">Yaya</span>'}
         </span>
-        <span style="font-size: 11px; color: var(--muted); margin-top: 2px;">Giriş: ${dmyhm(v.entry_at)}</span>
       </div>
-      <div>
-        <button class="btn btn-sm btn-outline-red" onclick="window.markVisitorExit('${v.id}')">Çıkış Yap</button>
-      </div>
+      <span class="v-time" title="${esc(dmyhm(v.entry_at))}">${ikon('clock')}${saatDk(v.entry_at)}</span>
+      <button class="btn btn-sm btn-ghost" onclick="window.markVisitorExit('${v.id}')">${ikon('door')}Çıkış</button>
     </div>
   `).join('');
 
@@ -4976,58 +5172,59 @@ async function renderSecurityPanel() {
   // Güvenlik Modu HTML (Sol bar gizlendiği için üstte geri dön butonu var)
   $content().innerHTML = `
     <div class="security-header">
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <span style="font-size: 24px;">🛡️</span>
+      <div class="sec-brand">
+        <span class="sec-ico">${ikon('shield')}</span>
         <div>
-          <h2 style="margin: 0; font-size: 20px; font-weight: 800;">KOMŞU — GÜVENLİK PANELİ</h2>
-          <span style="font-size: 12px; opacity: 0.85;">${esc(b.name)} · Giriş-Çıkış Kontrol Noktası</span>
+          <h2>Güvenlik Paneli</h2>
+          <span>${esc(b.name)} · Giriş-çıkış kontrol noktası</span>
         </div>
       </div>
-      <button class="security-back-btn" id="exit-security">${isSecurity ? 'Oturumu Kapat' : 'Yönetici Paneline Dön'}</button>
+      <div class="sec-count"><b>${activeVisitors.length}</b><span>kişi içeride</span></div>
+      <button class="security-back-btn" id="exit-security">${isSecurity ? `${ikon('logout')}Oturumu kapat` : `${ikon('arrow-left')}Yönetici paneline dön`}</button>
     </div>
-    
+
     <div class="security-grid">
-      <!-- Sol Taraf: Hızlı Ziyaretçi Giriş Formu -->
+      <!-- Sol: Hızlı ziyaretçi girişi -->
       <div class="security-box">
-        <h3 style="margin-top: 0; margin-bottom: 16px; font-weight: 800;">📥 Yeni Ziyaretçi Girişi</h3>
-        
+        <h3 class="sec-title">${ikon('in')}Yeni giriş</h3>
+        <p class="hint" style="margin:-8px 0 14px">Önce türü seçin, sonra daireyi yazıp kaydedin.</p>
         <div class="quick-action-grid">
-          <div class="action-card" onclick="window.fillVisitorType('Su Kuryesi')">💧 Su</div>
-          <div class="action-card" onclick="window.fillVisitorType('Kargo Kuryesi')">📦 Kargo</div>
-          <div class="action-card" onclick="window.fillVisitorType('Yemek Kuryesi')">🍔 Yemek</div>
-          <div class="action-card" onclick="window.fillVisitorType('Misafir')">👥 Misafir</div>
+          <button type="button" class="action-card" onclick="window.fillVisitorType('Su Kuryesi')">${ikon('droplet')}<span>Su</span></button>
+          <button type="button" class="action-card" onclick="window.fillVisitorType('Kargo Kuryesi')">${ikon('package')}<span>Kargo</span></button>
+          <button type="button" class="action-card" onclick="window.fillVisitorType('Yemek Kuryesi')">${ikon('utensils')}<span>Yemek</span></button>
+          <button type="button" class="action-card" onclick="window.fillVisitorType('Misafir')">${ikon('users')}<span>Misafir</span></button>
         </div>
-        
-        <div class="field"><label>Ziyaretçi Adı / Firma *</label><input id="v-name" placeholder="Örn: Getir Yemek, Yurtiçi Kargo, Ahmet Bey" /></div>
+
+        <div class="field"><label>Ziyaretçi adı / firma</label><input id="v-name" placeholder="Örn: Yurtiçi Kargo, Ahmet Bey" /></div>
         <div class="grid-2">
-          <div class="field"><label>Araç Plakası</label><input id="v-plate" placeholder="Örn: 34ABC123" oninput="this.value = this.value.toUpperCase()" /></div>
-          <div class="field"><label>Hedef Daire *</label><input id="v-apt" placeholder="Örn: Daire 12" /></div>
+          <div class="field"><label>Hangi daireye?</label><input id="v-apt" placeholder="Örn: 12" /></div>
+          <div class="field"><label>Araç plakası (varsa)</label><input id="v-plate" placeholder="34ABC123" oninput="this.value = this.value.toUpperCase()" /></div>
         </div>
-        <div class="field"><label>Ziyaret Nedeni</label><input id="v-purpose" placeholder="Örn: Kargo Teslimatı" /></div>
-        
-        <button class="btn btn-block" style="margin-top: 10px; background: var(--green); color: #fff;" id="btn-save-visitor">Ziyaretçi Girişini Kaydet</button>
+        <div class="field"><label>Ziyaret nedeni</label><input id="v-purpose" placeholder="Örn: Kargo teslimatı" /></div>
+
+        <button class="btn btn-block btn-green" id="btn-save-visitor">${ikon('check')}Girişi kaydet</button>
       </div>
-      
-      <!-- Sağ Taraf: İçerideki Aktif Ziyaretçiler -->
+
+      <!-- Sağ: İçerideki ziyaretçiler -->
       <div class="security-box">
-        <h3 style="margin-top: 0; margin-bottom: 16px; font-weight: 800;">🚪 İçerideki Ziyaretçiler (${activeVisitors.length})</h3>
-        <div style="max-height: 480px; overflow-y: auto;">
-          ${visitorList || '<div style="text-align: center; padding: 40px; color: var(--muted);">İçeride aktif ziyaretçi bulunmuyor.</div>'}
+        <h3 class="sec-title">${ikon('users')}İçeridekiler <span class="badge b-gray">${activeVisitors.length}</span></h3>
+        <div class="visitor-scroll">
+          ${visitorList || bosDurum('door', 'İçeride ziyaretçi yok', 'Kaydettiğiniz girişler burada listelenir; çıkarken "Çıkış" deyin.')}
         </div>
       </div>
     </div>
 
     <!-- Günlük giriş-çıkış raporu -->
-    <div class="security-box" style="margin-top: 18px;">
+    <div class="security-box" style="margin-top: 20px;">
       <div class="sec-report-head">
-        <h3 style="margin: 0; font-weight: 800;">📋 Günlük Giriş-Çıkış Raporu</h3>
+        <h3 class="sec-title" style="margin:0">${ikon('list')}Günlük giriş-çıkış raporu</h3>
         <div class="sec-report-tools">
           <input type="date" id="sec-rep-date" value="${todayISO()}" />
           <button class="btn btn-sm btn-ghost" id="sec-rep-load">Göster</button>
-          <button class="btn btn-sm" id="sec-rep-csv" disabled>⬇ CSV İndir</button>
+          <button class="btn btn-sm" id="sec-rep-csv" disabled>${ikon('download')}Excel (CSV)</button>
         </div>
       </div>
-      <div id="sec-rep-body"><div class="t-empty">Bir gün seçip "Göster"e basın.</div></div>
+      <div id="sec-rep-body">${bosDurum('calendar', 'Gün seçin', 'Bir gün seçip "Göster"e basın; o günün tüm giriş ve çıkışları listelenir.')}</div>
     </div>
   `;
 
@@ -5096,14 +5293,14 @@ async function renderSecurityPanel() {
             <td><strong>${esc(r.visitor_name)}</strong></td>
             <td>${esc(r.purpose || '—')}</td>
             <td>${esc(r.destination_apartment || '—')}</td>
-            <td>${esc(r.plate_number || 'YAYAN')}</td>
+            <td>${r.plate_number ? `<span class="plate">${esc(r.plate_number)}</span>` : '<span class="hint">Yaya</span>'}</td>
             <td>${dmyhm(r.entry_at)}</td>
             <td>${r.exit_at ? dmyhm(r.exit_at) : '<span class="badge b-amber">İçeride</span>'}</td>
             <td>${mins === null ? '—' : `${Math.floor(mins / 60)}s ${mins % 60}dk`}</td>
           </tr>`;
         }).join('')}
         </tbody></table>`
-        : '<div class="t-empty">Bu güne ait giriş-çıkış kaydı yok.</div>';
+        : bosDurum('calendar', 'Bu güne ait kayıt yok', 'Başka bir gün seçip tekrar deneyin.');
     } catch (err) {
       toast(err.message, true);
       el('sec-rep-body').innerHTML = `<div class="error">Rapor alınamadı: ${esc(err.message)}</div>`;

@@ -228,7 +228,7 @@ export function kurulumKartiHTML(d) {
   /* Küçültülmüş hal: çekirdek bittiyse otomatik, yoksa yönetici istediyse. */
   if (gizli) {
     const baslik = d.cekirdekBitti
-      ? `Kurulum tamamlandı ✓ · ${kalan} isteğe bağlı adım kaldı`
+      ? `Kurulum tamamlandı · ${kalan} isteğe bağlı adım kaldı`
       : `Kurulum ${d.bitenSayisi}/${d.toplam}`;
     return `<div class="card kurulum-card kurulum-mini">
       <strong>${baslik}</strong>
@@ -239,7 +239,7 @@ export function kurulumKartiHTML(d) {
 
   const satir = (a) => `
     <div class="todo-row ${a.tamam ? 't-tamam' : (a.acil ? 't-sari' : 't-bekle')}">
-      <span class="todo-ico">${a.tamam ? '✅' : (a.acil ? '⏳' : '○')}</span>
+      <span class="todo-ico">${C.ikon(a.tamam ? 'check' : (a.acil ? 'clock' : 'arrow'))}</span>
       <div class="todo-text">
         <strong>${C.esc(a.baslik)}</strong>
         <span class="muted">${C.esc(a.aciklama)}</span>
@@ -250,8 +250,8 @@ export function kurulumKartiHTML(d) {
             ? `<span class="kurulum-elle">elle işaretlendi · <a href="#" data-kurulum-gerial="${a.id}">geri al</a></span>`
             : '')
         : `<span style="display:flex;gap:6px;flex-shrink:0;">
-             <button class="btn btn-sm" data-kurulum-git="${a.bolum}" data-hedef="${C.esc(a.hedef || '')}">Git →</button>
-             <button class="btn btn-sm btn-ghost" data-kurulum-isaretle="${a.id}" title="Bu adımı yaptım / benim için geçerli değil">✓ Yaptım</button>
+             <button class="btn btn-sm" data-kurulum-git="${a.bolum}" data-hedef="${C.esc(a.hedef || '')}">Git ${C.ikon('arrow')}</button>
+             <button class="btn btn-sm btn-ghost" data-kurulum-isaretle="${a.id}" title="Bu adımı yaptım / benim için geçerli değil">${C.ikon('check')} Yaptım</button>
            </span>`}
     </div>`;
 
@@ -263,11 +263,11 @@ export function kurulumKartiHTML(d) {
 
   return `<div class="card kurulum-card">
     <div class="kurulum-head">
-      <h3>${d.cekirdekBitti ? 'Kurulum tamamlandı ✓ — kalanlar isteğe bağlı' : 'Sitenizi ayağa kaldıralım'}</h3>
+      <h3>${d.cekirdekBitti ? 'Kurulum tamamlandı — kalanlar isteğe bağlı' : 'Sitenizi ayağa kaldıralım'}</h3>
       <span class="badge ${d.bitenSayisi ? 'b-green' : 'b-amber'}">${d.bitenSayisi}/${d.toplam}</span>
     </div>
     <p class="kurulum-sub">Bu adımlar bitince sistem sizin adınıza takibe başlar: borç, süre dolan yükümlülük, açık arıza.
-      Sıra önemli değil. Adımı yaptığınızda kendiliğinden yeşile döner; sizin için geçerli değilse <strong>✓ Yaptım</strong> ile geçin.</p>
+      Sıra önemli değil. Adımı yaptığınızda kendiliğinden yeşile döner; sizin için geçerli değilse <strong>Yaptım</strong> ile geçin.</p>
     ${bar}
     ${grup('cekirdek')}${grup('onerilen')}${grup('istege')}
     <div class="kurulum-foot"><button class="btn btn-sm btn-ghost" data-kurulum-kucult>Rehberi küçült</button></div>
