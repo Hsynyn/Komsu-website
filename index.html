@@ -45,330 +45,419 @@
     ]
   }
   </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --cream: #FFF6E9;
-      --peach: #FFE4C4;
-      --tan: #D9B382;
-      --brown: #8A6B45;
-      --ink: #2B2620;
-      --muted: #6E6357;
-      --white: #FFFFFF;
-      --radius: 20px;
+      /* Mobil uygulamanın paleti (constants/theme.ts) — turuncu yalnızca vurgu */
+      --primary: #E9724C;
+      --primary-dark: #D4613D;
+      --primary-soft: #FDF0EA;
+      --accent: #FDD05E;
+      --ink: #1F1B17;
+      --body: #57504A;
+      --muted: #8C837B;
+      --line: #ECE7E1;
+      --bg: #FFFFFF;
+      --bg-soft: #FAF8F5;
+      --success: #2E9E6B;
+      --success-soft: #E7F6EE;
+      --danger: #B23A2E;
+      --danger-soft: #FCE8E4;
+      --warn-soft: #FFF4D6;
+      --radius: 16px;
+      --shadow-sm: 0 1px 2px rgba(31, 27, 23, 0.05);
+      --shadow-md: 0 8px 24px rgba(31, 27, 23, 0.07);
+      --shadow-lg: 0 30px 60px -20px rgba(31, 27, 23, 0.22);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html { scroll-behavior: smooth; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       color: var(--ink);
-      background: var(--cream);
+      background: var(--bg);
       line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
     }
-    .container { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+    a { color: inherit; }
+    .container { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+    svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 
+    /* ---------- Üst menü ---------- */
     header {
-      position: sticky; top: 0; z-index: 10;
-      background: rgba(255, 246, 233, 0.92);
-      backdrop-filter: blur(8px);
-      border-bottom: 1px solid rgba(217, 179, 130, 0.3);
+      position: sticky; top: 0; z-index: 20;
+      background: rgba(255, 255, 255, 0.86);
+      backdrop-filter: saturate(180%) blur(12px);
+      border-bottom: 1px solid var(--line);
     }
-    .nav {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 14px 0;
-    }
-    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); }
-    .brand img { width: 40px; height: 40px; }
-    .brand span { font-size: 20px; font-weight: 800; letter-spacing: -0.3px; }
-    .nav-links { display: flex; gap: 24px; align-items: center; }
-    .nav-links a { text-decoration: none; color: var(--muted); font-weight: 600; font-size: 15px; }
+    .nav { display: flex; align-items: center; justify-content: space-between; height: 68px; }
+    .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .brand img { width: 34px; height: 34px; border-radius: 9px; }
+    .brand span { font-size: 19px; font-weight: 800; letter-spacing: -0.4px; }
+    .nav-links { display: flex; gap: 30px; align-items: center; }
+    .nav-links a { text-decoration: none; color: var(--body); font-weight: 500; font-size: 15px; }
     .nav-links a:hover { color: var(--ink); }
-    .nav-cta {
-      background: var(--ink); color: var(--cream) !important;
-      padding: 8px 18px; border-radius: 999px; font-size: 14px !important;
-    }
+    .nav-actions { display: flex; gap: 10px; align-items: center; }
 
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      font: inherit; font-weight: 600; font-size: 15px; text-decoration: none;
+      padding: 11px 20px; border-radius: 10px; border: 1px solid transparent;
+      cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s, transform .15s;
+      white-space: nowrap;
+    }
+    .btn-primary { background: var(--primary); color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.08), inset 0 1px 0 rgba(255,255,255,.15); }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-dark { background: var(--ink); color: #fff; }
+    .btn-dark:hover { background: #000; }
+    .btn-ghost { background: #fff; color: var(--ink); border-color: var(--line); }
+    .btn-ghost:hover { border-color: #D8D0C7; background: var(--bg-soft); }
+    .btn-lg { padding: 14px 24px; font-size: 16px; border-radius: 12px; }
+    .btn-sm { padding: 8px 14px; font-size: 14px; }
+
+    /* ---------- Hero ---------- */
     .hero {
-      background: linear-gradient(180deg, var(--cream) 0%, var(--peach) 100%);
-      padding: 72px 0 88px;
-      text-align: center;
+      position: relative; overflow: hidden;
+      padding: 80px 0 96px;
+      background:
+        radial-gradient(900px 480px at 85% -10%, rgba(233,114,76,0.10), transparent 60%),
+        radial-gradient(700px 400px at -10% 20%, rgba(253,208,94,0.12), transparent 60%),
+        var(--bg);
     }
-    .hero img.app-icon {
-      width: 128px; height: 128px; margin-bottom: 24px;
-      filter: drop-shadow(0 12px 24px rgba(138, 107, 69, 0.25));
+    .hero::before {
+      content: ""; position: absolute; inset: 0; pointer-events: none;
+      background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+      background-size: 56px 56px; opacity: .45;
+      -webkit-mask-image: radial-gradient(ellipse at 50% 0%, #000 20%, transparent 70%);
+              mask-image: radial-gradient(ellipse at 50% 0%, #000 20%, transparent 70%);
     }
+    .hero-grid { position: relative; display: grid; grid-template-columns: 1fr 1.15fr; gap: 56px; align-items: center; }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 13px; font-weight: 600; color: var(--primary-dark);
+      background: var(--primary-soft); border: 1px solid rgba(233,114,76,.18);
+      padding: 6px 12px; border-radius: 999px; margin-bottom: 22px;
+    }
+    .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
     .hero h1 {
-      font-size: clamp(32px, 6vw, 52px);
-      font-weight: 800; letter-spacing: -1px; line-height: 1.15;
-      margin-bottom: 16px;
+      font-size: clamp(36px, 5vw, 56px); font-weight: 800;
+      letter-spacing: -0.035em; line-height: 1.08; margin-bottom: 20px;
     }
-    .hero h1 em { font-style: normal; color: var(--brown); }
-    .hero p.sub {
-      font-size: clamp(16px, 2.5vw, 20px);
-      color: var(--muted); max-width: 560px; margin: 0 auto 36px;
+    .hero h1 .hl { color: var(--primary); }
+    .hero .sub { font-size: 18px; color: var(--body); max-width: 500px; margin-bottom: 32px; }
+    .hero-ctas { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 28px; }
+    .checks { display: flex; gap: 20px; flex-wrap: wrap; list-style: none; font-size: 14px; color: var(--body); }
+    .checks li { display: flex; align-items: center; gap: 7px; }
+    .checks svg { width: 16px; height: 16px; color: var(--success); stroke-width: 2.4; }
+    .stores { display: flex; gap: 10px; margin-top: 32px; flex-wrap: wrap; }
+    .store {
+      display: inline-flex; align-items: center; gap: 10px; text-decoration: none;
+      background: var(--ink); color: #fff; padding: 9px 16px 9px 13px; border-radius: 10px;
+      transition: transform .15s, box-shadow .15s;
     }
-    .badges { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; align-items: center; }
-    .badge-btn {
-      display: inline-flex; align-items: center; gap: 10px;
-      background: var(--ink); color: var(--cream);
-      text-decoration: none; padding: 12px 22px; border-radius: 14px;
-      font-weight: 600; font-size: 15px;
-      transition: transform 0.15s ease, box-shadow 0.15s ease;
-    }
-    .badge-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(43, 38, 32, 0.25); }
-    .badge-btn small { display: block; font-size: 11px; font-weight: 400; opacity: 0.75; }
-    .badge-btn .lines { text-align: left; line-height: 1.2; }
-    .badge-btn.soon {
-      background: transparent; color: var(--brown);
-      border: 2px dashed var(--tan); cursor: default;
-    }
-    .badge-btn.soon:hover { transform: none; box-shadow: none; }
-    .badge-btn.badge-primary {
-      background: linear-gradient(135deg, #E9724C, #FDD05E); color: #fff;
-      box-shadow: 0 6px 18px rgba(233, 114, 76, 0.32);
-    }
-    .badge-btn.badge-primary small { opacity: 0.9; }
+    .store:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+    .store svg { width: 22px; height: 22px; fill: currentColor; }
+    .store small { display: block; font-size: 10.5px; opacity: .75; line-height: 1.1; }
+    .store b { display: block; font-size: 15px; font-weight: 600; line-height: 1.2; }
 
-    section { padding: 72px 0; }
-    .section-title { text-align: center; font-size: clamp(26px, 4vw, 36px); font-weight: 800; letter-spacing: -0.5px; margin-bottom: 12px; }
-    .section-sub { text-align: center; color: var(--muted); max-width: 520px; margin: 0 auto 48px; }
+    /* ---------- Ürün maketi (HTML/CSS, görsel dosyası yok) ---------- */
+    .mock { position: relative; padding: 0 0 40px 40px; }
+    .win {
+      background: #fff; border-radius: 14px; border: 1px solid var(--line);
+      box-shadow: var(--shadow-lg); overflow: hidden; font-size: 12px;
+    }
+    .win-bar { display: flex; align-items: center; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--bg-soft); }
+    .win-bar i { width: 10px; height: 10px; border-radius: 50%; background: #E3DDD6; display: block; }
+    .win-bar .url { margin-left: 12px; flex: 1; max-width: 260px; background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; color: var(--muted); font-size: 11px; }
+    .win-body { display: grid; grid-template-columns: 150px 1fr; min-height: 360px; }
+    .side { border-right: 1px solid var(--line); padding: 14px 10px; background: #fff; }
+    .side .site { display: flex; align-items: center; gap: 8px; padding: 4px 6px 14px; font-weight: 700; font-size: 12px; }
+    .side .site span { width: 22px; height: 22px; border-radius: 6px; background: var(--primary); color: #fff; display: grid; place-items: center; font-size: 11px; }
+    .side a { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 7px; color: var(--body); text-decoration: none; font-weight: 500; }
+    .side a svg { width: 14px; height: 14px; }
+    .side a.on { background: var(--primary-soft); color: var(--primary-dark); font-weight: 600; }
+    .main { padding: 16px 18px; background: var(--bg-soft); }
+    .main h4 { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+    .main .meta { color: var(--muted); font-size: 11px; margin-bottom: 14px; }
+    .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+    .kpi { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+    .kpi small { color: var(--muted); font-size: 10.5px; font-weight: 500; }
+    .kpi b { display: block; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; margin: 2px 0; }
+    .kpi .up { color: var(--success); font-size: 10.5px; font-weight: 600; }
+    .kpi .bar { height: 4px; border-radius: 4px; background: var(--line); margin-top: 6px; overflow: hidden; }
+    .kpi .bar i { display: block; height: 100%; width: 92%; background: var(--success); }
+    .panes { display: grid; grid-template-columns: 1.1fr 1fr; gap: 10px; }
+    .pane { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+    .pane-t { font-weight: 600; font-size: 11.5px; margin-bottom: 8px; display: flex; justify-content: space-between; }
+    .pane-t span { color: var(--muted); font-weight: 500; }
+    .chart { display: flex; align-items: flex-end; gap: 7px; height: 92px; padding-top: 4px; }
+    .chart div { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
+    .chart i { display: block; width: 100%; border-radius: 4px 4px 2px 2px; background: #F3D9CE; }
+    .chart div:last-child i { background: var(--primary); }
+    .chart em { font-style: normal; font-size: 9.5px; color: var(--muted); }
+    .rows { list-style: none; }
+    .rows li { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); gap: 8px; }
+    .rows li:last-child { border-bottom: 0; }
+    .rows .who { display: flex; align-items: center; gap: 7px; font-weight: 500; }
+    .rows .av { width: 20px; height: 20px; border-radius: 50%; background: var(--bg-soft); border: 1px solid var(--line); display: grid; place-items: center; font-size: 8.5px; font-weight: 700; color: var(--body); }
+    .pill { font-size: 9.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
+    .pill.ok { background: var(--success-soft); color: var(--success); }
+    .pill.late { background: var(--danger-soft); color: var(--danger); }
+    .pill.wait { background: var(--warn-soft); color: #9A6B00; }
 
-    .features-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 20px;
+    .phone {
+      position: absolute; left: 0; bottom: 0; width: 196px;
+      background: #111; border-radius: 30px; padding: 7px;
+      box-shadow: 0 30px 60px -15px rgba(31,27,23,.35);
     }
-    .card {
-      background: var(--white); border-radius: var(--radius);
-      padding: 28px; border: 1px solid rgba(217, 179, 130, 0.25);
-      box-shadow: 0 4px 16px rgba(138, 107, 69, 0.06);
-    }
-    .card .emoji {
-      width: 52px; height: 52px; border-radius: 14px;
-      background: var(--peach); display: flex; align-items: center; justify-content: center;
-      font-size: 26px; margin-bottom: 16px;
-    }
-    .card h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
-    .card p { color: var(--muted); font-size: 15px; }
+    .phone-in { background: var(--bg-soft); border-radius: 24px; overflow: hidden; padding: 30px 10px 12px; position: relative; font-size: 11px; }
+    .phone-in::before { content: ""; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 62px; height: 18px; background: #111; border-radius: 999px; }
+    .phone h5 { font-size: 15px; font-weight: 800; letter-spacing: -0.02em; margin: 0 4px 10px; }
+    .note { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 9px 10px; margin-bottom: 7px; display: flex; gap: 8px; }
+    .note .ic { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; }
+    .note .ic svg { width: 14px; height: 14px; }
+    .note b { display: block; font-size: 11px; font-weight: 600; line-height: 1.3; }
+    .note span { color: var(--muted); font-size: 10px; }
 
-    .split {
-      background: var(--white);
-    }
-    .roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
-    .role {
-      background: linear-gradient(160deg, var(--cream), var(--peach));
-      border-radius: var(--radius); padding: 32px;
-      border: 1px solid rgba(217, 179, 130, 0.35);
-    }
-    .role h3 { font-size: 22px; font-weight: 800; margin-bottom: 14px; }
-    .role ul { list-style: none; }
-    .role li { padding: 7px 0; color: var(--ink); font-size: 15px; }
-    .role li::before { content: "✓  "; color: var(--brown); font-weight: 800; }
+    /* ---------- Bölümler ---------- */
+    section { padding: 96px 0; }
+    .soft { background: var(--bg-soft); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .head { text-align: center; max-width: 640px; margin: 0 auto 56px; }
+    .kicker { font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--primary); margin-bottom: 12px; }
+    .head h2 { font-size: clamp(28px, 3.6vw, 40px); font-weight: 800; letter-spacing: -0.03em; line-height: 1.15; margin-bottom: 14px; }
+    .head p { color: var(--body); font-size: 17px; }
 
-    .cta-final {
-      text-align: center;
-      background: linear-gradient(180deg, var(--peach), var(--cream));
-    }
+    /* Platform şeridi */
+    .strip { padding: 28px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #fff; }
+    .strip-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+    .strip-item { display: flex; align-items: center; gap: 12px; }
+    .strip-item .ico { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--bg-soft); border: 1px solid var(--line); color: var(--ink); flex-shrink: 0; }
+    .strip-item b { display: block; font-size: 14.5px; font-weight: 600; line-height: 1.3; }
+    .strip-item span { font-size: 13px; color: var(--muted); }
 
-    footer {
-      border-top: 1px solid rgba(217, 179, 130, 0.3);
-      padding: 32px 0; background: var(--cream);
-    }
-    .footer-inner {
-      display: flex; justify-content: space-between; align-items: center;
-      flex-wrap: wrap; gap: 16px;
-    }
-    footer p { color: var(--muted); font-size: 14px; }
-    .footer-links { display: flex; gap: 20px; }
-    .footer-links a { color: var(--muted); font-size: 14px; text-decoration: none; }
-    .footer-links a:hover { color: var(--ink); }
-    .footer-links { flex-wrap: wrap; }
-    .footer-pay {
-      display: flex; flex-direction: column; align-items: center; gap: 10px;
-      padding-top: 22px; margin-top: 22px; border-top: 1px solid rgba(217, 179, 130, 0.25);
-    }
-    .pay-logos { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-    .pay-logos span {
-      background: var(--white); border: 1px solid rgba(217, 179, 130, 0.45); border-radius: 8px;
-      padding: 7px 14px; font-size: 12.5px; font-weight: 700; color: var(--brown); letter-spacing: 0.3px;
-    }
-    .pay-note { max-width: 640px; text-align: center; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    /* Önce / sonra */
+    .story { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .story-card { background: #fff; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; box-shadow: var(--shadow-sm); }
+    .story-media { aspect-ratio: 16 / 10; background: var(--bg-soft); border-bottom: 1px solid var(--line); }
+    .story-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .story-body { padding: 28px; }
+    .tag { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 4px 10px; border-radius: 999px; margin-bottom: 14px; }
+    .tag.old { background: #F1EEEA; color: var(--muted); }
+    .tag.new { background: var(--primary-soft); color: var(--primary-dark); }
+    .story-body h3 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 16px; }
+    .story-body ul { list-style: none; display: grid; gap: 10px; }
+    .story-body li { display: flex; gap: 10px; color: var(--body); font-size: 15.5px; }
+    .story-body li svg { width: 18px; height: 18px; margin-top: 3px; }
+    .story-card.before li svg { color: #B9B0A7; }
+    .story-card.after li svg { color: var(--success); stroke-width: 2.4; }
 
-    /* Hero dekor */
-    .hero { position: relative; overflow: hidden; }
-    .hero .container { position: relative; z-index: 1; }
-    .blob {
-      position: absolute; border-radius: 50%; filter: blur(60px); opacity: 0.55;
-      pointer-events: none;
-    }
-    .blob-1 { width: 380px; height: 380px; background: #FFD9A8; top: -120px; left: -120px; }
-    .blob-2 { width: 320px; height: 320px; background: #F5C89B; bottom: -140px; right: -100px; }
-    .hero img.app-icon { animation: float 5s ease-in-out infinite; }
-    @keyframes float {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-10px); }
-    }
+    /* Özellikler */
+    .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; }
+    .feature { background: #fff; padding: 32px 28px; }
+    .feature .ico { width: 42px; height: 42px; border-radius: 11px; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary-dark); margin-bottom: 18px; }
+    .feature h3 { font-size: 17px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.01em; }
+    .feature p { color: var(--body); font-size: 15px; }
 
-    /* Scroll reveal */
-    .reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.6s ease, transform 0.6s ease; }
-    .reveal.visible { opacity: 1; transform: translateY(0); }
+    /* Roller */
+    .roles { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .role { background: #fff; border: 1px solid var(--line); border-radius: 20px; padding: 36px; }
+    .role.dark { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .role .ico { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary-dark); margin-bottom: 20px; }
+    .role.dark .ico { background: rgba(255,255,255,.08); color: var(--accent); }
+    .role h3 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
+    .role > p { color: var(--body); margin-bottom: 20px; }
+    .role.dark > p { color: rgba(255,255,255,.65); }
+    .role ul { list-style: none; display: grid; gap: 11px; }
+    .role li { display: flex; gap: 10px; font-size: 15.5px; }
+    .role li svg { width: 18px; height: 18px; margin-top: 3px; color: var(--success); stroke-width: 2.4; }
+    .role.dark li svg { color: var(--accent); }
 
-    .card { transition: transform 0.2s ease, box-shadow 0.2s ease; }
-    .card:hover { transform: translateY(-4px); box-shadow: 0 12px 28px rgba(138, 107, 69, 0.14); }
+    /* Adımlar */
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; counter-reset: s; }
+    .step { position: relative; padding: 28px; border-radius: 20px; background: #fff; border: 1px solid var(--line); }
+    .step .num { font-size: 13px; font-weight: 700; color: var(--primary); margin-bottom: 14px; letter-spacing: .04em; }
+    .step h3 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+    .step p { color: var(--body); font-size: 15px; }
 
-    /* Nasıl çalışır */
-    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px; }
-    .step { text-align: center; padding: 24px 16px; }
-    .step .num {
-      width: 48px; height: 48px; margin: 0 auto 16px;
-      background: var(--ink); color: var(--cream);
-      border-radius: 50%; display: flex; align-items: center; justify-content: center;
-      font-size: 20px; font-weight: 800;
-    }
-    .step h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
-    .step p { color: var(--muted); font-size: 15px; }
+    /* Fiyat */
+    .pricing { display: grid; grid-template-columns: 1fr 1fr; gap: 0; max-width: 920px; margin: 0 auto; background: #fff; border: 1px solid var(--line); border-radius: 24px; overflow: hidden; box-shadow: var(--shadow-md); }
+    .pricing-l { padding: 40px; border-right: 1px solid var(--line); }
+    .pricing-r { padding: 40px; background: var(--bg-soft); display: flex; flex-direction: column; }
+    .pricing-l h3 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .pricing-l > p { color: var(--body); font-size: 15px; margin-bottom: 24px; }
+    .pricing-l ul { list-style: none; display: grid; gap: 11px; }
+    .pricing-l li { display: flex; gap: 10px; font-size: 15px; }
+    .pricing-l li svg { width: 18px; height: 18px; margin-top: 3px; color: var(--success); stroke-width: 2.4; }
+    .price-big { font-size: 52px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; }
+    .price-big small { font-size: 17px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-left: 4px; }
+    .price-sub { color: var(--body); font-size: 14px; margin-top: 8px; }
+    .slider-row { margin: 28px 0 8px; }
+    .slider-row label { display: flex; justify-content: space-between; font-weight: 600; font-size: 14px; margin-bottom: 12px; }
+    .slider-row label b { color: var(--primary-dark); }
+    input[type=range].komsu { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 999px; background: var(--line); outline: none; }
+    input[type=range].komsu::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 2px solid var(--primary); cursor: pointer; box-shadow: var(--shadow-md); }
+    input[type=range].komsu::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 2px solid var(--primary); cursor: pointer; }
+    input[type=range].komsu:focus-visible::-webkit-slider-thumb { outline: 3px solid rgba(233,114,76,.3); }
+    .price-breakdown { color: var(--muted); font-size: 13px; }
+    .trial-note { margin: 22px 0 16px; display: flex; gap: 8px; align-items: center; font-size: 14px; font-weight: 600; color: var(--success); }
+    .trial-note svg { width: 18px; height: 18px; }
+    .pricing-r .btn { width: 100%; margin-top: auto; }
+    .price-legal { max-width: 920px; margin: 20px auto 0; color: var(--muted); font-size: 12.5px; line-height: 1.65; text-align: center; }
+    .price-legal a { color: var(--body); font-weight: 600; }
+
+    /* Panel bento */
+    .bento { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .tile { background: #fff; border: 1px solid var(--line); border-radius: 20px; padding: 28px; display: flex; flex-direction: column; overflow: hidden; }
+    .tile.wide { grid-column: span 2; }
+    .tile h3 { font-size: 18px; font-weight: 700; letter-spacing: -0.015em; margin-bottom: 6px; }
+    .tile > p { color: var(--body); font-size: 15px; margin-bottom: 22px; }
+    .tile .vis { margin-top: auto; background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px; padding: 16px; font-size: 12px; }
+    .heat { display: grid; grid-template-columns: 70px repeat(9, 1fr); gap: 5px; align-items: center; }
+    .heat .h { color: var(--muted); font-size: 10.5px; text-align: center; }
+    .heat .r { color: var(--body); font-weight: 600; font-size: 11.5px; }
+    .heat i { display: block; height: 20px; border-radius: 5px; background: var(--success-soft); border: 1px solid #CFEBDD; }
+    .heat i.l { background: var(--danger-soft); border-color: #F4CFC8; }
+    .heat i.w { background: var(--warn-soft); border-color: #F2E2B0; }
+    .heat i.e { background: #fff; border-color: var(--line); }
+    .legend { display: flex; gap: 14px; margin-top: 12px; color: var(--muted); font-size: 11px; }
+    .legend span { display: flex; align-items: center; gap: 5px; }
+    .legend span::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
+    .ledger { list-style: none; }
+    .ledger li { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+    .ledger li:last-child { border-bottom: 0; font-weight: 700; }
+    .ledger .in { color: var(--success); font-weight: 600; }
+    .ledger .out { color: var(--danger); font-weight: 600; }
+    .docs { display: grid; gap: 8px; }
+    .doc { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+    .doc .f { width: 26px; height: 32px; border-radius: 4px; background: var(--danger-soft); color: var(--danger); font-size: 8.5px; font-weight: 800; display: grid; place-items: end center; padding-bottom: 4px; flex-shrink: 0; }
+    .doc b { font-size: 12px; font-weight: 600; display: block; }
+    .doc span { font-size: 10.5px; color: var(--muted); }
+    .cal { list-style: none; display: grid; gap: 8px; }
+    .cal li { display: flex; gap: 10px; align-items: center; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+    .cal .d { width: 34px; text-align: center; line-height: 1.1; flex-shrink: 0; }
+    .cal .d b { display: block; font-size: 15px; font-weight: 800; }
+    .cal .d small { font-size: 9px; color: var(--primary-dark); font-weight: 700; text-transform: uppercase; }
+    .cal li > div:last-child b { font-size: 12px; font-weight: 600; display: block; }
+    .cal li > div:last-child span { font-size: 10.5px; color: var(--muted); }
+    .plate { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
+    .plate:last-child { margin-bottom: 0; }
+    .plate .no { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; font-size: 12px; border: 1.5px solid var(--ink); border-left: 7px solid #2F5BD3; border-radius: 4px; padding: 2px 7px; letter-spacing: .04em; }
+    .plate span { font-size: 10.5px; color: var(--muted); }
 
     /* SSS */
-    .faq { max-width: 720px; margin: 0 auto; }
-    .faq details {
-      background: var(--white); border: 1px solid rgba(217, 179, 130, 0.3);
-      border-radius: 14px; margin-bottom: 12px; overflow: hidden;
-    }
+    .faq { max-width: 760px; margin: 0 auto; border-top: 1px solid var(--line); }
+    .faq details { border-bottom: 1px solid var(--line); }
     .faq summary {
-      padding: 18px 22px; font-weight: 700; font-size: 16px; cursor: pointer;
-      list-style: none; display: flex; justify-content: space-between; align-items: center;
+      padding: 22px 4px; font-weight: 600; font-size: 17px; cursor: pointer;
+      list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 16px;
     }
     .faq summary::-webkit-details-marker { display: none; }
-    .faq summary::after { content: "+"; font-size: 22px; color: var(--brown); font-weight: 400; transition: transform 0.2s ease; }
+    .faq summary::after { content: "+"; font-size: 24px; color: var(--muted); font-weight: 300; transition: transform 0.2s ease; }
     .faq details[open] summary::after { transform: rotate(45deg); }
-    .faq details p { padding: 0 22px 18px; color: var(--muted); font-size: 15px; }
+    .faq details p { padding: 0 4px 22px; color: var(--body); font-size: 15.5px; max-width: 660px; }
+    .faq details p a { color: var(--primary-dark); font-weight: 600; }
 
+    /* Son çağrı */
+    .cta-final { padding: 0 0 96px; }
+    .cta-box {
+      position: relative; overflow: hidden;
+      background: var(--ink); color: #fff; border-radius: 28px;
+      padding: 64px 48px; text-align: center;
+    }
+    .cta-box::before {
+      content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: radial-gradient(600px 300px at 50% -20%, rgba(233,114,76,.35), transparent 70%);
+    }
+    .cta-box > * { position: relative; }
+    .cta-box h2 { font-size: clamp(28px, 3.6vw, 40px); font-weight: 800; letter-spacing: -0.03em; margin-bottom: 12px; }
+    .cta-box p { color: rgba(255,255,255,.7); font-size: 17px; margin-bottom: 30px; }
+    .cta-box .hero-ctas { justify-content: center; margin-bottom: 0; }
+    .cta-box .store { background: #fff; color: var(--ink); }
+
+    /* Alt bilgi */
+    footer { border-top: 1px solid var(--line); padding: 48px 0 32px; background: var(--bg-soft); }
+    .footer-top { display: flex; justify-content: space-between; gap: 32px; flex-wrap: wrap; }
+    .footer-top .brand + p { color: var(--muted); font-size: 14px; margin-top: 10px; max-width: 300px; }
+    .footer-links { display: grid; grid-template-columns: repeat(2, auto); gap: 10px 40px; }
+    .footer-links a { color: var(--body); font-size: 14px; text-decoration: none; }
+    .footer-links a:hover { color: var(--ink); }
+    .footer-pay { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--line); }
+    .pay-logos { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pay-logos span { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 5px 11px; font-size: 11.5px; font-weight: 700; color: var(--body); letter-spacing: 0.3px; }
+    .pay-note { color: var(--muted); font-size: 12.5px; line-height: 1.6; max-width: 560px; }
+    .copy { color: var(--muted); font-size: 13px; margin-top: 20px; }
+
+    /* Scroll reveal */
+    .reveal { opacity: 0; transform: translateY(16px); transition: opacity 0.6s ease, transform 0.6s ease; }
+    .reveal.visible { opacity: 1; transform: none; }
     @media (prefers-reduced-motion: reduce) {
-      .hero img.app-icon { animation: none; }
       .reveal { opacity: 1; transform: none; transition: none; }
+      html { scroll-behavior: auto; }
     }
 
-    @media (max-width: 600px) {
-      .nav-links a:not(.nav-cta) { display: none; }
-      section { padding: 52px 0; }
+    /* ---------- Duyarlı ---------- */
+    @media (max-width: 1000px) {
+      .hero-grid { grid-template-columns: 1fr; gap: 48px; }
+      .hero .sub { max-width: none; }
+      .features { grid-template-columns: repeat(2, 1fr); }
+      .bento { grid-template-columns: 1fr 1fr; }
+      .strip-row { grid-template-columns: 1fr 1fr; }
+      .nav-links { display: none; }
     }
-
-    /* 3D hero maketi */
-    .hero-3d {
-      width: 100%; max-width: 760px; margin: 8px auto 28px;
-      height: 340px; border-radius: 24px; overflow: hidden;
-      background: linear-gradient(180deg, #eaf6ff 0%, #d7eeff 60%, #cfe8d6 100%);
-      border: 1px solid rgba(217, 179, 130, 0.35);
-      box-shadow: 0 18px 40px rgba(138, 107, 69, 0.16);
-      position: relative;
-    }
-    .hero-3d canvas { display: block; width: 100%; height: 100%; }
-    .hero-3d img { display: block; width: 100%; height: 100%; object-fit: cover; }
-    .hero-3d .tag {
-      position: absolute; left: 14px; bottom: 12px;
-      background: rgba(43,38,32,0.82); color: var(--cream);
-      font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 999px;
-      backdrop-filter: blur(4px);
-    }
-    @media (max-width: 600px) { .hero-3d { height: 260px; } }
-
-    /* Güven istatistikleri */
-    .stats {
-      display: flex; justify-content: center; gap: 40px; flex-wrap: wrap;
-      margin-top: 34px;
-    }
-    .stat { text-align: center; }
-    .stat .num { font-size: clamp(24px, 4vw, 34px); font-weight: 800; color: var(--brown); letter-spacing: -0.5px; }
-    .stat .lbl { font-size: 13px; color: var(--muted); font-weight: 600; }
-
-    /* Fiyat hesaplayıcı */
-    .pricing-card {
-      max-width: 640px; margin: 0 auto; background: var(--white);
-      border-radius: 24px; padding: 40px 36px; text-align: center;
-      border: 1px solid rgba(217,179,130,0.3); box-shadow: 0 10px 30px rgba(138,107,69,0.10);
-    }
-    .price-big { font-size: clamp(40px, 8vw, 60px); font-weight: 800; letter-spacing: -1.5px; color: var(--ink); line-height: 1; }
-    .price-big small { font-size: 20px; font-weight: 600; color: var(--muted); }
-    .price-sub { color: var(--muted); font-size: 15px; margin-top: 8px; }
-    .price-cta {
-      display: block; margin-top: 20px; padding: 15px 24px; border-radius: 14px;
-      background: var(--ink); color: var(--cream); text-decoration: none;
-      font-weight: 700; font-size: 16px; text-align: center;
-      transition: transform 0.15s ease, box-shadow 0.15s ease;
-    }
-    .price-cta:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(43, 38, 32, 0.25); }
-    .price-legal {
-      margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(217, 179, 130, 0.3);
-      color: var(--muted); font-size: 12.5px; line-height: 1.65; text-align: center;
-    }
-    .price-legal a { color: var(--brown); font-weight: 600; }
-    .slider-row { margin: 32px 0 10px; }
-    .slider-row label { display: flex; justify-content: space-between; font-weight: 700; font-size: 15px; margin-bottom: 12px; }
-    .slider-row label b { color: var(--brown); }
-    input[type=range].komsu {
-      -webkit-appearance: none; appearance: none; width: 100%; height: 8px;
-      border-radius: 999px; background: var(--peach); outline: none;
-    }
-    input[type=range].komsu::-webkit-slider-thumb {
-      -webkit-appearance: none; appearance: none; width: 28px; height: 28px;
-      border-radius: 50%; background: var(--ink); cursor: pointer; border: 4px solid var(--cream);
-      box-shadow: 0 3px 8px rgba(43,38,32,0.3);
-    }
-    input[type=range].komsu::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: var(--ink); cursor: pointer; border: 4px solid var(--cream); }
-    .price-breakdown { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: 13.5px; margin-top: 6px; }
-    .trial-note {
-      margin-top: 22px; background: var(--peach); color: var(--brown);
-      font-weight: 700; font-size: 14px; padding: 12px 18px; border-radius: 14px; display: inline-block;
-    }
-
-    /* Yorumlar — masaüstünde 2 kart görünür, gerisi kaydırılır */
-    .reviews { position: relative; }
-    .reviews-track {
-      display: flex; gap: 20px;
-      /* proximity (mandatory değil): kart sayısı tek olduğunda son sayfanın
-         snap noktası azami kaydırma mesafesini aşıyor ve mandatory snap
-         kaydırmayı geri alıyor. */
-      overflow-x: auto; scroll-snap-type: x proximity;
-      scroll-behavior: smooth; scrollbar-width: none;
-      padding: 4px 4px 8px;
-      margin: 0 -4px;
-    }
-    .reviews-track::-webkit-scrollbar { display: none; }
-    .review {
-      flex: 0 0 calc((100% - 20px) / 2);
-      scroll-snap-align: start;
-      display: flex; flex-direction: column;
-      background: var(--white); border-radius: var(--radius); padding: 26px;
-      border: 1px solid rgba(217,179,130,0.25); box-shadow: 0 4px 16px rgba(138,107,69,0.06);
-    }
-    .review .stars { color: #F5A623; font-size: 15px; letter-spacing: 2px; margin-bottom: 12px; }
-    .review p { color: var(--ink); font-size: 15px; margin-bottom: 18px; flex: 1; }
-    .review .who { display: flex; align-items: center; gap: 12px; }
-    .review .av { width: 42px; height: 42px; border-radius: 50%; background: var(--peach); color: var(--brown); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; flex-shrink: 0; }
-    .review .who b { font-size: 14.5px; display: block; }
-    .review .who span { font-size: 13px; color: var(--muted); }
-
-    .reviews-nav { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 24px; }
-    .reviews-arrow {
-      width: 42px; height: 42px; border-radius: 50%; cursor: pointer;
-      background: var(--white); border: 1px solid rgba(217,179,130,0.45); color: var(--brown);
-      font-size: 17px; line-height: 1; display: flex; align-items: center; justify-content: center;
-      transition: background .2s, opacity .2s;
-    }
-    .reviews-arrow:hover:not(:disabled) { background: var(--peach); }
-    .reviews-arrow:disabled { opacity: .35; cursor: default; }
-    .reviews-dots { display: flex; gap: 8px; }
-    .reviews-dots button {
-      width: 8px; height: 8px; padding: 0; border-radius: 50%; cursor: pointer;
-      border: none; background: rgba(217,179,130,0.55); transition: width .25s, background .25s;
-    }
-    .reviews-dots button[aria-current="true"] { width: 22px; border-radius: 999px; background: var(--brown); }
-
     @media (max-width: 720px) {
-      .review { flex: 0 0 100%; }
+      section { padding: 64px 0; }
+      .container { padding: 0 16px; }
+      .hero { padding: 48px 0 64px; }
+      .mock { padding: 0 0 30px 0; }
+      .win-body { grid-template-columns: 1fr; min-height: 0; }
+      .side { display: none; }
+      .kpis { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+      .kpi { padding: 8px; }
+      .kpi b { font-size: 14px; }
+      .panes { grid-template-columns: 1fr; }
+      .panes .pane:first-child { display: none; }
+      .phone { display: none; }
+      .strip-row { grid-template-columns: 1fr 1fr; gap: 18px 14px; }
+      .bento { grid-template-columns: 1fr; }
+      .tile.wide { grid-column: auto; }
+      .tile { padding: 22px; }
+      .heat { grid-template-columns: 52px repeat(9, 1fr); gap: 3px; }
+      .story, .roles, .steps, .features, .pricing { grid-template-columns: 1fr; }
+      .pricing-l { border-right: 0; border-bottom: 1px solid var(--line); }
+      .pricing-l, .pricing-r, .role, .story-body { padding: 26px; }
+      .cta-box { padding: 44px 22px; border-radius: 20px; }
+      .nav-actions .btn-ghost { display: none; }
+      .footer-links { grid-template-columns: 1fr; }
     }
   </style>
   <script src="analytics.js" defer></script>
 </head>
 <body>
+  <!-- Tekrar kullanılan ikonlar -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M20 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></symbol>
+    <symbol id="i-megaphone" viewBox="0 0 24 24"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></symbol>
+    <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+    <symbol id="i-pill" viewBox="0 0 24 24"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7z"/><path d="m8.5 8.5 7 7"/></symbol>
+    <symbol id="i-building" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+    <symbol id="i-gift" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5"/></symbol>
+    <symbol id="i-apple" viewBox="0 0 24 24"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M3.6 1.8 13.8 12 3.6 22.2c-.4-.2-.6-.6-.6-1.1V2.9c0-.5.2-.9.6-1.1zm11.3 11.3 2.5 2.5-11.7 6.7 9.2-9.2zm3.8-3.8 2.7 1.7c.5.3.6.7.6 1s-.1.7-.6 1l-2.7 1.6-2.7-2.7 2.7-2.6zM5.7 1.7l11.7 6.7-2.5 2.5-9.2-9.2z"/></symbol>
+  </svg>
+
   <header>
     <div class="container nav">
       <a class="brand" href="#">
@@ -377,86 +466,194 @@
       </a>
       <nav class="nav-links">
         <a href="#ozellikler">Özellikler</a>
+        <a href="#panel">Web Paneli</a>
+        <a href="#kimlere">Kimler için</a>
         <a href="#fiyat">Fiyat</a>
-        <a href="#yorumlar">Yorumlar</a>
         <a href="#sss">SSS</a>
-        <a href="panel.html">Yönetici Girişi</a>
-        <a class="nav-cta" href="panel.html?signup=1">Ücretsiz Başla</a>
       </nav>
+      <div class="nav-actions">
+        <a class="btn btn-ghost btn-sm" href="panel.html">Yönetici Girişi</a>
+        <a class="btn btn-primary btn-sm" href="panel.html?signup=1">Ücretsiz Başla</a>
+      </div>
     </div>
   </header>
 
   <section class="hero" id="indir">
-    <div class="blob blob-1"></div>
-    <div class="blob blob-2"></div>
-    <div class="container">
-      <h1>Sitenizi yönetmenin <em>en kolay yolu</em><br />apartmanınız cebinizde</h1>
-      <p class="sub">Aidattan sohbete, arıza bildiriminden dijital karar defterine — sitenizin tamamını modern, şeffaf ve tek bir ekrandan yönetin.</p>
-
-      <div class="hero-3d" id="hero3d">
-        <img src="hero-site.png" alt="Komşu 3D site maketi — binalar, otopark, havuz ve oyun parkı" loading="eager" onerror="this.style.display='none'" />
-        <div class="tag">🏙️ Web panelindeki canlı 3D site maketiniz</div>
+    <div class="container hero-grid">
+      <div>
+        <div class="eyebrow"><span class="dot"></span>Apartman ve site yönetimi</div>
+        <h1>Sitenizi yönetmenin <span class="hl">en kolay yolu</span></h1>
+        <p class="sub">Aidattan arıza bildirimine, duyurudan dijital karar defterine — sitenizin tamamını tek bir ekrandan, şeffaf şekilde yönetin.</p>
+        <div class="hero-ctas">
+          <a class="btn btn-primary btn-lg" href="panel.html?signup=1">Ücretsiz Başla <svg class="i"><use href="#i-arrow"/></svg></a>
+          <a class="btn btn-ghost btn-lg" href="panel.html">Web Paneline Giriş</a>
+        </div>
+        <ul class="checks">
+          <li><svg class="i"><use href="#i-check"/></svg>İlk ay ücretsiz</li>
+          <li><svg class="i"><use href="#i-check"/></svg>Kart bilgisi gerekmez</li>
+          <li><svg class="i"><use href="#i-check"/></svg>Dakikalar içinde kurulum</li>
+        </ul>
+        <div class="stores">
+          <a class="store" href="https://apps.apple.com/tr/app/id6761692595" target="_blank" rel="noopener">
+            <svg><use href="#i-apple"/></svg><span><small>İndirin</small><b>App Store</b></span>
+          </a>
+          <a class="store" href="https://play.google.com/store/apps/details?id=com.huseyinyeni.KomsuApp" target="_blank" rel="noopener">
+            <svg><use href="#i-play"/></svg><span><small>İndirin</small><b>Google Play</b></span>
+          </a>
+        </div>
       </div>
 
-      <div class="badges">
-        <a class="badge-btn" href="https://apps.apple.com/tr/app/id6761692595" target="_blank" rel="noopener">
-          <span style="font-size:24px"></span>
-          <span class="lines"><small>Şimdi indirin</small>App Store</span>
-        </a>
-        <a class="badge-btn" href="https://play.google.com/store/apps/details?id=com.huseyinyeni.KomsuApp" target="_blank" rel="noopener">
-          <span style="font-size:22px">▶</span>
-          <span class="lines"><small>Şimdi indirin</small>Google Play</span>
-        </a>
-        <a class="badge-btn" href="panel.html">
-          <span style="font-size:22px">🖥️</span>
-          <span class="lines"><small>Yönetici için</small>Web Paneli</span>
-        </a>
-        <a class="badge-btn badge-primary" href="panel.html?signup=1">
-          <span style="font-size:22px">✨</span>
-          <span class="lines"><small>İndirmeden, web'den</small>Ücretsiz Başla</span>
-        </a>
-      </div>
+      <div class="mock" aria-label="Komşu yönetici paneli ve mobil uygulama görünümü" role="img">
+        <div class="win">
+          <div class="win-bar"><i></i><i></i><i></i><div class="url">komsuapp.org/panel</div></div>
+          <div class="win-body">
+            <aside class="side">
+              <div class="site"><span>YV</span>Yeşil Vadi Sitesi</div>
+              <a class="on"><svg class="i"><use href="#i-grid"/></svg>Genel bakış</a>
+              <a><svg class="i"><use href="#i-wallet"/></svg>Aidatlar</a>
+              <a><svg class="i"><use href="#i-building"/></svg>Daireler</a>
+              <a><svg class="i"><use href="#i-wrench"/></svg>Arızalar</a>
+              <a><svg class="i"><use href="#i-megaphone"/></svg>Duyurular</a>
+              <a><svg class="i"><use href="#i-calendar"/></svg>Takvim</a>
+            </aside>
+            <div class="main">
+              <h4>Genel bakış</h4>
+              <div class="meta">Eylül 2026 · 3 blok, 96 daire</div>
+              <div class="kpis">
+                <div class="kpi"><small>Tahsilat oranı</small><b>%92</b><div class="bar"><i></i></div></div>
+                <div class="kpi"><small>Kasa bakiyesi</small><b>₺184.250</b><span class="up">↑ ₺21.400 bu ay</span></div>
+                <div class="kpi"><small>Açık arıza</small><b>3</b><span class="up" style="color:var(--muted)">2'si bugün çözüldü</span></div>
+              </div>
+              <div class="panes">
+                <div class="pane">
+                  <div class="pane-t">Aylık tahsilat <span>son 6 ay</span></div>
+                  <div class="chart">
+                    <div><i style="height:58%"></i><em>Nis</em></div>
+                    <div><i style="height:66%"></i><em>May</em></div>
+                    <div><i style="height:61%"></i><em>Haz</em></div>
+                    <div><i style="height:74%"></i><em>Tem</em></div>
+                    <div><i style="height:80%"></i><em>Ağu</em></div>
+                    <div><i style="height:92%"></i><em>Eyl</em></div>
+                  </div>
+                </div>
+                <div class="pane">
+                  <div class="pane-t">Aidat durumu <span>A Blok</span></div>
+                  <ul class="rows">
+                    <li><span class="who"><span class="av">D3</span>Daire 3</span><span class="pill ok">Ödendi</span></li>
+                    <li><span class="who"><span class="av">D7</span>Daire 7</span><span class="pill ok">Ödendi</span></li>
+                    <li><span class="who"><span class="av">D12</span>Daire 12</span><span class="pill wait">Bekliyor</span></li>
+                    <li><span class="who"><span class="av">D15</span>Daire 15</span><span class="pill late">Gecikti</span></li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
 
-      <div class="stats">
-        <div class="stat"><div class="num" data-count="140">0</div><div class="lbl">Yönetilen site</div></div>
-        <div class="stat"><div class="num" data-count="850">0</div><div class="lbl">Aktif komşu</div></div>
-        <div class="stat"><div class="num" data-count="4.8" data-decimal="1">0</div><div class="lbl">App Store puanı</div></div>
+        <div class="phone">
+          <div class="phone-in">
+            <h5>Bildirimler</h5>
+            <div class="note">
+              <div class="ic" style="background:var(--success-soft);color:var(--success)"><svg class="i"><use href="#i-check"/></svg></div>
+              <div><b>Eylül aidatınız ödendi</b><span>₺1.250 · az önce</span></div>
+            </div>
+            <div class="note">
+              <div class="ic" style="background:var(--primary-soft);color:var(--primary-dark)"><svg class="i"><use href="#i-megaphone"/></svg></div>
+              <div><b>Asansör bakımı yarın</b><span>10:00 – 12:00 · Yönetim</span></div>
+            </div>
+            <div class="note">
+              <div class="ic" style="background:var(--warn-soft);color:#9A6B00"><svg class="i"><use href="#i-wrench"/></svg></div>
+              <div><b>Arıza kaydınız çözüldü</b><span>Otopark aydınlatması</span></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
 
-  <section id="ozellikler">
+  <div class="strip">
+    <div class="container strip-row">
+      <div class="strip-item"><div class="ico"><svg class="i"><use href="#i-phone"/></svg></div><div><b>iPhone ve Android</b><span>App Store ve Google Play'de</span></div></div>
+      <div class="strip-item"><div class="ico"><svg class="i"><use href="#i-monitor"/></svg></div><div><b>Web yönetici paneli</b><span>Masabaşı işler bilgisayarda</span></div></div>
+      <div class="strip-item"><div class="ico"><svg class="i"><use href="#i-shield"/></svg></div><div><b>Güvenli ödeme</b><span>iyzico · 3D Secure</span></div></div>
+      <div class="strip-item"><div class="ico"><svg class="i"><use href="#i-users"/></svg></div><div><b>Sakinlere ücretsiz</b><span>Yalnızca yönetim abone olur</span></div></div>
+    </div>
+  </div>
+
+  <section id="neden">
     <div class="container">
-      <h2 class="section-title">Her şey tek uygulamada</h2>
-      <p class="section-sub">Kağıt makbuzlara, kapıya asılan duyurulara ve WhatsApp karmaşasına son.</p>
-      <div class="features-grid">
-        <div class="card">
-          <div class="emoji">💰</div>
+      <div class="head reveal">
+        <div class="kicker">Neden Komşu</div>
+        <h2>Kağıt defterden cebinize</h2>
+        <p>Kapı kapı dolaşıp aidat toplamak, makbuz yığınları ve WhatsApp karmaşası artık geride kalsın.</p>
+      </div>
+      <div class="story">
+        <!-- Görsel eklenince (img/once.jpg, img/sonra.jpg) kartın üstünde görünür; yoksa alan kendini gizler. -->
+        <article class="story-card before reveal">
+          <div class="story-media"><img src="img/once.jpg" alt="Masasında makbuz ve defterlerle çalışan apartman yöneticisi" loading="lazy" onerror="this.parentElement.remove()" /></div>
+          <div class="story-body">
+            <span class="tag old">Eskiden</span>
+            <h3>Yöneticinin omzunda her şey</h3>
+            <ul>
+              <li><svg class="i"><use href="#i-x"/></svg>Kapı kapı dolaşıp aidat toplamak</li>
+              <li><svg class="i"><use href="#i-x"/></svg>Kaybolan makbuzlar, elle tutulan kasa defteri</li>
+              <li><svg class="i"><use href="#i-x"/></svg>Asansöre asılan, kimsenin okumadığı duyurular</li>
+              <li><svg class="i"><use href="#i-x"/></svg>Yönetici değişince kaybolan geçmiş</li>
+            </ul>
+          </div>
+        </article>
+        <article class="story-card after reveal">
+          <div class="story-media"><img src="img/sonra.jpg" alt="Telefonundan site yönetimini rahatça takip eden yönetici" loading="lazy" onerror="this.parentElement.remove()" /></div>
+          <div class="story-body">
+            <span class="tag new">Komşu ile</span>
+            <h3>Her şey kayıtlı, herkes bilgili</h3>
+            <ul>
+              <li><svg class="i"><use href="#i-check"/></svg>Kim ödedi, kim ödemedi — anında ekranda</li>
+              <li><svg class="i"><use href="#i-check"/></svg>Gelir-gider ve kasa, belgesiyle birlikte dijitalde</li>
+              <li><svg class="i"><use href="#i-check"/></svg>Duyurular her sakinin telefonuna bildirim olarak</li>
+              <li><svg class="i"><use href="#i-check"/></svg>Devir teslim dakikalar içinde</li>
+            </ul>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="soft" id="ozellikler">
+    <div class="container">
+      <div class="head reveal">
+        <div class="kicker">Özellikler</div>
+        <h2>Her şey tek uygulamada</h2>
+        <p>Yöneticinin ihtiyacı olan her araç, sakinin görmek istediği her bilgi.</p>
+      </div>
+      <div class="features reveal">
+        <div class="feature">
+          <div class="ico"><svg class="i"><use href="#i-wallet"/></svg></div>
           <h3>Aidat Takibi</h3>
           <p>Aidat borç ve alacaklarını şeffaf şekilde takip edin. Kim ödedi, kim ödemedi — her şey kayıt altında.</p>
         </div>
-        <div class="card">
-          <div class="emoji">📢</div>
+        <div class="feature">
+          <div class="ico"><svg class="i"><use href="#i-megaphone"/></svg></div>
           <h3>Duyurular</h3>
           <p>Yönetici duyuruları anında telefonunuza gelsin. Önemli hiçbir gelişmeyi kaçırmayın.</p>
         </div>
-        <div class="card">
-          <div class="emoji">🔧</div>
+        <div class="feature">
+          <div class="ico"><svg class="i"><use href="#i-wrench"/></svg></div>
           <h3>Arıza Bildirimi</h3>
           <p>Asansör mü bozuldu, su mu akıyor? Fotoğrafıyla bildirin, çözüm sürecini adım adım izleyin.</p>
         </div>
-        <div class="card">
-          <div class="emoji">💬</div>
+        <div class="feature">
+          <div class="ico"><svg class="i"><use href="#i-chat"/></svg></div>
           <h3>Komşu Sohbeti</h3>
           <p>Bina sakinleriyle güvenli ortamda mesajlaşın. Telefon numaranızı paylaşmanıza gerek yok.</p>
         </div>
-        <div class="card">
-          <div class="emoji">📅</div>
+        <div class="feature">
+          <div class="ico"><svg class="i"><use href="#i-calendar"/></svg></div>
           <h3>Toplantı Planlama</h3>
           <p>Bina toplantılarını planlayın, katılımı takip edin, kararları herkesle paylaşın.</p>
         </div>
-        <div class="card">
-          <div class="emoji">💊</div>
+        <div class="feature">
+          <div class="ico"><svg class="i"><use href="#i-pill"/></svg></div>
           <h3>Nöbetçi Eczaneler</h3>
           <p>Konumunuza en yakın nöbetçi eczaneleri anında görün. Gece yarısı ilaç aramak dert olmasın.</p>
         </div>
@@ -464,96 +661,99 @@
     </div>
   </section>
 
-  <section id="fiyat">
+  <section id="panel">
     <div class="container">
-      <h2 class="section-title reveal">Şeffaf, basit fiyat</h2>
-      <p class="section-sub reveal">Sitenizdeki daire sayısını seçin, aylık ücretinizi anında görün. Gizli ücret yok.</p>
-      <div class="pricing-card reveal">
-        <div class="price-big"><span id="priceVal">1.059</span><small>₺ / ay</small></div>
-        <div class="price-sub">Tüm site için tek abonelik — her bina, her özellik dahil.</div>
-        <div class="slider-row">
-          <label>Sitenizdeki toplam daire <b><span id="daireVal">40</span> daire</b></label>
-          <input type="range" min="4" max="400" value="40" step="1" class="komsu" id="daireSlider" />
-        </div>
-        <div class="price-breakdown">
-          <span>Sabit işletim: 299₺</span>·<span>Daire başına: 19₺ × <span id="daireVal2">40</span></span>
-        </div>
-        <div class="trial-note">🎁 İlk 1 ay tamamen ücretsiz — kart bilgisi istemeden deneyin</div>
-        <a class="price-cta" href="panel.html?signup=1">Ücretsiz Başla →</a>
-        <p class="price-legal">
-          Fiyatlar Türk Lirası (₺) cinsinden olup KDV dahildir. Abonelik aylıktır ve iptal edilmediği sürece otomatik yenilenir.
-          Satın alma öncesi <a href="mesafeli-satis-sozlesmesi.html">Mesafeli Satış Sözleşmesi</a>,
-          <a href="iptal-iade-kosullari.html">İptal ve İade Koşulları</a> ve
-          <a href="teslimat.html">Teslimat Koşulları</a>'nı inceleyebilirsiniz.
-        </p>
+      <div class="head reveal">
+        <div class="kicker">Yönetici paneli</div>
+        <h2>Masabaşı işler web'de, saha işleri cepte</h2>
+        <p>Web paneli, yöneticinin bilgisayar başında yaptığı her işi düzene sokar. Sahadaki bildirimler mobil uygulamadan anında gelir.</p>
       </div>
-    </div>
-  </section>
-
-  <section class="split" id="yorumlar">
-    <div class="container">
-      <h2 class="section-title reveal">Komşu'yu sevdiler</h2>
-      <p class="section-sub reveal">Türkiye'nin dört bir yanından site ve apartman yöneticileri Komşu ile yönetiyor.</p>
-      <div class="reviews">
-       <div class="reviews-track" id="reviewsTrack" tabindex="0" role="group" aria-label="Kullanıcı yorumları">
-        <div class="review">
-          <div class="stars">★★★★★</div>
-          <p>"Aidat toplamak kabustu, herkes 'ödedim' diyordu. Şimdi her şey şeffaf, kimin ödediği ekranda. Site sakinleri de çok memnun."</p>
-          <div class="who"><div class="av">MK</div><div><b>Mehmet Kaya</b><span>Bahçeşehir, 3 bloklu site yöneticisi</span></div></div>
+      <div class="bento">
+        <div class="tile wide reveal">
+          <h3>Aidat ve borç takibi</h3>
+          <p>Her dairenin her ayı tek tabloda. Vadesi geçen aidat otomatik olarak borca döner, kimin ödediği ilk bakışta görünür.</p>
+          <div class="vis" aria-hidden="true">
+            <div class="heat">
+              <span></span><span class="h">Oca</span><span class="h">Şub</span><span class="h">Mar</span><span class="h">Nis</span><span class="h">May</span><span class="h">Haz</span><span class="h">Tem</span><span class="h">Ağu</span><span class="h">Eyl</span>
+              <span class="r">A · D1</span><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="w"></i>
+              <span class="r">A · D2</span><i></i><i></i><i class="l"></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              <span class="r">A · D3</span><i></i><i></i><i></i><i></i><i></i><i></i><i class="l"></i><i class="l"></i><i class="l"></i>
+              <span class="r">B · D1</span><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              <span class="r">B · D2</span><i class="e"></i><i class="e"></i><i></i><i></i><i></i><i></i><i></i><i></i><i class="w"></i>
+            </div>
+            <div class="legend"><span style="--c:#BFE5D1">Ödendi</span><span style="--c:#F2E2B0">Vadesi gelmedi</span><span style="--c:#F4CFC8">Gecikti</span></div>
+          </div>
         </div>
-        <div class="review">
-          <div class="stars">★★★★★</div>
-          <p>"3D maketten binaları görmek inanılmaz. Toplantı çağrısı, oylama, karar defteri hepsi tek yerde. Apsiyon'dan çok daha kolay."</p>
-          <div class="who"><div class="av">AY</div><div><b>Ayşe Yıldız</b><span>İzmir, 60 daireli apartman</span></div></div>
+        <div class="tile reveal">
+          <h3>Tek kasa, blok defteri</h3>
+          <p>Çok bloklu sitelerde tek kasa, her blok için ayrı defter.</p>
+          <div class="vis" aria-hidden="true">
+            <ul class="ledger">
+              <li><span>Eylül aidatları</span><span class="in">+ ₺96.000</span></li>
+              <li><span>Asansör bakımı</span><span class="out">− ₺4.800</span></li>
+              <li><span>Ortak alan elektriği</span><span class="out">− ₺3.150</span></li>
+              <li><span>Kasa</span><span>₺184.250</span></li>
+            </ul>
+          </div>
         </div>
-        <div class="review">
-          <div class="stars">★★★★★</div>
-          <p>"Kağıt makbuz devri bitti. Komşularla sohbet, arıza bildirimi, duyurular… WhatsApp grubundaki kaos sona erdi."</p>
-          <div class="who"><div class="av">SD</div><div><b>Serkan Demir</b><span>Ankara, apartman yöneticisi</span></div></div>
+        <div class="tile reveal">
+          <h3>Belge merkezi</h3>
+          <p>Kararlar, tutanaklar ve makbuzlar tek tıkla PDF belgeye dönüşür.</p>
+          <div class="vis docs" aria-hidden="true">
+            <div class="doc"><span class="f">PDF</span><div><b>Genel kurul kararı</b><span>12 Eylül 2026</span></div></div>
+            <div class="doc"><span class="f">PDF</span><div><b>Gelir-gider raporu · Ağustos</b><span>1 Eylül 2026</span></div></div>
+          </div>
         </div>
-        <div class="review">
-          <div class="stars">★★★★☆</div>
-          <p>"Güvenlik görevlisi modu harika, ziyaretçi ve plaka kaydı çok işime yaradı. 1 ay ücretsiz deneyip hemen geçtim."</p>
-          <div class="who"><div class="av">FÖ</div><div><b>Fatma Öztürk</b><span>Antalya, 5 bloklu site</span></div></div>
-        </div>
-        <div class="review">
-          <div class="stars">★★★★★</div>
-          <p>"Yönetici değişince her şey kaybolurdu. Artık kasa, kararlar, geçmiş dijitalde. Devir teslim dakikalar sürüyor."</p>
-          <div class="who"><div class="av">HÇ</div><div><b>Hakan Çelik</b><span>İstanbul, site yönetim kurulu</span></div></div>
-        </div>
-       </div>
-       <div class="reviews-nav">
-         <button class="reviews-arrow" id="revPrev" type="button" aria-label="Önceki yorumlar">&#8249;</button>
-         <div class="reviews-dots" id="revDots"></div>
-         <button class="reviews-arrow" id="revNext" type="button" aria-label="Sonraki yorumlar">&#8250;</button>
-       </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="kimlere">
-    <div class="container">
-      <h2 class="section-title">Kimler için?</h2>
-      <p class="section-sub">İster yönetici olun ister bina sakini — Komşu işinizi kolaylaştırır.</p>
-      <div class="roles">
-        <div class="role">
-          <h3>🏢 Yöneticiler</h3>
-          <ul>
-            <li>Aidat toplama ve borç takibi</li>
-            <li>Toplu duyuru gönderimi</li>
-            <li>Arıza taleplerini yönetme</li>
-            <li>Gelir-gider ve kasa yönetimi</li>
-            <li>Bina kuralları ve toplantı planlama</li>
+        <div class="tile reveal">
+          <h3>Periyodik işler takvimi</h3>
+          <p>Bakım ve kontrolleri bir kez tanımlayın, zamanı gelince hatırlatalım.</p>
+          <ul class="vis cal" aria-hidden="true">
+            <li><div class="d"><b>15</b><small>Eki</small></div><div><b>Asansör bakımı</b><span>Her ay</span></div></li>
+            <li><div class="d"><b>02</b><small>Kas</small></div><div><b>Yangın tüpü kontrolü</b><span>Yıllık</span></div></li>
           </ul>
         </div>
-        <div class="role">
-          <h3>🏠 Bina Sakinleri</h3>
+        <div class="tile reveal">
+          <h3>Güvenlik görevlisi modu</h3>
+          <p>Ziyaretçi ve plaka kayıtları, görevliye özel sade bir ekrandan.</p>
+          <div class="vis" aria-hidden="true">
+            <div class="plate"><span class="no">34 KMS 123</span><span>Giriş · 14:32</span></div>
+            <div class="plate"><span class="no">06 ABC 45</span><span>Ziyaretçi · B-12</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="soft" id="kimlere">
+    <div class="container">
+      <div class="head reveal">
+        <div class="kicker">Kimler için</div>
+        <h2>Yönetici de sakin de kazanır</h2>
+        <p>İster yönetici olun ister bina sakini — Komşu işinizi kolaylaştırır.</p>
+      </div>
+      <div class="roles">
+        <div class="role dark reveal">
+          <div class="ico"><svg class="i"><use href="#i-building"/></svg></div>
+          <h3>Yöneticiler</h3>
+          <p>Web paneli ve mobil uygulamayla sitenin tamamı kontrolünüzde.</p>
           <ul>
-            <li>Aidat borcunu anında görme</li>
-            <li>Duyuruları kaçırmama</li>
-            <li>Tek tıkla arıza bildirme</li>
-            <li>Komşularla güvenli iletişim</li>
-            <li>Yakındaki nöbetçi eczaneler</li>
+            <li><svg class="i"><use href="#i-check"/></svg>Aidat toplama ve borç takibi</li>
+            <li><svg class="i"><use href="#i-check"/></svg>Toplu duyuru gönderimi</li>
+            <li><svg class="i"><use href="#i-check"/></svg>Arıza taleplerini yönetme</li>
+            <li><svg class="i"><use href="#i-check"/></svg>Gelir-gider ve kasa yönetimi</li>
+            <li><svg class="i"><use href="#i-check"/></svg>Bina kuralları ve toplantı planlama</li>
+          </ul>
+        </div>
+        <div class="role reveal">
+          <div class="ico"><svg class="i"><use href="#i-home"/></svg></div>
+          <h3>Bina Sakinleri</h3>
+          <p>Binanızda olan biten her şey, telefonunuzda.</p>
+          <ul>
+            <li><svg class="i"><use href="#i-check"/></svg>Aidat borcunu anında görme</li>
+            <li><svg class="i"><use href="#i-check"/></svg>Duyuruları kaçırmama</li>
+            <li><svg class="i"><use href="#i-check"/></svg>Tek tıkla arıza bildirme</li>
+            <li><svg class="i"><use href="#i-check"/></svg>Komşularla güvenli iletişim</li>
+            <li><svg class="i"><use href="#i-check"/></svg>Yakındaki nöbetçi eczaneler</li>
           </ul>
         </div>
       </div>
@@ -562,32 +762,77 @@
 
   <section id="nasil-calisir">
     <div class="container">
-      <h2 class="section-title reveal">Nasıl çalışır?</h2>
-      <p class="section-sub reveal">Üç adımda binanız dijitalde.</p>
+      <div class="head reveal">
+        <div class="kicker">Nasıl çalışır</div>
+        <h2>Üç adımda binanız dijitalde</h2>
+      </div>
       <div class="steps">
         <div class="step reveal">
-          <div class="num">1</div>
-          <h3>İndir &amp; Kaydol</h3>
+          <div class="num">01</div>
+          <h3>İndir &amp; giriş yap</h3>
           <p>Uygulamayı indir, Apple veya Google hesabınla saniyeler içinde giriş yap.</p>
         </div>
         <div class="step reveal">
-          <div class="num">2</div>
-          <h3>Binanı Oluştur</h3>
+          <div class="num">02</div>
+          <h3>Binanı oluştur</h3>
           <p>Yöneticiysen binanı ekle, daireleri tanımla ve komşularını davet et.</p>
         </div>
         <div class="step reveal">
-          <div class="num">3</div>
-          <h3>Yönetmeye Başla</h3>
+          <div class="num">03</div>
+          <h3>Yönetmeye başla</h3>
           <p>Aidatlar, duyurular, arızalar ve sohbet — hepsi tek ekrandan, anında.</p>
         </div>
       </div>
     </div>
   </section>
 
-  <section class="split" id="sss">
+  <section class="soft" id="fiyat">
     <div class="container">
-      <h2 class="section-title reveal">Sık Sorulan Sorular</h2>
-      <p class="section-sub reveal">Aklına takılan başka bir şey varsa bize yazabilirsin.</p>
+      <div class="head reveal">
+        <div class="kicker">Fiyat</div>
+        <h2>Şeffaf, basit fiyat</h2>
+        <p>Sitenizdeki daire sayısını seçin, aylık ücretinizi anında görün. Gizli ücret yok.</p>
+      </div>
+      <div class="pricing reveal">
+        <div class="pricing-l">
+          <h3>Tüm site için tek abonelik</h3>
+          <p>Her bina, her özellik dahil. Sakinler için her zaman ücretsiz.</p>
+          <ul>
+            <li><svg class="i"><use href="#i-check"/></svg>Sınırsız blok ve daire</li>
+            <li><svg class="i"><use href="#i-check"/></svg>Web paneli + iOS ve Android uygulaması</li>
+            <li><svg class="i"><use href="#i-check"/></svg>Aidat, kasa, gelir-gider ve raporlar</li>
+            <li><svg class="i"><use href="#i-check"/></svg>Duyuru, arıza, toplantı ve karar defteri</li>
+            <li><svg class="i"><use href="#i-check"/></svg>İstediğiniz zaman iptal</li>
+          </ul>
+        </div>
+        <div class="pricing-r">
+          <div class="price-big"><span id="priceVal">1.059</span><small>₺ / ay</small></div>
+          <div class="price-sub">KDV dahil, aylık faturalandırılır.</div>
+          <div class="slider-row">
+            <label for="daireSlider">Toplam daire sayısı <b><span id="daireVal">40</span> daire</b></label>
+            <input type="range" min="4" max="400" value="40" step="1" class="komsu" id="daireSlider" />
+          </div>
+          <div class="price-breakdown">Sabit işletim 299₺ + daire başına 19₺ × <span id="daireVal2">40</span></div>
+          <div class="trial-note"><svg class="i"><use href="#i-gift"/></svg>İlk 1 ay ücretsiz — kart bilgisi istemeden deneyin</div>
+          <a class="btn btn-primary btn-lg" href="panel.html?signup=1">Ücretsiz Başla <svg class="i"><use href="#i-arrow"/></svg></a>
+        </div>
+      </div>
+      <p class="price-legal">
+        Fiyatlar Türk Lirası (₺) cinsinden olup KDV dahildir. Abonelik aylıktır ve iptal edilmediği sürece otomatik yenilenir.
+        Satın alma öncesi <a href="mesafeli-satis-sozlesmesi.html">Mesafeli Satış Sözleşmesi</a>,
+        <a href="iptal-iade-kosullari.html">İptal ve İade Koşulları</a> ve
+        <a href="teslimat.html">Teslimat Koşulları</a>'nı inceleyebilirsiniz.
+      </p>
+    </div>
+  </section>
+
+  <section id="sss">
+    <div class="container">
+      <div class="head reveal">
+        <div class="kicker">SSS</div>
+        <h2>Sık sorulan sorular</h2>
+        <p>Aklınıza takılan başka bir şey varsa <a href="iletisim.html" style="color:var(--primary-dark);font-weight:600">bize yazın</a>.</p>
+      </div>
       <div class="faq reveal">
         <details>
           <summary>Komşu ücretsiz mi?</summary>
@@ -599,15 +844,15 @@
         </details>
         <details>
           <summary>Verilerim güvende mi?</summary>
-          <p>Verilerin güvenli bulut altyapısında şifrelenerek saklanır ve yalnızca senin bina yönetimindeki yetkili kişilerle paylaşılır. Detaylar için <a href="gizlilik-politikasi.html">Gizlilik Politikamıza</a> göz atabilirsin.</p>
+          <p>Verileriniz güvenli bulut altyapısında şifrelenerek saklanır ve yalnızca bina yönetiminizdeki yetkili kişilerle paylaşılır. Detaylar için <a href="gizlilik-politikasi.html">Gizlilik Politikamıza</a> göz atabilirsiniz.</p>
         </details>
         <details>
           <summary>Binamı nasıl eklerim?</summary>
-          <p>Yönetici olarak kaydolduktan sonra binanı oluşturur, daireleri tanımlar ve bina sakinlerini davet edersin. Kurulum birkaç dakika sürer.</p>
+          <p>Yönetici olarak kaydolduktan sonra binanızı oluşturur, daireleri tanımlar ve bina sakinlerini davet edersiniz. Kurulum birkaç dakika sürer.</p>
         </details>
         <details>
           <summary>Sakin olarak ne yapabilirim?</summary>
-          <p>Aidat borcunu görebilir, duyuruları takip edebilir, arıza bildirebilir, komşularınla mesajlaşabilir ve yakınındaki nöbetçi eczaneleri görebilirsin.</p>
+          <p>Aidat borcunuzu görebilir, duyuruları takip edebilir, arıza bildirebilir, komşularınızla mesajlaşabilir ve yakınınızdaki nöbetçi eczaneleri görebilirsiniz.</p>
         </details>
       </div>
     </div>
@@ -615,38 +860,45 @@
 
   <section class="cta-final">
     <div class="container">
-      <h2 class="section-title">Komşu'yu bugün indirin</h2>
-      <p class="section-sub">iPhone ve Android'de yayında. İlk 1 ay ücretsiz — kart bilgisi istemeden deneyin.</p>
-      <div class="badges">
-        <a class="badge-btn" href="https://apps.apple.com/tr/app/id6761692595" target="_blank" rel="noopener">
-          <span style="font-size:24px"></span>
-          <span class="lines"><small>Şimdi indirin</small>App Store</span>
-        </a>
-        <a class="badge-btn" href="https://play.google.com/store/apps/details?id=com.huseyinyeni.KomsuApp" target="_blank" rel="noopener">
-          <span style="font-size:22px">▶</span>
-          <span class="lines"><small>Şimdi indirin</small>Google Play</span>
-        </a>
+      <div class="cta-box reveal">
+        <h2>Sitenizi bugün dijitale taşıyın</h2>
+        <p>iPhone, Android ve web'de. İlk 1 ay ücretsiz — kart bilgisi istemeden deneyin.</p>
+        <div class="hero-ctas">
+          <a class="btn btn-primary btn-lg" href="panel.html?signup=1">Ücretsiz Başla <svg class="i"><use href="#i-arrow"/></svg></a>
+          <a class="store" href="https://apps.apple.com/tr/app/id6761692595" target="_blank" rel="noopener">
+            <svg><use href="#i-apple"/></svg><span><small>İndirin</small><b>App Store</b></span>
+          </a>
+          <a class="store" href="https://play.google.com/store/apps/details?id=com.huseyinyeni.KomsuApp" target="_blank" rel="noopener">
+            <svg><use href="#i-play"/></svg><span><small>İndirin</small><b>Google Play</b></span>
+          </a>
+        </div>
       </div>
     </div>
   </section>
 
   <footer>
-    <div class="container footer-inner">
-      <p>© 2026 Komşu. Tüm hakları saklıdır.</p>
-      <div class="footer-links">
-        <a href="mesafeli-satis-sozlesmesi.html">Mesafeli Satış Sözleşmesi</a>
-        <a href="iptal-iade-kosullari.html">İptal ve İade</a>
-        <a href="teslimat.html">Teslimat</a>
-        <a href="kullanim-kosullari.html">Kullanım Koşulları</a>
-        <a href="gizlilik-politikasi.html">Gizlilik Politikası</a>
-        <a href="iletisim.html">İletişim</a>
+    <div class="container">
+      <div class="footer-top">
+        <div>
+          <a class="brand" href="#"><img src="icon.png" alt="" /><span>Komşu</span></a>
+          <p>Apartman ve site yönetimi, cebinizde ve web'de.</p>
+        </div>
+        <div class="footer-links">
+          <a href="mesafeli-satis-sozlesmesi.html">Mesafeli Satış Sözleşmesi</a>
+          <a href="kullanim-kosullari.html">Kullanım Koşulları</a>
+          <a href="iptal-iade-kosullari.html">İptal ve İade</a>
+          <a href="gizlilik-politikasi.html">Gizlilik Politikası</a>
+          <a href="teslimat.html">Teslimat</a>
+          <a href="iletisim.html">İletişim</a>
+        </div>
       </div>
-    </div>
-    <div class="container footer-pay">
-      <div class="pay-logos">
-        <span>VISA</span><span>MASTERCARD</span><span>TROY</span><span>3D SECURE</span><span>iyzico</span>
+      <div class="footer-pay">
+        <div class="pay-logos">
+          <span>VISA</span><span>MASTERCARD</span><span>TROY</span><span>3D SECURE</span><span>iyzico</span>
+        </div>
+        <p class="pay-note">Ödemeler BDDK lisanslı ödeme kuruluşu iyzico altyapısı ile 256-bit SSL ve 3D Secure korumalı olarak alınır. Kart bilgileriniz sunucularımızda saklanmaz.</p>
       </div>
-      <p class="pay-note">Ödemeler BDDK lisanslı ödeme kuruluşu iyzico altyapısı ile 256-bit SSL ve 3D Secure korumalı olarak alınır. Kart bilgileriniz sunucularımızda saklanmaz.</p>
+      <p class="copy">© 2026 Komşu. Tüm hakları saklıdır.</p>
     </div>
   </footer>
 
@@ -654,10 +906,7 @@
     const obs = new IntersectionObserver((entries) => {
       entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); } });
     }, { threshold: 0.12 });
-    document.querySelectorAll('.card, .role, .step, .reveal').forEach((el) => {
-      el.classList.add('reveal');
-      obs.observe(el);
-    });
+    document.querySelectorAll('.reveal').forEach((el) => obs.observe(el));
 
     /* ---- Fiyat hesaplayıcı ---- */
     (function(){
@@ -675,86 +924,6 @@
       update();
     })();
 
-    /* ---- Sayaç animasyonu ---- */
-    (function(){
-      const nums = document.querySelectorAll('.stat .num[data-count]');
-      const run = (el) => {
-        const target = parseFloat(el.dataset.count);
-        const dec = parseInt(el.dataset.decimal || '0', 10);
-        const suffix = el.dataset.suffix || '';
-        const start = performance.now(), dur = 1400;
-        const tick = (now) => {
-          const p = Math.min(1, (now - start) / dur);
-          const ease = 1 - Math.pow(1 - p, 3);
-          const val = target * ease;
-          el.textContent = (dec ? val.toFixed(dec) : Math.round(val).toLocaleString('tr-TR')) + suffix;
-          if (p < 1) requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      };
-      const o = new IntersectionObserver((es) => es.forEach(e => { if (e.isIntersecting) { run(e.target); o.unobserve(e.target); } }), { threshold: 0.5 });
-      nums.forEach(n => o.observe(n));
-    })();
-
-    /* ---- Yorum slider'ı: masaüstünde 2, mobilde 1 kart görünür ---- */
-    (function(){
-      const track = document.getElementById('reviewsTrack');
-      const dots  = document.getElementById('revDots');
-      const prev  = document.getElementById('revPrev');
-      const next  = document.getElementById('revNext');
-      if (!track || !dots || !prev || !next) return;
-
-      const cards = Array.from(track.children);
-      // Bir "sayfa" = aynı anda görünen kart sayısı. Kart genişliğinden hesaplanır
-      // ki CSS kırılım noktası değişirse JS'i ayrıca güncellemek gerekmesin.
-      const perPage = () => {
-        const w = cards[0]?.offsetWidth || 1;
-        return Math.max(1, Math.round(track.clientWidth / w));
-      };
-      const pageCount = () => Math.max(1, Math.ceil(cards.length / perPage()));
-      const current = () => {
-        const w = cards[0]?.offsetWidth || 1;
-        const gap = parseFloat(getComputedStyle(track).columnGap || '20') || 20;
-        return Math.round(track.scrollLeft / ((w + gap) * perPage()));
-      };
-
-      const goto = (page) => {
-        const w = cards[0]?.offsetWidth || 1;
-        const gap = parseFloat(getComputedStyle(track).columnGap || '20') || 20;
-        track.scrollTo({ left: page * (w + gap) * perPage(), behavior: 'smooth' });
-      };
-
-      const renderDots = () => {
-        const n = pageCount();
-        if (dots.children.length !== n) {
-          dots.innerHTML = '';
-          for (let i = 0; i < n; i++) {
-            const b = document.createElement('button');
-            b.type = 'button';
-            b.setAttribute('aria-label', `${i + 1}. yorum grubu`);
-            b.addEventListener('click', () => goto(i));
-            dots.appendChild(b);
-          }
-        }
-        sync();
-      };
-
-      const sync = () => {
-        const cur = current();
-        Array.from(dots.children).forEach((d, i) =>
-          d.setAttribute('aria-current', i === cur ? 'true' : 'false'));
-        // Ham scrollLeft'e bakma: track'in iç boşluğu ve snap hizası yüzünden
-        // başlangıçta bile 0 olmayabiliyor. Sayfa indeksi güvenilir.
-        prev.disabled = cur <= 0;
-        next.disabled = cur >= pageCount() - 1;
-      };
-
-      prev.addEventListener('click', () => goto(Math.max(0, current() - 1)));
-      next.addEventListener('click', () => goto(Math.min(pageCount() - 1, current() + 1)));
-      track.addEventListener('scroll', sync, { passive: true });
-      window.addEventListener('resize', renderDots);
-      renderDots();
-    })();
   </script>
 
 </body>
