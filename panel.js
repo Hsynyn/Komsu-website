@@ -409,7 +409,6 @@ el('tab-admin').addEventListener('click', () => {
   el('login-sub').textContent = 'Kayıt sırasında belirlediğiniz e-posta ve şifre ile giriş yapın.';
   el('email-label').textContent = 'E-posta';
   el('email').placeholder = 'ornek@eposta.com';
-  el('login-foot').style.display = 'block';
   el('login-alt').style.display = 'block';
 });
 
@@ -426,7 +425,6 @@ el('tab-security').addEventListener('click', () => {
   el('login-sub').textContent = 'Yöneticinizin bu bina için belirlediği güvenlik kullanıcı adı ve şifresi ile giriş yapın.';
   el('email-label').textContent = 'Güvenlik Kullanıcı Adı';
   el('email').placeholder = 'Örn: guvenlik-a-blok';
-  el('login-foot').style.display = 'none';
   el('login-alt').style.display = 'none';
 });
 
@@ -541,28 +539,9 @@ el('verify-resend').addEventListener('click', async () => {
   }
 });
 
-/* ============ Sosyal giriş (Google / Apple) ============ */
-// Mobilde Google/Apple ile açılan yönetici hesabı aynı Supabase kullanıcısıdır;
-// aynı sağlayıcıyla web'e girince binası otomatik gelir. Apple "E-postamı
-// gizle" seçen yöneticinin e-posta+şifre belirlemesine gerek kalmaz.
-// Dashboard önkoşulu: Authentication → Providers'ta Google (client secret) ve
-// Apple (Services ID + secret) web için tanımlı olmalı; bkz. Komsu/docs/EPOSTA_DOGRULAMA.md
-
-async function socialLogin(provider) {
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider,
-    options: { redirectTo: location.origin + location.pathname },
-  });
-  if (error) showLogin(authErrorText(error, `${provider === 'apple' ? 'Apple' : 'Google'} ile giriş şu an kullanılamıyor.`));
-}
-['login-google', 'signup-google'].forEach(id => el(id).addEventListener('click', () => socialLogin('google')));
-['login-apple', 'signup-apple'].forEach(id => el(id).addEventListener('click', () => socialLogin('apple')));
-
-// Güvenlik sekmesinde sosyal giriş ve şifre sıfırlama gösterilmez
-el('tab-admin').addEventListener('click', () => { show('login-social'); show('login-forgot'); });
-el('tab-security').addEventListener('click', () => { hide('login-social'); hide('login-forgot'); });
-
 /* ============ Şifremi unuttum (bağlantı ile) ============ */
+// ŞU AN KAPALI: giriş ekranında "Şifremi unuttum" bağlantısı yok. Geri açmak için
+// panel.html'e #go-forgot butonu eklenip aşağıdaki dinleyici bağlanmalı.
 // resetPasswordForEmail → Supabase'in standart "Reset Password" e-postası
 // (şablon değişikliği gerekmez) → bağlantı panele #type=recovery ile döner →
 // supabase-js oturumu URL'den alır → yeni şifre ekranı → updateUser.
@@ -590,7 +569,6 @@ function showForgot() {
   showScreen('forgot'); hide('forgot-error'); hide('forgot-sent');
   el('fp-email').value = el('email').value.trim();
 }
-el('go-forgot').addEventListener('click', showForgot);
 el('forgot-to-login').addEventListener('click', () => showLogin());
 
 el('forgot-form').addEventListener('submit', async (e) => {
@@ -630,7 +608,7 @@ el('reset-form').addEventListener('submit', async (e) => {
   try {
     const { data, error } = await supabase.auth.updateUser({ password: pass });
     if (error || !data.user) throw error || new Error('Şifre güncellenemedi');
-    toast('Şifreniz güncellendi. Aynı şifreyle mobil uygulamaya da girebilirsiniz.');
+    toast('Şifreniz güncellendi.');
     showScreen('loading');
     await boot(data.user);
   } catch (err) {
@@ -5267,7 +5245,6 @@ async function saveVisitorEntry() {
   };
 
   try {
-    // Sosyal giriş sağlayıcıdan hatayla dönmüş olabilir (#error_description=...)
     const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
     const oauthError = hashParams.get('error_description') || hashParams.get('error');
     if (oauthError) {
@@ -5290,8 +5267,6 @@ async function saveVisitorEntry() {
     else if (session?.user) await boot(session.user);
     // Ana sayfadaki "Ücretsiz Başla" bağlantısı ?signup=1 ile gelir
     else if (new URLSearchParams(location.search).get('signup') === '1') showSignup();
-    // Mobil uygulamadaki "Şifremi unuttum" ?forgot=1 ile gelir
-    else if (new URLSearchParams(location.search).get('forgot') === '1') showForgot();
     else showLogin();
   } catch (err) {
     window.onerror(err.message, 'panel.js', 0, 0, err);
