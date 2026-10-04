@@ -1601,15 +1601,14 @@ export async function renderDebts() {
   const aptById = new Map(apts.map(a => [a.id, a]));
   const notices = noticeRes.data || [];
 
-  // Borç = vadesi geçmiş ödenmemiş aidat. Vade ilgili ayın SON günüdür:
-  // yönetici ay boyunca tahsilat yapar. Yıllık tahakkukta ileri aylar borç
-  // sayılmaz. Gecikme tazminatı uygulanmıyor.
-  const vadesiGecti = (y, m) => Date.now() >= new Date(y, m, 1).getTime();
+  // Borç = son ödeme günü geçmiş ödenmemiş aidat (0034: aidat satırındaki
+  // due_date; yönetici aidat planında seçer, seçmediyse ayın son günü).
+  // İptal edilmiş aidat borç değildir. Gecikme tazminatı uygulanmıyor.
   const debts = new Map();
   (feeRes.data || []).forEach(f => {
-    const a = aptById.get(f.apartment_id); if (!a) return;
+    const a = aptById.get(f.apartment_id); if (!a || !C.gecerliAidat(f)) return;
     const cur = debts.get(a.id) || { apt: a, principal: 0, late: 0, months: 0, future: 0 };
-    if (!vadesiGecti(f.year, f.month)) { cur.future += 1; debts.set(a.id, cur); return; }
+    if (!C.vadesiGecti(f.year, f.month, f.due_date)) { cur.future += 1; debts.set(a.id, cur); return; }
     cur.principal += Number(f.amount);
     cur.months += 1;
     debts.set(a.id, cur);
@@ -1624,8 +1623,8 @@ export async function renderDebts() {
       `<button class="btn btn-ghost" id="debt-csv">${C.ikon('download')} CSV İndir</button>
        <button class="btn" id="debt-belge">${C.ikon('file')} Borç Raporu</button>`)}
     <p class="hint" style="margin-bottom:18px;">
-      Borç, <strong>vadesi geçmiş</strong> ödenmemiş aidatların toplamıdır. Vade ilgili ayın son günüdür;
-      henüz vadesi gelmemiş tahakkuklar burada borç olarak gösterilmez.
+      Borç, <strong>son ödeme günü geçmiş</strong> ödenmemiş aidatların (ve devreden borcun) toplamıdır.
+      Son ödeme günü aidat planında belirlenir; henüz günü gelmemiş aidatlar burada borç olarak gösterilmez.
     </p>
 
     <div class="stat-grid">
@@ -1814,62 +1813,50 @@ async function openTahsilatModal(d) {
     .eq('apartment_id', d.apt.id).eq('is_paid', false)
     .order('year').order('month');
   if (error) return C.toast(error.message, true);
-  const aylar = data || [];
+  const aylar = (data || []).filter(C.gecerliAidat);
   if (!aylar.length) return C.toast('Bu daireye ait ödenmemiş aidat kaydı yok');
 
   C.openModal(`Tahsilat — ${C.daireEtiketi(d.apt.building_id, d.apt.apartment_number)}`, `
     <p class="hint" style="margin-bottom:14px;">
-      ${C.esc(d.apt.owner_name || 'Kat maliki')} · Ödemesi alınan ayları işaretleyin.
+      ${C.esc(d.apt.owner_name || 'Kat maliki')} · Ödemesi alınan dönemleri işaretleyin.
       İşaretlenen tutar <strong>site kasasına gelir olarak</strong> işlenir${
-        C.cokBloklu() ? ` ve <strong>${C.esc(C.blokAdi(d.apt.building_id))}</strong> defterine yazılır` : ''}.
+        C.cokBloklu() ? ` ve <strong>${C.esc(C.blokAdi(d.apt.building_id))}</strong> defterine yazılır` : ''}; sakine bildirim gider.
+      Son ödeme günü gelmemiş dönemler işaretsiz gelir.
     </p>
     <div style="max-height:44vh;overflow-y:auto;margin-bottom:14px;">
       <table><thead><tr><th></th><th>Dönem</th><th class="t-right">Tutar</th></tr></thead>
-      <tbody id="th-body">${aylar.map(f => `<tr>
-        <td style="width:34px"><input type="checkbox" data-fee="${f.id}" data-amt="${f.amount}" checked></td>
-        <td>${C.MONTHS[f.month - 1]} ${f.year}</td>
+      <tbody id="th-body">${aylar.map(f => {
+        const gecti = C.vadesiGecti(f.year, f.month, f.due_date);
+        return `<tr>
+        <td style="width:34px"><input type="checkbox" data-fee="${f.id}" data-amt="${f.amount}" ${gecti ? 'checked' : ''}></td>
+        <td>${C.esc(C.donemEtiketi(f))}${gecti ? '' : ' <span class="hint">· son ödeme günü gelmedi</span>'}</td>
         <td class="t-right">${para(f.amount)}</td>
-      </tr>`).join('')}</tbody></table>
+      </tr>`;
+      }).join('')}</tbody></table>
     </div>
+    <div class="field"><label>Ödeme nasıl geldi?</label>
+      <div class="seg-tabs compact" id="th-wallet">
+        <button type="button" class="seg active" data-w="bank">Banka / havale</button>
+        <button type="button" class="seg" data-w="cash">Elden (nakit)</button>
+      </div></div>
     <div class="info-banner" id="th-ozet" style="margin:0 0 14px;"></div>
     <button class="btn btn-block" id="m-save">Tahsilatı Kaydet</button>
   `, async () => {
     const secili = [...document.querySelectorAll('#th-body input[data-fee]:checked')];
     if (!secili.length) throw new Error('En az bir dönem seçin.');
-    const toplam = secili.reduce((t, c) => t + Number(c.dataset.amt), 0);
+    const wallet = document.querySelector('#th-wallet .seg.active')?.dataset.w || 'bank';
 
-    for (const c of secili) {
-      const { error: uErr } = await C.supabase.from('monthly_fees').update({
-        is_paid: true, paid_by: C.S.user.id, paid_date: new Date().toISOString(),
-      }).eq('id', c.dataset.fee);
-      if (uErr) throw new Error(uErr.message);
-
-      /* Para dairenin KENDİ bloğunun defterine yazılır; ekranda hangi blok
-         seçili olduğunun önemi yok (mobildeki tahsilEt ile aynı kural). */
-      await C.adjustBalance({
-        amount: Number(c.dataset.amt), operation: 'add',
-        description: `Aidat ödemesi - Daire ${d.apt.apartment_number}`,
-        category: 'fee', walletType: 'bank', relatedId: c.dataset.fee,
-        buildingId: d.apt.building_id, scope: 'building',
-      });
-    }
-
-    // Borcun tamamı kapandıysa açık takip kaydını da kapat
-    if (secili.length === aylar.length) {
-      await C.supabase.from('debt_notices')
-        .update({ stage: 'closed' })
-        .eq('apartment_id', d.apt.id).neq('stage', 'closed');
-    }
-
-    // 0023: daireye ait bildirim dairenin TÜM sakinlerine gitmeli
-    if (d.apt.id && C.notifyApartment) {
-      C.notifyApartment(d.apt.id, '✅ Aidat Ödemesi Alındı',
-        `${secili.length} aylık aidatınız (${para(toplam)}) ödendi olarak işaretlendi.`);
-    }
+    /* Tek sunucu işlemi (0034 collect_fees): ödendi + kasa (dairenin kendi
+       bloğu) + hareket + borcu kapanan dairenin takip kaydı + sakine bildirim.
+       Ya hepsi olur ya hiçbiri; mobil uygulama aynı fonksiyonu çağırır. */
+    const r = await C.aidatRpc('collect_fees', {
+      p_fee_ids: secili.map(c => c.dataset.fee), p_wallet: wallet, p_note: null,
+    });
     if (C.refreshBuilding) await C.refreshBuilding();
-    C.toast(`${para(toplam)} tahsil edildi, kasaya eklendi`);
+    C.toast(`${para(r?.toplam || 0)} tahsil edildi, kasaya eklendi`);
     renderDebts();
   });
+  C.segSecici('th-wallet');
 
   // Seçim değiştikçe toplam güncellensin
   const ozetle = () => {
@@ -1877,7 +1864,8 @@ async function openTahsilatModal(d) {
     const toplam = secili.reduce((t, c) => t + Number(c.dataset.amt), 0);
     const kutu = C.el('th-ozet');
     if (kutu) kutu.innerHTML = `Seçilen: <strong>${secili.length} dönem</strong> · Tahsil edilecek: <strong>${para(toplam)}</strong>`
-      + (secili.length === aylar.length ? ' — borç tamamen kapanacak' : '');
+      + (aylar.filter(f => C.vadesiGecti(f.year, f.month, f.due_date)).every(f => secili.some(c => c.dataset.fee === f.id))
+        ? ' — vadesi geçmiş borç tamamen kapanacak' : '');
   };
   const host = C.el('th-body');
   if (host) { host.addEventListener('change', ozetle); ozetle(); }

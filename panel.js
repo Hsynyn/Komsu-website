@@ -1028,6 +1028,7 @@ const modulBaglami = {
   richEditorHTML, bindRichEditor, richValue,
   todayISO, downloadCSV, sortByApartment, occupiedOnly, isOccupied, notifyBuilding,
   MONTHS, adjustBalance, notifyUser, notifyApartment, refreshBuilding, ayEkle,
+  aidatRpc, vadesiGecti, gecerliAidat, donemEtiketi, segSecici,
   getAccessState, trialDaysLeft, siteYasiGun, YENI_SITE_GUN,
 };
 initYonetim(modulBaglami);
@@ -1588,7 +1589,7 @@ async function updateOverviewDetails(buildingId) {
   try {
     const [aptRes, feeRes, maintRes] = await Promise.all([
       supabase.from('apartments').select('id', { count: 'exact', head: true }).eq('building_id', b.id),
-      supabase.from('monthly_fees').select('id', { count: 'exact', head: true }).eq('building_id', b.id).eq('is_paid', false),
+      supabase.from('monthly_fees').select('id', { count: 'exact', head: true }).eq('building_id', b.id).eq('is_paid', false).neq('status', 'cancelled'),
       supabase.from('maintenance_requests').select('id', { count: 'exact', head: true }).eq('building_id', b.id).eq('status', 'pending'),
     ]);
 
@@ -2503,33 +2504,93 @@ async function renderApartments() {
 }
 
 /* ============ 3) AİDAT ============ */
+/* Aidat artık elle tahakkuk edilmiyor (migration 0034). Yönetici bir kez aidat
+   planı kurar; her ayın aidatı dolu dairelere kendiliğinden açılır. Yeni
+   katılan sakin yalnızca katıldığı aydan itibaren borçlanır.
+   Bütün yazma işlemleri (tahsilat, geri alma, iptal, düzeltme, plan) tek bir
+   sunucu fonksiyonu: mobil uygulama aynılarını çağırır, iki taraf farklı
+   kural uygulayamaz. Hiçbir işlem kayıt silmez. */
 let feeState = { year: new Date().getFullYear(), month: new Date().getMonth()+1 };
+
+async function aidatRpc(ad, params) {
+  const { data, error } = await supabase.rpc(ad, params);
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/** Borç kuralı (0034): aidat satırının son ödeme günü (due_date) geçtiyse borçtur.
+    due_date yoksa (eski kayıt) ayın son günü varsayılır. Mobil vadesiGectiMi ile aynı. */
+function vadesiGecti(year, month, dueDate) {
+  if (dueDate) {
+    const [y, m, d] = String(dueDate).slice(0, 10).split('-').map(Number);
+    return Date.now() >= new Date(y, m - 1, d + 1).getTime();
+  }
+  return Date.now() >= new Date(year, month, 1).getTime();
+}
+/** İptal edilmiş ya da tutarı sıfır aidat borç/tahsilat hesabına girmez. */
+function gecerliAidat(f) { return f.status !== 'cancelled' && Number(f.amount) > 0; }
+function donemEtiketi(f) { return f.kind === 'devir' ? 'Devreden borç' : `${MONTHS[f.month - 1]} ${f.year}`; }
+function ayBasiISO(y, m) { return `${y}-${String(m).padStart(2, '0')}-01`; }
+function ayEtiketiISO(iso) {
+  if (!iso) return '—';
+  const [y, m] = String(iso).slice(0, 10).split('-').map(Number);
+  return `${MONTHS[m - 1]} ${y}`;
+}
+function gunEki(n) {
+  const birler = { 1: 'i', 2: 'si', 3: 'ü', 4: 'ü', 5: 'i', 6: 'sı', 7: 'si', 8: 'i', 9: 'u' };
+  const onlar = { 10: 'u', 20: 'si', 30: 'u' };
+  return `${n}'${n % 10 ? birler[n % 10] : (onlar[n] || 'i')}`;
+}
+function sonOdemeMetni(g) { return g ? `her ayın ${gunEki(g)}` : 'ayın son günü'; }
+const tutarOku = (v) => parseFloat(String(v || '').replace(/\./g, '').replace(',', '.'));
+
+const AIDAT_DURUM = {
+  odendi:    ['Ödendi', 'b-green'],
+  gecikti:   ['Gecikti', 'b-red'],
+  bekliyor:  ['Bekliyor', 'b-amber'],
+  iptal:     ['İptal edildi', 'b-gray'],
+  yok:       ['Aidat yok', 'b-gray'],
+  muaf:      ['Muaf', 'b-gray'],
+  baslamadi: ['Başlamadı', 'b-gray'],
+};
+
 async function renderFees() {
   if (!needBuilding()) return;
   const { year, month } = feeState;
-  /* Seçili ayın yanı sıra TÜM ödenmemiş aylar da çekiliyor: bir dairenin
-     geçmiş borcu, o ayın satırına bakarken görünmüyordu ve Borç Takibi ile
-     Aidat Takibi farklı tablo gösteriyordu. İki ekran artık aynı veriden
-     besleniyor. */
-  const [aptRes, feeRes, borcRes] = await Promise.all([
-    supabase.from('apartments').select('id, apartment_number, owner_name, user_id, username').eq('building_id', bId()),
+  const donemAdi = `${MONTHS[month-1]} ${year}`;
+
+  // Plan kuruluysa açılması gereken aidatları aç (gece zamanlayıcısı kaçırdıysa da)
+  if (sId()) await supabase.rpc('open_site_fees', { p_site_id: sId() }).then(() => {}, () => {});
+
+  const [aptRes, feeRes, borcRes, blokRes, siteRes, temizlikRes] = await Promise.all([
+    supabase.from('apartments').select('*').eq('building_id', bId()),
     supabase.from('monthly_fees').select('*').eq('building_id', bId()).eq('year', year).eq('month', month),
-    supabase.from('monthly_fees').select('apartment_id, amount, year, month')
-      .eq('building_id', bId()).eq('is_paid', false),
+    supabase.from('monthly_fees').select('*').eq('building_id', bId()).eq('is_paid', false),
+    supabase.from('building_monthly_fee_settings').select('building_id, default_amount').in('building_id', siteBIds()),
+    sId() ? supabase.from('sites').select('*').eq('id', sId()).maybeSingle() : Promise.resolve({ data: null }),
+    sId() ? supabase.rpc('fee_cleanup_candidates', { p_site_id: sId() }) : Promise.resolve({ data: [] }),
   ]);
-  // Yer tutucu (boş) daireler aidat hesabına GİRMEZ; sahibi bilinmeyen
-  // daireye borç yazmak hayali alacak üretir.
+  if (siteRes?.data) S.site = siteRes.data;
+  const site = S.site || {};
+  const planAktif = !!site.fee_start;
+  const blokTutar = {};
+  (blokRes.data || []).forEach(r => { if (Number(r.default_amount) > 0) blokTutar[r.building_id] = Number(r.default_amount); });
+  const gecerliTutar = (blokId) => blokTutar[blokId] ?? Number(site.default_fee_amount || 0);
+
   const allApts = sortByApartment(aptRes.data);
-  const apts = occupiedOnly(allApts);
-  const emptyCount = allApts.length - apts.length;
+  const kural = (a) => a.fee_policy || 'auto';
+  // Listede: dolu daireler + boş olup aidata dahil edilmiş (always) daireler
+  const apts = allApts.filter(a => isOccupied(a) || kural(a) === 'always');
+  const bosDaireler = allApts.filter(a => !isOccupied(a) && kural(a) !== 'always');
+  const aptById = new Map(allApts.map(a => [a.id, a]));
 
   /* Sakin isimleri apartment_members → profiles zincirinde. owner_name yalnızca
-     yönetici elle doldurursa dolar; uygulamadan katılanlarda boş kalıyor ve bu
-     ekranda hep "—" görünüyordu. İki sakinli dairede ikisi de listelenir. */
+     yönetici elle doldurursa dolar; uygulamadan katılanlarda boş kalıyor. */
   let sakinlerByApt = {};
-  if (apts.length) {
+  const doluIds = apts.filter(isOccupied).map(a => a.id);
+  if (doluIds.length) {
     const { data: mem } = await supabase.from('apartment_members')
-      .select('apartment_id, user_id, joined_at').in('apartment_id', apts.map(a => a.id));
+      .select('apartment_id, user_id, joined_at').in('apartment_id', doluIds);
     const uids = [...new Set((mem || []).map(m => m.user_id))];
     let adByUid = {};
     if (uids.length) {
@@ -2544,16 +2605,22 @@ async function renderFees() {
           .push(adByUid[m.user_id] || 'İsimsiz sakin');
       });
   }
-  const sakinler = (id) => (sakinlerByApt[id] || []).join(', ') || '—';
-  const fees = feeRes.data || [];
-  const feeByApt = new Map(fees.map(f => [f.apartment_id, f]));
-  const paid = fees.filter(f => f.is_paid); const totalPaid = paid.reduce((s,f)=>s+Number(f.amount),0);
-  const totalExpected = fees.reduce((s,f)=>s+Number(f.amount),0);
+  const sakinler = (a) => isOccupied(a) ? ((sakinlerByApt[a.id] || []).join(', ') || '—') : 'Boş · malik öder';
 
-  /* Daire bazında toplam ödenmemiş borç (tüm dönemler). Gecikme tazminatı
-     burada hesaplanmıyor — o Borç Takibi'nin işi; burada anapara gösterilir. */
+  // Ay görünümü yalnızca aylık aidattır; devreden borç Borç Takibi'nde görünür
+  const fees = (feeRes.data || []).filter(f => f.kind !== 'devir');
+  const feeByApt = new Map(fees.map(f => [f.apartment_id, f]));
+  const gecerli = fees.filter(f => f.status !== 'cancelled');
+  const paid = gecerli.filter(f => f.is_paid);
+  const odenmeyen = gecerli.filter(f => !f.is_paid);
+  const geciken = odenmeyen.filter(f => vadesiGecti(f.year, f.month, f.due_date));
+  const totalPaid = paid.reduce((s,f)=>s+Number(f.amount),0);
+  const totalExpected = gecerli.reduce((s,f)=>s+Number(f.amount),0);
+
+  /* Daire bazında vadesi geçmiş toplam borç (tüm dönemler, devreden dahil) */
   const borcByApt = new Map();
   for (const f of (borcRes.data || [])) {
+    if (!gecerliAidat(f) || !vadesiGecti(f.year, f.month, f.due_date)) continue;
     const cur = borcByApt.get(f.apartment_id) || { ay: 0, tutar: 0 };
     cur.ay += 1; cur.tutar += Number(f.amount);
     borcByApt.set(f.apartment_id, cur);
@@ -2561,44 +2628,74 @@ async function renderFees() {
   const borcluDaire = apts.filter(a => borcByApt.has(a.id)).length;
   const borcToplam = apts.reduce((t, a) => t + (borcByApt.get(a.id)?.tutar || 0), 0);
 
+  const durumOf = (a) => {
+    const f = feeByApt.get(a.id);
+    if (f) {
+      if (f.status === 'cancelled') return 'iptal';
+      if (f.is_paid) return 'odendi';
+      return vadesiGecti(f.year, f.month, f.due_date) ? 'gecikti' : 'bekliyor';
+    }
+    if (kural(a) === 'never') return 'muaf';
+    const bas = [site.fee_start, a.fee_start].filter(Boolean).sort().pop();
+    if (planAktif && bas && ayBasiISO(year, month) < bas) return 'baslamadi';
+    return 'yok';
+  };
+
   const monthOpts = MONTHS.map((m,i)=>`<option value="${i+1}" ${i+1===month?'selected':''}>${m}</option>`).join('');
   const years = [year-2,year-1,year,year+1].filter((v,i,a)=>a.indexOf(v)===i);
   const yearOpts = years.map(y=>`<option value="${y}" ${y===year?'selected':''}>${y}</option>`).join('');
 
   const rows = apts.map(a => {
     const f = feeByApt.get(a.id);
-    // Ödeme kontrolü onay kutusu: dolu yeşil buton "zaten ödenmiş" izlenimi
-    // veriyordu. Kutu boşsa ödenmemiş, işaretlenince ödenmiş — tek bakışta belli.
-    const payCell = !f
-      ? `<button class="btn btn-sm btn-ghost" data-act="mk" data-apt="${a.id}" data-no="${esc(a.apartment_number)}">${ikon('plus')}Aidat gir</button>`
-      : `<label class="pay-check${f.is_paid ? ' is-paid' : ''}">
-           <input type="checkbox" data-act="toggle" data-id="${f.id}" data-on="${f.is_paid}"
-                  data-amt="${f.amount}" data-no="${esc(a.apartment_number)}"
-                  data-apt="${a.id}" ${f.is_paid ? 'checked' : ''}>
-           <span>${f.is_paid ? 'Ödendi' : 'Ödendi olarak işaretle'}</span>
-         </label>`;
+    const d = durumOf(a);
+    const [etiket, renk] = AIDAT_DURUM[d];
+    let ana = '';
+    if (d === 'bekliyor' || d === 'gecikti') ana = `<button class="btn btn-sm btn-green" data-act="tahsil" data-apt="${a.id}">${ikon('check')}Tahsil et</button>`;
+    else if (d === 'odendi') ana = `<button class="btn btn-sm btn-ghost" data-act="geri-al" data-apt="${a.id}">${ikon('refresh')}Geri al</button>`;
+    else if (d === 'iptal') ana = `<button class="btn btn-sm btn-ghost" data-act="iptal-geri" data-apt="${a.id}">${ikon('refresh')}İptali geri al</button>`;
+    else if (d === 'yok' || d === 'baslamadi') ana = `<button class="btn btn-sm btn-ghost" data-act="ac" data-apt="${a.id}">${ikon('plus')}Aidat aç</button>`;
     const borc = borcByApt.get(a.id);
-    // Birden fazla ay borçluysa uyar; tek ay borç zaten "Bekliyor" rozetinde görünüyor
-    const borcRozeti = borc && borc.ay > 1
-      ? `<span class="badge b-red" title="Tüm dönemler dahil ödenmemiş toplam">${borc.ay} ay borç · ${TL(borc.tutar)}</span>`
+    const borcRozeti = borc
+      ? `<span class="badge b-red" title="Son ödeme günü geçmiş toplam (devreden borç dahil)">${borc.ay} dönem borç · ${TL(borc.tutar)}</span>`
       : '';
-    return `<tr data-durum="${!f ? 'yok' : f.is_paid ? 'odendi' : 'bekliyor'}">
+    const altBilgi = d === 'iptal' && f?.cancel_reason ? `<div class="hint">${esc(f.cancel_reason)}</div>`
+      : (d === 'bekliyor' && f?.due_date) ? `<div class="hint">Son ödeme ${dmy(f.due_date)}</div>` : '';
+    return `<tr data-durum="${d === 'gecikti' ? 'bekliyor' : d}">
       <td><span class="apt-no">${esc(a.apartment_number)}</span> ${borcRozeti}</td>
-      <td>${esc(sakinler(a.id))}</td>
-      <td class="t-num">${f ? TL(f.amount) : '—'}</td>
-      <td>${f ? `<span class="badge ${f.is_paid?'b-green':'b-amber'}">${f.is_paid?'Ödendi':'Bekliyor'}</span>` : '<span class="badge b-gray">Aidat girilmedi</span>'}</td>
+      <td>${esc(sakinler(a))}</td>
+      <td class="t-num">${f && f.status !== 'cancelled' ? TL(f.amount) : '—'}</td>
+      <td><span class="badge ${renk}">${etiket}</span>${altBilgi}</td>
       <td>${f?.paid_date ? dmy(f.paid_date) : '—'}</td>
-      <td class="t-right">${payCell}</td>
+      <td class="t-right"><div class="row-actions">${ana}<button class="btn btn-sm btn-ghost" data-act="diger" data-apt="${a.id}" title="Diğer işlemler" aria-label="Diğer işlemler">${ikon('edit')}</button></div></td>
     </tr>`;
   }).join('');
 
   const oran = totalExpected ? Math.round((totalPaid / totalExpected) * 100) : 0;
-  const bekleyenSayi = fees.filter(f => !f.is_paid).length;
-  const kayitsizSayi = apts.filter(a => !feeByApt.has(a.id)).length;
+  const temizlik = temizlikRes?.error ? [] : (temizlikRes?.data || []);
+  const temizlikDaire = new Set(temizlik.map(t => t.apartment_id)).size;
+  const blokFarkli = Object.keys(blokTutar).length > 0;
+
+  const planKarti = !sId() ? '' : planAktif
+    ? `<div class="card bulk-card">
+        <span class="ico-tile brand">${ikon('refresh')}</span>
+        <div class="bulk-text">
+          <b>Otomatik aidat · ${TL(site.default_fee_amount)}${blokFarkli ? ' (bloklara göre farklı)' : ''}</b>
+          <span class="hint">${ayEtiketiISO(site.fee_start)} itibarıyla her ayın 1'inde dolu dairelere kendiliğinden açılır · Son ödeme: ${sonOdemeMetni(site.fee_due_day)}.</span>
+        </div>
+        <button class="btn btn-ghost" id="fee-plan">${ikon('settings')}Planı düzenle</button>
+      </div>`
+    : `<div class="card bulk-card">
+        <span class="ico-tile brand">${ikon('sparkle')}</span>
+        <div class="bulk-text">
+          <b>Aidatı otomatiğe alın</b>
+          <span class="hint">Tutarı bir kez girin; her ayın 1'inde aidat dolu dairelere kendiliğinden açılır. Yeni katılan sakin yalnızca katıldığı aydan itibaren borçlanır.</span>
+        </div>
+        <button class="btn" id="fee-plan">Aidat planını kur</button>
+      </div>`;
 
   $content().innerHTML = `
     ${sayfaBasi('Aidat Takibi',
-      'Ödeyen daireyi işaretleyin; tutar kasaya otomatik eklenir ve sakine bildirim gider.',
+      'Ödeyen daireyi tahsil edin; tutar kasaya eklenir ve sakine bildirim gider. Her işlem geri alınabilir.',
       `<div class="month-nav-inner">
          <button class="month-btn" id="fee-prev" aria-label="Önceki ay">‹</button>
          <select class="mini bare" id="fee-month" aria-label="Ay">${monthOpts}</select>
@@ -2607,10 +2704,19 @@ async function renderFees() {
        </div>
        <button class="btn btn-ghost" id="fee-goto-debts">${ikon('alert')}Borç Takibi</button>`)}
 
+    ${planKarti}
+
+    ${temizlik.length ? `<div class="info-banner inline-ico" style="background:var(--amber-bg, #FEF3C7);border-color:#F5D9A0;display:flex;align-items:center;gap:12px;">
+        ${ikon('alert')}
+        <div style="flex:1"><b>${temizlikDaire} daireye, katılmadan önceki aylar için ${temizlik.length} aidat açılmış.</b>
+        Bu yüzden borçlu görünüyorlar. Kontrol edip tek tıkla iptal edebilirsiniz.</div>
+        <button class="btn btn-sm" id="fee-temizlik">Kontrol et</button>
+      </div>` : ''}
+
     <div class="card collect-card">
       <div class="collect-top">
         <div>
-          <span class="kpi-lbl">${MONTHS[month-1]} ${year} tahsilatı</span>
+          <span class="kpi-lbl">${donemAdi} tahsilatı</span>
           <div class="collect-val">${TL(totalPaid)} <small>/ ${TL(totalExpected)}</small></div>
         </div>
         <div class="collect-pct ${oran >= 80 ? 'k-green' : oran >= 50 ? 'k-amber' : 'k-red'}">%${oran}</div>
@@ -2618,21 +2724,9 @@ async function renderFees() {
       <div class="progress"><i style="width:${oran}%"></i></div>
       <div class="collect-meta">
         <span><i class="dot g"></i>${paid.length} daire ödedi</span>
-        <span><i class="dot a"></i>${bekleyenSayi} daire bekliyor</span>
-        ${kayitsizSayi ? `<span><i class="dot n"></i>${kayitsizSayi} dairede aidat girilmedi</span>` : ''}
+        <span><i class="dot a"></i>${odenmeyen.length - geciken.length} daire bekliyor</span>
+        ${geciken.length ? `<span><i class="dot n"></i>${geciken.length} daire gecikti</span>` : ''}
         <span class="collect-debt ${borcToplam ? 'red' : ''}">Toplam borç: <b>${TL(borcToplam)}</b> (${borcluDaire} daire)</span>
-      </div>
-    </div>
-
-    <div class="card bulk-card">
-      <span class="ico-tile brand">${ikon('sparkle')}</span>
-      <div class="bulk-text">
-        <b>${MONTHS[month-1]} ${year} aidatını tüm dairelere tek seferde girin</b>
-        <span class="hint">Aidatı olmayan dairelere oluşturur, ödenmemişlerin tutarını günceller; ödenmişlere dokunmaz.${emptyCount ? ` ${emptyCount} boş daire hesaba katılmaz.` : ''}</span>
-      </div>
-      <div class="bulk-form">
-        <div class="input-affix"><input id="bulk-amt" inputmode="decimal" placeholder="Tutar"><span>₺</span></div>
-        <button class="btn" id="bulk-apply">Tümüne uygula</button>
       </div>
     </div>
 
@@ -2640,13 +2734,22 @@ async function renderFees() {
       <div class="table-toolbar">
         <div class="seg-tabs compact" id="fee-filter">
           <button class="seg active" data-f="">Tümü <em>${apts.length}</em></button>
-          <button class="seg" data-f="bekliyor">Ödemeyenler <em>${bekleyenSayi}</em></button>
+          <button class="seg" data-f="bekliyor">Ödemeyenler <em>${odenmeyen.length}</em></button>
           <button class="seg" data-f="odendi">Ödeyenler <em>${paid.length}</em></button>
         </div>
+        ${odenmeyen.length ? `<button class="btn btn-sm btn-outline-red" id="fee-toplu-iptal" style="margin-left:auto">${ikon('x')}${MONTHS[month-1]} aidatını toplu iptal et</button>` : ''}
       </div>
-      <table><thead><tr><th style="width:120px">Daire</th><th>Sakinler</th><th class="t-right">Tutar</th><th>Durum</th><th>Ödeme tarihi</th><th></th></tr></thead>
+      <table><thead><tr><th style="width:150px">Daire</th><th>Sakinler</th><th class="t-right">Tutar</th><th>Durum</th><th>Ödeme tarihi</th><th></th></tr></thead>
       <tbody id="fee-body">${apts.length ? rows : `<tr><td colspan="6">${bosDurum('home', 'Henüz dolu daire yok', 'Sakinler davet koduyla katıldıkça daireler burada listelenir.', `<button class="btn btn-ghost btn-sm" id="fee-goto-apts">Daireler &amp; Sakinler</button>`)}</td></tr>`}</tbody></table>
-    </div>`;
+    </div>
+
+    ${bosDaireler.length ? `<div class="card">
+      <h3>Boş daireler (${bosDaireler.length})</h3>
+      <p class="hint" style="margin-bottom:12px;">Boş dairelere aidat açılmaz. Kat maliki daireyi boş tutsa da aidat ödüyorsa dahil edin.</p>
+      <div class="row-actions" style="justify-content:flex-start" id="fee-bos">
+        ${bosDaireler.map(a => `<button class="btn btn-sm btn-ghost" data-dahil="${a.id}">${ikon('plus')}${esc(daireEtiketi(a.building_id, a.apartment_number))}</button>`).join('')}
+      </div>
+    </div>` : ''}`;
 
   el('fee-goto-apts')?.addEventListener('click', () => navigate('apartments'));
   const ayKaydir = (d) => {
@@ -2661,68 +2764,273 @@ async function renderFees() {
     el('fee-filter').querySelectorAll('.seg').forEach(x => x.classList.toggle('active', x === b));
     const f = b.dataset.f;
     el('fee-body').querySelectorAll('tr[data-durum]').forEach(tr => {
-      tr.style.display = !f || tr.dataset.durum === f || (f === 'bekliyor' && tr.dataset.durum === 'yok') ? '' : 'none';
+      tr.style.display = !f || tr.dataset.durum === f ? '' : 'none';
     });
   });
-
   el('fee-month').addEventListener('change', e => { feeState.month = +e.target.value; renderFees(); });
   el('fee-year').addEventListener('change', e => { feeState.year = +e.target.value; renderFees(); });
-
   el('fee-goto-debts').onclick = () => navigate('debts');
+  el('fee-plan')?.addEventListener('click', () => openFeePlanModal(site, blokTutar));
+  el('fee-temizlik')?.addEventListener('click', () => openFeeCleanupModal(temizlik, aptById));
 
-  el('bulk-apply').addEventListener('click', async () => {
-    const amt = parseFloat(String(el('bulk-amt').value).replace(',','.'));
-    if (isNaN(amt) || amt <= 0) return toast('Geçerli bir tutar girin', true);
-
-    el('bulk-apply').disabled = true;
+  el('fee-toplu-iptal')?.addEventListener('click', async () => {
+    if (!confirm(`${odenmeyen.length} dairenin ödenmemiş ${donemAdi} aidatı sıfırlanacak. Ödenmiş olanlara dokunulmaz.\n\nKayıtlar silinmez; her daire için "İptali geri al" ile geri açılabilir. Devam edilsin mi?`)) return;
     try {
-      /* Tahakkuk kuralı sunucuda (0027): doluluk ölçütü, tutar çözümü ve
-         "ödenmiş satıra dokunma" garantisi tek yerde. Bu ekran eskiden kendi
-         döngüsünü çalıştırıyor ve ayarlardaki tutarı hiç okumuyordu. */
-      const { error: err } = await supabase.rpc('apply_monthly_fees', {
-        p_building_id: bId(), p_year: year, p_months: [month], p_amount: amt,
-      });
-      if (err) throw new Error(err.message);
-      notifyBuilding('💰 Yeni Aidat', `${MONTHS[month-1]} ${year} aidatı ${TL(amt)} olarak tanımlandı.`);
-      toast('Aidatlar uygulandı'); renderFees();
-    } catch (err) { toast(err.message, true); el('bulk-apply').disabled = false; }
+      const n = await aidatRpc('cancel_fees', { p_fee_ids: odenmeyen.map(f => f.id), p_reason: `Toplu iptal: ${donemAdi}` });
+      toast(`${n} aidat iptal edildi`); renderFees();
+    } catch (err) { toast(err.message, true); }
+  });
+
+  el('fee-bos')?.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-dahil]'); if (!b) return;
+    const a = aptById.get(b.dataset.dahil);
+    if (!confirm(`${daireEtiketi(a.building_id, a.apartment_number)} boş olsa da bu aydan itibaren aidat açılacak (kat maliki öder). Devam edilsin mi?`)) return;
+    try {
+      await aidatRpc('set_apartment_fee', { p_apartment_id: a.id, p_policy: 'always', p_fee_start: null });
+      toast('Daire aidata dahil edildi'); renderFees();
+    } catch (err) { toast(err.message, true); }
   });
 
   el('fee-body').addEventListener('click', async (e) => {
-    const btn = e.target.closest('button[data-act="mk"]'); if (!btn) return;
-    btn.disabled = true;
-    try {
-      const amtStr = prompt(`${btn.dataset.no} için aidat tutarı (₺):`); if (!amtStr) { btn.disabled=false; return; }
-      const amt = parseFloat(amtStr.replace(',','.')); if (isNaN(amt)||amt<=0) return toast('Geçersiz tutar', true);
-      await supabase.from('monthly_fees').insert({ apartment_id:btn.dataset.apt, building_id:bId(), year, month, amount:amt, is_paid:false });
-      renderFees();
-    } catch (err) { toast(err.message, true); btn.disabled = false; }
+    const btn = e.target.closest('button[data-act]'); if (!btn) return;
+    const a = aptById.get(btn.dataset.apt); if (!a) return;
+    const f = feeByApt.get(a.id);
+    const baslik = daireEtiketi(a.building_id, a.apartment_number);
+
+    if (btn.dataset.act === 'tahsil' && f) {
+      openModal(`Tahsilat — ${baslik}`, `
+        <p class="hint" style="margin-bottom:14px;">${donemAdi} aidatı: <strong>${TL(f.amount)}</strong>. Tutar site kasasına gelir olarak işlenir${
+          cokBloklu() ? ` ve <strong>${esc(blokAdi(a.building_id))}</strong> defterine yazılır` : ''}; sakine bildirim gider.</p>
+        <div class="field"><label>Ödeme nasıl geldi?</label>
+          <div class="seg-tabs compact" id="m-wallet">
+            <button type="button" class="seg active" data-w="bank">Banka / havale</button>
+            <button type="button" class="seg" data-w="cash">Elden (nakit)</button>
+          </div></div>
+        <div class="field"><label>Not (isteğe bağlı)</label><input id="m-note" placeholder="Örn. dekont numarası"></div>
+        <button class="btn btn-block" id="m-save">Tahsil et</button>`, async () => {
+        const wallet = document.querySelector('#m-wallet .seg.active')?.dataset.w || 'bank';
+        const r = await aidatRpc('collect_fees', { p_fee_ids: [f.id], p_wallet: wallet, p_note: el('m-note').value.trim() || null });
+        await refreshBuilding();
+        toast(`${TL(r?.toplam || 0)} tahsil edildi, kasaya eklendi`);
+      });
+      segSecici('m-wallet');
+    } else if (btn.dataset.act === 'geri-al' && f) {
+      openModal(`Ödemeyi geri al — ${baslik}`, `
+        <div class="info-banner">${TL(f.amount)} kasadan düşülecek ve ${donemAdi} aidatı yeniden "ödenmedi" görünecek. Hareket silinmez, "geri alındı" notuyla kalır.</div>
+        <div class="field"><label>Gerekçe (isteğe bağlı)</label><input id="m-reason" placeholder="Örn. yanlış daireye işaretlendi"></div>
+        <button class="btn btn-block btn-outline-red" id="m-save">Ödemeyi geri al</button>`, async () => {
+        await aidatRpc('revert_fee_payment', { p_fee_id: f.id, p_reason: el('m-reason').value.trim() || null });
+        await refreshBuilding();
+        toast('Ödeme geri alındı');
+      });
+    } else if (btn.dataset.act === 'iptal-geri' && f) {
+      try {
+        await aidatRpc('restore_fees', { p_fee_ids: [f.id] });
+        toast('Aidat yeniden açıldı'); renderFees();
+      } catch (err) { toast(err.message, true); }
+    } else if (btn.dataset.act === 'ac') {
+      tutarModal(`${donemAdi} için aidat aç — ${baslik}`, 'Plan dışı, yalnızca bu daireye açılır.',
+        gecerliTutar(a.building_id) || '', 'Aidatı aç', async (t) => {
+          await aidatRpc('create_fee', { p_apartment_id: a.id, p_year: year, p_month: month, p_amount: t });
+          toast('Aidat açıldı');
+        });
+    } else if (btn.dataset.act === 'diger') {
+      openFeeApartmentMenu(a, f, { donemAdi, baslik, isOccupied: isOccupied(a), kural: kural(a) });
+    }
+  });
+}
+
+/* Basit sekme seçici (modal içindeki Banka/Nakit gibi) */
+function segSecici(id) {
+  const kutu = el(id); if (!kutu) return;
+  kutu.addEventListener('click', (e) => {
+    const b = e.target.closest('.seg'); if (!b) return;
+    kutu.querySelectorAll('.seg').forEach(x => x.classList.toggle('active', x === b));
+  });
+}
+
+/* Tek tutar soran modal (aidat aç, tutarı düzelt, devreden borç) */
+function tutarModal(baslik, aciklama, onDeger, dugme, kaydet, ekAlan = '') {
+  openModal(baslik, `
+    ${aciklama ? `<p class="hint" style="margin-bottom:14px;">${aciklama}</p>` : ''}
+    <div class="field"><label>Tutar</label><div class="input-affix wide"><input id="m-amt" inputmode="decimal" value="${esc(onDeger)}"><span>₺</span></div></div>
+    ${ekAlan}
+    <button class="btn btn-block" id="m-save">${dugme}</button>`, async () => {
+    const t = tutarOku(el('m-amt').value);
+    if (!(t > 0)) throw new Error('Geçerli bir tutar girin.');
+    await kaydet(t);
+  });
+  setTimeout(() => el('m-amt')?.select(), 30);
+}
+
+/* Satırdaki "Diğer işlemler": o dairenin o ayki aidatı + daire ayarları */
+function openFeeApartmentMenu(a, f, { donemAdi, baslik, isOccupied: dolu, kural }) {
+  const acik = f && f.status === 'open' && !f.is_paid;
+  const secenek = (act, ad, alt, tehlike = false) =>
+    `<button type="button" class="btn btn-ghost btn-block" data-m="${act}" style="justify-content:flex-start;text-align:left;margin-bottom:8px;${tehlike ? 'color:var(--red)' : ''}">
+       <span style="display:flex;flex-direction:column;align-items:flex-start;gap:2px"><b>${ad}</b><span class="hint">${alt}</span></span>
+     </button>`;
+  openModal(`${baslik} — ${donemAdi}`, `
+    <div id="m-menu">
+      ${acik ? secenek('tutar', 'Tutarı düzelt', 'Yalnızca bu dairenin bu ayı') : ''}
+      ${acik ? secenek('iptal', 'İptal et (sıfırla)', 'Yanlış açıldıysa; kayıt silinmez', true) : ''}
+      ${secenek('baslangic', 'Aidat başlangıcı', a.fee_start ? ayEtiketiISO(a.fee_start) : 'Belirlenmemiş')}
+      ${secenek('devir', 'Devreden borç ekle', 'Uygulamadan önceki dönemden kalan toplam borç')}
+      ${!dolu
+        ? secenek('kural-auto', 'Aidattan çıkar', 'Boş daire için aidat açılmasın')
+        : kural === 'never'
+          ? secenek('kural-auto', 'Muafiyeti kaldır', 'Bu aydan itibaren aidat açılır')
+          : secenek('kural-never', 'Aidattan muaf tut', 'Örn. kapıcı dairesi; yeni aidat açılmaz')}
+    </div>`, null);
+
+  el('m-menu').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-m]'); if (!b) return;
+    const m = b.dataset.m;
+    if (m === 'tutar') {
+      tutarModal(`Tutarı düzelt — ${baslik}`, `${donemAdi} aidatı`, f.amount, 'Kaydet', async (t) => {
+        await aidatRpc('set_fee_amount', { p_fee_ids: [f.id], p_amount: t });
+        toast('Tutar güncellendi');
+      });
+    } else if (m === 'iptal') {
+      openModal(`Aidatı iptal et — ${baslik}`, `
+        <div class="info-banner">${donemAdi} aidatı (${TL(f.amount)}) sıfırlanır. Kayıt silinmez; istediğinizde "İptali geri al" ile geri açabilirsiniz.</div>
+        <div class="field"><label>Gerekçe (isteğe bağlı)</label><input id="m-reason" placeholder="Örn. yanlış açıldı, daire o ay boştu"></div>
+        <button class="btn btn-block btn-outline-red" id="m-save">İptal et</button>`, async () => {
+        await aidatRpc('cancel_fees', { p_fee_ids: [f.id], p_reason: el('m-reason').value.trim() || null });
+        toast('Aidat iptal edildi');
+      });
+    } else if (m === 'baslangic') {
+      openModal(`Aidat başlangıcı — ${baslik}`, `
+        <p class="hint" style="margin-bottom:14px;">Bu daire hangi aydan itibaren aidat ödüyor? Bundan önceki aylar için otomatik aidat açılmaz; daha önce açılmış olanlar temizlik listesinde görünür.</p>
+        <div class="field"><label>Başlangıç ayı</label><input id="m-month" type="month" value="${a.fee_start ? String(a.fee_start).slice(0, 7) : ayBasiISO(feeState.year, feeState.month).slice(0, 7)}"></div>
+        <button class="btn btn-block" id="m-save">Kaydet</button>`, async () => {
+        const v = el('m-month').value;
+        if (!v) throw new Error('Ay seçin.');
+        await aidatRpc('set_apartment_fee', { p_apartment_id: a.id, p_policy: null, p_fee_start: `${v}-01` });
+        toast('Başlangıç ayı güncellendi');
+      });
+    } else if (m === 'devir') {
+      tutarModal(`Devreden borç — ${baslik}`,
+        'Uygulamaya geçmeden önceki dönemden kalan toplam borç. Tek kalem olarak girilir ve hemen borç listesine düşer; geçmiş aylar tek tek açılmaz.',
+        '', 'Ekle', async (t) => {
+          await aidatRpc('add_opening_debt', { p_apartment_id: a.id, p_amount: t, p_note: el('m-not')?.value.trim() || null });
+          toast('Devreden borç eklendi');
+        },
+        `<div class="field"><label>Not (isteğe bağlı)</label><input id="m-not" placeholder="Örn. eski yönetimden devir"></div>`);
+    } else if (m.startsWith('kural-')) {
+      const yeni = m.slice(6);
+      const mesaj = yeni === 'never'
+        ? 'Bu daireye bundan sonra aidat açılmayacak. Açılmış aidatlar kalır; istersen tek tek iptal edebilirsin.'
+        : dolu ? 'Daire bu aydan itibaren yeniden aidat ödeyecek.' : 'Daire boş kaldıkça aidat açılmayacak. Açılmış aidatlar kalır.';
+      if (!confirm(`${baslik}\n\n${mesaj}\n\nDevam edilsin mi?`)) return;
+      try {
+        await aidatRpc('set_apartment_fee', { p_apartment_id: a.id, p_policy: yeni, p_fee_start: null });
+        closeModal(); toast('Kaydedildi'); renderFees();
+      } catch (err) { toast(err.message, true); }
+    }
+  });
+}
+
+/* Aidat planı: tutar (blok bazlı olabilir), başlangıç, son ödeme günü */
+function openFeePlanModal(site, blokTutar) {
+  const aktif = !!site.fee_start;
+  const bugun = new Date();
+  const buAy = ayBasiISO(bugun.getFullYear(), bugun.getMonth() + 1);
+  const gelecek = new Date(bugun.getFullYear(), bugun.getMonth() + 1, 1);
+  const gelecekAy = ayBasiISO(gelecek.getFullYear(), gelecek.getMonth() + 1);
+  const cokBlok = S.buildings.length > 1;
+  const gunler = [null, ...Array.from({ length: 28 }, (_, i) => i + 1)];
+
+  openModal(aktif ? 'Aidat planı' : 'Aidat planını kur', `
+    <p class="hint" style="margin-bottom:14px;">${aktif
+      ? `${ayEtiketiISO(site.fee_start)} itibarıyla otomatik. Yeni tutar bu aydan itibaren ödenmemiş aidatlara uygulanır; ödenmiş ve geçmiş aylara dokunulmaz.`
+      : 'Bir kez kurulur, her ay kendiliğinden işler. Önceki aylar için aidat açılmaz; eski borcu olan dairelere "Devreden borç" girin.'}</p>
+    <div class="field"><label>${cokBlok ? 'Aidat tutarı (tüm site)' : 'Aylık aidat tutarı'}</label>
+      <div class="input-affix wide"><input id="p-amt" inputmode="decimal" value="${Number(site.default_fee_amount) || ''}"><span>₺</span></div></div>
+    ${cokBlok ? `<div class="field"><label>Farklı ödeyen blok var mı? (boş = site tutarı)</label>
+      ${S.buildings.map(b => `<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+        <span style="width:110px;font-weight:600">${esc(b.name)}</span>
+        <div class="input-affix wide" style="flex:1"><input data-blok="${b.id}" inputmode="decimal" value="${blokTutar[b.id] || ''}"><span>₺</span></div>
+      </div>`).join('')}</div>` : ''}
+    ${aktif ? '' : `<div class="field"><label>Başlangıç</label>
+      <select id="p-start">
+        <option value="${buAy}">Bu ay (${ayEtiketiISO(buAy)})</option>
+        <option value="${gelecekAy}">Gelecek ay (${ayEtiketiISO(gelecekAy)})</option>
+      </select></div>`}
+    <div class="field"><label>Son ödeme günü</label>
+      <select id="p-due">${gunler.map(g => `<option value="${g ?? ''}" ${(site.fee_due_day ?? null) === g ? 'selected' : ''}>${g ? `Her ayın ${gunEki(g)}` : 'Ayın son günü'}</option>`).join('')}</select></div>
+    <button class="btn btn-block" id="m-save">Planı kaydet</button>
+    ${aktif ? `<button type="button" class="btn btn-block btn-outline-red" id="p-stop" style="margin-top:8px">Otomatik aidatı durdur</button>` : ''}
+  `, async () => {
+    const tutar = tutarOku(el('p-amt').value);
+    if (!(tutar > 0)) throw new Error('Aidat tutarını girin.');
+    let bloklar = null;
+    if (cokBlok) {
+      bloklar = {};
+      document.querySelectorAll('[data-blok]').forEach(i => {
+        const t = tutarOku(i.value);
+        bloklar[i.dataset.blok] = t > 0 && t !== tutar ? t : null;
+      });
+    }
+    const dueRaw = el('p-due').value;
+    const r = await aidatRpc('set_fee_plan', {
+      p_site_id: sId(), p_amount: tutar,
+      p_start: aktif ? site.fee_start : el('p-start').value,
+      p_due_day: dueRaw ? Number(dueRaw) : null,
+      p_block_amounts: bloklar,
+    });
+    await refreshBuilding();
+    toast(aktif ? 'Aidat planı güncellendi'
+      : `Otomatik aidat kuruldu${r?.acilan ? ` — ${r.acilan} daireye aidat açıldı` : ''}`);
   });
 
-  // Ödeme onay kutusu: işaretlemek ödemeyi kaydeder, kaldırmak geri alır.
-  el('fee-body').addEventListener('change', async (e) => {
-    const box = e.target.closest('input[type="checkbox"][data-act="toggle"]'); if (!box) return;
-    const on = box.dataset.on === 'true';
-    const amt = Number(box.dataset.amt);
-    if (on && !confirm(`Daire ${box.dataset.no} için ödemeyi geri almak istediğinize emin misiniz? Tutar kasadan düşülecek.`)) {
-      box.checked = true; return;
-    }
-    box.disabled = true;
+  el('p-stop')?.addEventListener('click', async () => {
+    if (!confirm('Gelecek aylar için aidat kendiliğinden açılmayacak. Açılmış aidatlar ve ödemeler olduğu gibi kalır. Durdurulsun mu?')) return;
     try {
-      await supabase.from('monthly_fees').update({ is_paid: !on, paid_by: !on ? S.user.id : null, paid_date: !on ? new Date().toISOString() : null }).eq('id', box.dataset.id);
-      // Aidat daima bir daireye aittir: geliri o dairenin bloğunun defterine yazılır
-      await adjustBalance({ amount: amt, operation: !on ? 'add' : 'subtract',
-        description: `${!on?'Aidat ödemesi':'Aidat iptali'} - Daire ${box.dataset.no} - ${year}/${month}`,
-        category:'fee', walletType:'bank', relatedId: box.dataset.id,
-        buildingId: bId(), scope: 'building' });
-      if (!on && box.dataset.apt) {
-        notifyApartment(box.dataset.apt, '✅ Aidat Onaylandı', `${MONTHS[month-1]} ${year} ayı aidatınız ödendi olarak işaretlendi.`);
-      }
-      toast(!on ? 'Ödendi işaretlendi, kasaya eklendi' : 'Ödeme geri alındı'); renderFees();
-    } catch (err) {
-      toast(err.message, true);
-      box.checked = on; box.disabled = false; // hata: kutuyu eski haline döndür
-    }
+      await aidatRpc('set_fee_plan', {
+        p_site_id: sId(), p_amount: Number(site.default_fee_amount) || 1,
+        p_start: null, p_due_day: site.fee_due_day ?? null, p_block_amounts: null,
+      });
+      await refreshBuilding();
+      closeModal(); toast('Otomatik aidat durduruldu'); renderFees();
+    } catch (err) { toast(err.message, true); }
+  });
+}
+
+/* Tek seferlik temizlik: eski "yılın tamamına tahakkuk" yüzünden dairelere
+   katılmadan önceki aylar için açılmış aidatlar. Kendiliğinden silinmez;
+   yönetici işaretleyip iptal eder (gerçek eski borçsa işareti kaldırır). */
+function openFeeCleanupModal(adaylar, aptById) {
+  const gruplar = new Map();
+  for (const t of adaylar) {
+    const g = gruplar.get(t.apartment_id) || { t, aylar: [] };
+    g.aylar.push(t); gruplar.set(t.apartment_id, g);
+  }
+  const satirlar = [...gruplar.values()].map(({ t, aylar }) => {
+    const a = aptById.get(t.apartment_id);
+    const ilk = aylar[0], son = aylar[aylar.length - 1];
+    const toplam = aylar.reduce((s, x) => s + Number(x.amount), 0);
+    return `<tr>
+      <td style="width:34px"><input type="checkbox" data-temiz="${t.apartment_id}" checked></td>
+      <td><strong>${esc(a ? daireEtiketi(a.building_id, a.apartment_number) : t.apartment_number)}</strong>
+        <div class="hint">katılım ${ayEtiketiISO(t.fee_start)}</div></td>
+      <td>${MONTHS[ilk.month - 1]} ${ilk.year}${aylar.length > 1 ? ` – ${MONTHS[son.month - 1]} ${son.year}` : ''} <span class="hint">(${aylar.length} ay)</span></td>
+      <td class="t-right">${TL(toplam)}</td>
+    </tr>`;
+  }).join('');
+
+  openModal('Katılmadan önceki aylar', `
+    <p class="hint" style="margin-bottom:14px;">İşaretli dairelerin bu aidatları iptal edilir (kayıt silinmez). Gerçek bir eski borçsa işareti kaldırın; başlangıç ayı yanlışsa satırdaki düzenle düğmesinden düzeltin.</p>
+    <div style="max-height:46vh;overflow-y:auto;margin-bottom:14px;">
+      <table><thead><tr><th></th><th>Daire</th><th>Dönem</th><th class="t-right">Tutar</th></tr></thead>
+      <tbody>${satirlar}</tbody></table>
+    </div>
+    <button class="btn btn-block" id="m-save">Seçilenleri iptal et</button>`, async () => {
+    const secili = new Set([...document.querySelectorAll('[data-temiz]:checked')].map(c => c.dataset.temiz));
+    const ids = adaylar.filter(t => secili.has(t.apartment_id)).map(t => t.fee_id);
+    if (!ids.length) throw new Error('En az bir daire seçin.');
+    const n = await aidatRpc('cancel_fees', { p_fee_ids: ids, p_reason: 'Daire aidat başlangıcından önceki ay' });
+    toast(`${n} aidat iptal edildi`);
   });
 }
 
@@ -3839,15 +4147,14 @@ async function renderSettings() {
   const b = activeBuilding();
   if (!b) return;
   const s = S.site || b; // site kaydı yoksa (eski veri) binaya düş
-  const { data: feeSettings } = await supabase.from('building_monthly_fee_settings').select('*').eq('building_id', bId()).maybeSingle();
   const blockOptions = S.buildings.map(x => `<option value="${x.id}" ${x.id === bId() ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
   const ortak = S.site && S.site.site_type === 'site' ? '<span class="badge b-gray">Tüm site için ortak</span>' : '';
   $content().innerHTML = `
-    ${sayfaBasi(S.site ? 'Site Ayarları' : 'Bina Ayarları', 'Sitenizin temel bilgileri, aidat tutarı, banka hesabı ve güvenlik görevlisi girişi.')}
+    ${sayfaBasi(S.site ? 'Site Ayarları' : 'Bina Ayarları', 'Sitenizin temel bilgileri, banka hesabı ve güvenlik görevlisi girişi.')}
 
     ${S.buildings.length > 1 ? `<div class="invite-card">
       <span class="ico-tile">${ikon('building')}</span>
-      <div class="invite-text"><b>Blok seçimi</b><span>Varsayılan aidat ve güvenlik girişi bloğa göre ayrıdır. Düzenlemek istediğiniz bloğu seçin.</span></div>
+      <div class="invite-text"><b>Blok seçimi</b><span>Güvenlik girişi bloğa göre ayrıdır. Düzenlemek istediğiniz bloğu seçin.</span></div>
       <select class="building-dropdown" id="s-block-select">${blockOptions}</select>
     </div>` : ''}
 
@@ -3858,7 +4165,9 @@ async function renderSettings() {
           <div class="field"><label>${S.site ? 'Site adı' : 'Bina adı'}</label><input id="s-name" value="${esc(s.name||'')}"></div>
           <div class="field"><label>Adres</label><input id="s-addr" value="${esc(s.address||'')}"></div>
           <div class="field"><label>Onay gerektiren harcama limiti</label><div class="input-affix wide"><input id="s-threshold" inputmode="decimal" value="${s.approval_threshold||5000}"><span>₺</span></div></div>
-          <div class="field"><label>Aylık aidat tutarı${S.buildings.length > 1 ? ` — ${esc(b.name)}` : ''}</label><div class="input-affix wide"><input id="s-fee" inputmode="decimal" value="${feeSettings?.default_amount||0}"><span>₺</span></div></div>
+          <div class="field"><label>Aylık aidat</label>
+            <p class="hint" style="margin:4px 0 8px;">${s.fee_start ? `Otomatik · ${TL(s.default_fee_amount)} · ${sonOdemeMetni(s.fee_due_day)} son ödeme` : 'Henüz aidat planı kurulmadı.'}</p>
+            <button type="button" class="btn btn-ghost btn-sm" id="s-fee-plan">${ikon('settings')}${s.fee_start ? 'Aidat planını düzenle' : 'Aidat planını kur'}</button></div>
         </div>
         <div class="card-foot"><button class="btn" id="s-save-general">Kaydet</button></div>
       </div>
@@ -3895,6 +4204,7 @@ async function renderSettings() {
     });
   }
 
+  el('s-fee-plan')?.addEventListener('click', () => navigate('fees'));
   el('s-save-general').addEventListener('click', async () => {
     el('s-save-general').disabled = true;
     const name = el('s-name').value.trim();
@@ -3920,8 +4230,6 @@ async function renderSettings() {
       }).eq('id', bId()));
     }
 
-    const feeAmt = parseFloat(String(el('s-fee').value).replace(',','.'))||0;
-    await supabase.from('building_monthly_fee_settings').upsert({ building_id:bId(), default_amount:feeAmt }, { onConflict:'building_id' });
     if (error) { toast(error.message, true); el('s-save-general').disabled=false; return; }
     await refreshBuilding();
     renderBuildingSelector();
@@ -4081,8 +4389,7 @@ async function renderReports() {
    Gecikme tazminatı uygulanmıyor. */
 const GUN = 86400000;
 
-/** Vade ayın son günü: sonraki ayın 1'i geldiyse vadesi geçmiştir. */
-const vadesiGecti = (year, month) => Date.now() >= new Date(year, month, 1).getTime();
+/* vadesiGecti / gecerliAidat / donemEtiketi: AİDAT bölümünde (0034 kuralı) */
 
 async function borcTablosuGetir() {
   const [feeRes, aptRes] = await Promise.all([
@@ -4093,16 +4400,16 @@ async function borcTablosuGetir() {
   const aptById = new Map(apts.map(a => [a.id, a]));
   const borclar = new Map();
   for (const f of (feeRes.data || [])) {
-    const a = aptById.get(f.apartment_id); if (!a) continue;
+    const a = aptById.get(f.apartment_id); if (!a || !gecerliAidat(f)) continue;
     const cur = borclar.get(a.id) || { apt: a, anapara: 0, ay: 0, aylar: [], gelecekDonem: 0 };
-    if (!vadesiGecti(f.year, f.month)) {
+    if (!vadesiGecti(f.year, f.month, f.due_date)) {
       cur.gelecekDonem += 1;          // ileri dönem tahakkuk: borç değil
       borclar.set(a.id, cur);
       continue;
     }
     cur.anapara += Number(f.amount);
     cur.ay += 1;
-    cur.aylar.push(`${MONTHS[f.month - 1]} ${f.year}`);
+    cur.aylar.push(donemEtiketi(f));
     borclar.set(a.id, cur);
   }
   return [...borclar.values()]
@@ -4201,7 +4508,8 @@ async function belgeAidatRaporu() {
   if (feeRes.error) throw new Error(feeRes.error.message);
 
   const apts = occupiedOnly(sortByApartment(aptRes.data));
-  const feeByApt = new Map((feeRes.data || []).map(f => [f.apartment_id, f]));
+  // Devreden borç ay raporuna girmez; iptal edilmiş aidat "İptal edildi" yazar (tutarı 0)
+  const feeByApt = new Map((feeRes.data || []).filter(f => f.kind !== 'devir').map(f => [f.apartment_id, f]));
 
   let odeyen = 0, tahakkuk = 0, tahsilat = 0;
   const satirlar = apts.map(a => {
@@ -4212,8 +4520,8 @@ async function belgeAidatRaporu() {
     return [
       a.apartment_number,
       a.owner_name || '—',
-      f ? para(tutar) : '—',
-      f ? (f.is_paid ? 'Ödendi' : 'Ödenmedi') : 'Tahakkuk yok',
+      f && f.status !== 'cancelled' ? para(tutar) : '—',
+      !f ? 'Tahakkuk yok' : f.status === 'cancelled' ? 'İptal edildi' : f.is_paid ? 'Ödendi' : 'Ödenmedi',
       f?.paid_date ? tarih(f.paid_date) : '—',
     ];
   });
