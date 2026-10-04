@@ -1391,6 +1391,18 @@ async function renderDashboard() {
   const siteYasi = siteYasiGun();
   const kayitYili = S.site?.created_at ? new Date(S.site.created_at).getFullYear() : yil;
 
+  // Sakinlerin "ödedim" bildirimleri (0035) — para işi, en üstte
+  const { data: bekleyenOdeme } = await supabase.from('payment_reports').select('id, amount')
+    .eq('site_id', sId()).eq('status', 'pending').then(r => r, () => ({ data: null }));
+  if (bekleyenOdeme?.length) {
+    uyarilar.push({
+      seviye: 'kirmizi', ikon: '📥', bolum: 'fees',
+      baslik: `${bekleyenOdeme.length} ödeme bildirimi onay bekliyor`,
+      detay: `Toplam ${TL(bekleyenOdeme.reduce((s, r) => s + Number(r.amount), 0))}. Onaylayınca tahsil edilir ve makbuz kesilir.`,
+      eylem: 'Bildirimlere git',
+    });
+  }
+
   const bekleyenTx = txRes.data || [];
   if (bekleyenTx.length) {
     const tutar = bekleyenTx.reduce((s, t) => s + Number(t.amount), 0);
@@ -2546,6 +2558,7 @@ const tutarOku = (v) => parseFloat(String(v || '').replace(/\./g, '').replace(',
 
 const AIDAT_DURUM = {
   odendi:    ['Ödendi', 'b-green'],
+  bildirildi:['Ödedim dedi', 'b-blue'],
   gecikti:   ['Gecikti', 'b-red'],
   bekliyor:  ['Bekliyor', 'b-amber'],
   iptal:     ['İptal edildi', 'b-gray'],
@@ -2562,14 +2575,21 @@ async function renderFees() {
   // Plan kuruluysa açılması gereken aidatları aç (gece zamanlayıcısı kaçırdıysa da)
   if (sId()) await supabase.rpc('open_site_fees', { p_site_id: sId() }).then(() => {}, () => {});
 
-  const [aptRes, feeRes, borcRes, blokRes, siteRes, temizlikRes] = await Promise.all([
+  const [aptRes, feeRes, borcRes, blokRes, siteRes, temizlikRes, bildirimRes, makbuzRes] = await Promise.all([
     supabase.from('apartments').select('*').eq('building_id', bId()),
     supabase.from('monthly_fees').select('*').eq('building_id', bId()).eq('year', year).eq('month', month),
     supabase.from('monthly_fees').select('*').eq('building_id', bId()).eq('is_paid', false),
     supabase.from('building_monthly_fee_settings').select('building_id, default_amount').in('building_id', siteBIds()),
     sId() ? supabase.from('sites').select('*').eq('id', sId()).maybeSingle() : Promise.resolve({ data: null }),
     sId() ? supabase.rpc('fee_cleanup_candidates', { p_site_id: sId() }) : Promise.resolve({ data: [] }),
+    sId() ? supabase.from('payment_reports').select('*').eq('site_id', sId()).eq('status', 'pending').order('created_at')
+          : Promise.resolve({ data: [] }),
+    supabase.from('fee_receipts').select('id, receipt_no, token, fee_ids').eq('building_id', bId()).is('voided_at', null),
   ]);
+  const bildirimler = bildirimRes?.error ? [] : (bildirimRes?.data || []);
+  const bildirilen = new Set(bildirimler.flatMap(b => b.fee_ids || []));
+  const makbuzByFee = new Map();
+  (makbuzRes?.error ? [] : (makbuzRes?.data || [])).forEach(m => (m.fee_ids || []).forEach(id => makbuzByFee.set(id, m)));
   if (siteRes?.data) S.site = siteRes.data;
   const site = S.site || {};
   const planAktif = !!site.fee_start;
@@ -2633,6 +2653,7 @@ async function renderFees() {
     if (f) {
       if (f.status === 'cancelled') return 'iptal';
       if (f.is_paid) return 'odendi';
+      if (bildirilen.has(f.id)) return 'bildirildi';
       return vadesiGecti(f.year, f.month, f.due_date) ? 'gecikti' : 'bekliyor';
     }
     if (kural(a) === 'never') return 'muaf';
@@ -2650,8 +2671,10 @@ async function renderFees() {
     const d = durumOf(a);
     const [etiket, renk] = AIDAT_DURUM[d];
     let ana = '';
-    if (d === 'bekliyor' || d === 'gecikti') ana = `<button class="btn btn-sm btn-green" data-act="tahsil" data-apt="${a.id}">${ikon('check')}Tahsil et</button>`;
-    else if (d === 'odendi') ana = `<button class="btn btn-sm btn-ghost" data-act="geri-al" data-apt="${a.id}">${ikon('refresh')}Geri al</button>`;
+    const mk = f ? makbuzByFee.get(f.id) : null;
+    if (d === 'bekliyor' || d === 'gecikti' || d === 'bildirildi') ana = `<button class="btn btn-sm btn-green" data-act="tahsil" data-apt="${a.id}">${ikon('check')}Tahsil et</button>`;
+    else if (d === 'odendi') ana = (mk ? `<a class="btn btn-sm btn-ghost" href="makbuz?k=${esc(mk.token)}" target="_blank" rel="noopener">${ikon('file')}Makbuz ${esc(mk.receipt_no)}</a>` : '')
+      + `<button class="btn btn-sm btn-ghost" data-act="geri-al" data-apt="${a.id}">${ikon('refresh')}Geri al</button>`;
     else if (d === 'iptal') ana = `<button class="btn btn-sm btn-ghost" data-act="iptal-geri" data-apt="${a.id}">${ikon('refresh')}İptali geri al</button>`;
     else if (d === 'yok' || d === 'baslamadi') ana = `<button class="btn btn-sm btn-ghost" data-act="ac" data-apt="${a.id}">${ikon('plus')}Aidat aç</button>`;
     const borc = borcByApt.get(a.id);
@@ -2660,7 +2683,7 @@ async function renderFees() {
       : '';
     const altBilgi = d === 'iptal' && f?.cancel_reason ? `<div class="hint">${esc(f.cancel_reason)}</div>`
       : (d === 'bekliyor' && f?.due_date) ? `<div class="hint">Son ödeme ${dmy(f.due_date)}</div>` : '';
-    return `<tr data-durum="${d === 'gecikti' ? 'bekliyor' : d}">
+    return `<tr data-durum="${d === 'gecikti' || d === 'bildirildi' ? 'bekliyor' : d}">
       <td><span class="apt-no">${esc(a.apartment_number)}</span> ${borcRozeti}</td>
       <td>${esc(sakinler(a))}</td>
       <td class="t-num">${f && f.status !== 'cancelled' ? TL(f.amount) : '—'}</td>
@@ -2703,6 +2726,16 @@ async function renderFees() {
          <button class="month-btn" id="fee-next" aria-label="Sonraki ay">›</button>
        </div>
        <button class="btn btn-ghost" id="fee-goto-debts">${ikon('alert')}Borç Takibi</button>`)}
+
+    ${bildirimler.length ? `<div class="card" id="pr-kart">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+        <h3 style="margin:0">Ödeme bildirimleri <span class="badge b-amber">${bildirimler.length}</span></h3>
+        <span class="hint">Sakinlerin "ödedim" bildirimleri. Onaylayınca tahsil edilir, makbuz kesilir, sakine bildirim gider.</span>
+        ${bildirimler.length > 1 ? `<button class="btn btn-sm" id="pr-hepsi" style="margin-left:auto">${ikon('check')}Tümünü onayla</button>` : ''}
+      </div>
+      <table><thead><tr><th>Daire</th><th>Dönem</th><th class="t-right">Tutar</th><th>Ödeme</th><th>Dekont</th><th></th></tr></thead>
+      <tbody id="pr-body"><tr><td colspan="6" class="hint">Yükleniyor…</td></tr></tbody></table>
+    </div>` : ''}
 
     ${planKarti}
 
@@ -2791,6 +2824,8 @@ async function renderFees() {
     } catch (err) { toast(err.message, true); }
   });
 
+  if (bildirimler.length) bildirimKutusunuDoldur(bildirimler);
+
   el('fee-body').addEventListener('click', async (e) => {
     const btn = e.target.closest('button[data-act]'); if (!btn) return;
     const a = aptById.get(btn.dataset.apt); if (!a) return;
@@ -2816,7 +2851,7 @@ async function renderFees() {
       segSecici('m-wallet');
     } else if (btn.dataset.act === 'geri-al' && f) {
       openModal(`Ödemeyi geri al — ${baslik}`, `
-        <div class="info-banner">${TL(f.amount)} kasadan düşülecek ve ${donemAdi} aidatı yeniden "ödenmedi" görünecek. Hareket silinmez, "geri alındı" notuyla kalır.</div>
+        <div class="info-banner">${TL(f.amount)} kasadan düşülecek ve ${donemAdi} aidatı yeniden "ödenmedi" görünecek. Hareket silinmez, "geri alındı" notuyla kalır; makbuz iptal edilir.</div>
         <div class="field"><label>Gerekçe (isteğe bağlı)</label><input id="m-reason" placeholder="Örn. yanlış daireye işaretlendi"></div>
         <button class="btn btn-block btn-outline-red" id="m-save">Ödemeyi geri al</button>`, async () => {
         await aidatRpc('revert_fee_payment', { p_fee_id: f.id, p_reason: el('m-reason').value.trim() || null });
@@ -2837,6 +2872,85 @@ async function renderFees() {
     } else if (btn.dataset.act === 'diger') {
       openFeeApartmentMenu(a, f, { donemAdi, baslik, isOccupied: isOccupied(a), kural: kural(a) });
     }
+  });
+}
+
+/* Ödeme bildirimleri kutusu (0035). Bildirim sitenin herhangi bir bloğundan
+   olabilir; daire, dönem ve dekont bağlantısı ayrıca çekilir. */
+async function bildirimKutusunuDoldur(bildirimler) {
+  const aptIds = [...new Set(bildirimler.map(b => b.apartment_id))];
+  const feeIds = [...new Set(bildirimler.flatMap(b => b.fee_ids || []))];
+  const yollar = bildirimler.map(b => b.receipt_path).filter(Boolean);
+  const [aptRes, feeRes, urlRes] = await Promise.all([
+    supabase.from('apartments').select('id, apartment_number, building_id').in('id', aptIds),
+    supabase.from('monthly_fees').select('id, year, month, kind').in('id', feeIds),
+    yollar.length ? supabase.storage.from('payment-receipts').createSignedUrls(yollar, 3600) : Promise.resolve({ data: [] }),
+  ]);
+  const aptById = new Map((aptRes.data || []).map(a => [a.id, a]));
+  const feeById = new Map((feeRes.data || []).map(f => [f.id, f]));
+  const urlByYol = new Map((urlRes.data || []).filter(u => u.signedUrl).map(u => [u.path, u.signedUrl]));
+  const daire = (b) => { const a = aptById.get(b.apartment_id); return a ? daireEtiketi(a.building_id, a.apartment_number) : 'Daire'; };
+  const donem = (b) => (b.fee_ids || []).map(id => feeById.get(id)).filter(Boolean)
+    .sort((x, y) => (x.year * 12 + x.month) - (y.year * 12 + y.month)).map(donemEtiketi).join(', ');
+
+  const govde = el('pr-body'); if (!govde) return;
+  govde.innerHTML = bildirimler.map(b => {
+    const url = b.receipt_path ? urlByYol.get(b.receipt_path) : null;
+    return `<tr>
+      <td><strong>${esc(daire(b))}</strong><div class="hint">${dmy(b.created_at)}</div></td>
+      <td>${esc(donem(b))}${b.note ? `<div class="hint">“${esc(b.note)}”</div>` : ''}</td>
+      <td class="t-num"><strong>${TL(b.amount)}</strong></td>
+      <td><span class="badge b-gray">${b.method === 'cash' ? 'Elden' : 'Havale / EFT'}</span></td>
+      <td>${url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${ikon('eye')} Dekontu aç</a>`
+        : b.method === 'bank' ? '<span class="badge b-amber">Dekont yok</span>' : '—'}</td>
+      <td class="t-right"><div class="row-actions">
+        <button class="btn btn-sm btn-outline-red" data-pr-red="${b.id}">Reddet</button>
+        <button class="btn btn-sm btn-green" data-pr-onay="${b.id}">${ikon('check')}Onayla</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+
+  const onayla = async (ids, metin) => {
+    if (!confirm(metin)) return;
+    try {
+      const r = await aidatRpc('approve_payment_reports', { p_ids: ids, p_wallet: null });
+      await refreshBuilding();
+      toast(`${r?.adet || 0} bildirim onaylandı · ${TL(r?.toplam || 0)} tahsil edildi`);
+      renderFees();
+    } catch (err) { toast(err.message, true); }
+  };
+
+  govde.addEventListener('click', (e) => {
+    const on = e.target.closest('[data-pr-onay]');
+    if (on) {
+      const b = bildirimler.find(x => x.id === on.dataset.prOnay);
+      return onayla([b.id], `${daire(b)} · ${donem(b)}\n${TL(b.amount)} ${b.method === 'cash' ? 'nakit kasaya' : 'banka hesabına'} gelir olarak yazılacak, makbuz kesilecek ve sakine bildirim gidecek. Onaylansın mı?`);
+    }
+    const red = e.target.closest('[data-pr-red]');
+    if (red) {
+      const b = bildirimler.find(x => x.id === red.dataset.prRed);
+      const hazir = ['Hesapta göremedim', 'Tutar eksik', 'Yanlış dönem seçilmiş', 'Dekont okunmuyor'];
+      openModal(`Bildirimi reddet — ${daire(b)}`, `
+        <p class="hint" style="margin-bottom:14px;">${esc(donem(b))} · ${TL(b.amount)}. Gerekçe sakine bildirim olarak gider; dönemler ödenmemiş kalır.</p>
+        <div class="row-actions" style="justify-content:flex-start;margin-bottom:10px" id="m-hazir">
+          ${hazir.map(h => `<button type="button" class="btn btn-sm btn-ghost" data-h="${esc(h)}">${esc(h)}</button>`).join('')}
+        </div>
+        <div class="field"><label>Gerekçe</label><input id="m-reason" placeholder="Ya da kendiniz yazın"></div>
+        <button class="btn btn-block btn-outline-red" id="m-save">Reddet</button>`, async () => {
+        await aidatRpc('reject_payment_report', { p_id: b.id, p_reason: el('m-reason').value.trim() || null });
+        toast('Bildirim reddedildi, sakine iletildi');
+      });
+      el('m-hazir').addEventListener('click', (ev) => {
+        const h = ev.target.closest('[data-h]'); if (h) el('m-reason').value = h.dataset.h;
+      });
+    }
+  });
+
+  el('pr-hepsi')?.addEventListener('click', () => {
+    const toplam = bildirimler.reduce((t, b) => t + Number(b.amount), 0);
+    const dekontsuz = bildirimler.some(b => b.method === 'bank' && !b.receipt_path);
+    onayla(bildirimler.map(b => b.id),
+      `${bildirimler.length} bildirim, toplam ${TL(toplam)} tahsil edilecek ve her daireye makbuz kesilecek.${dekontsuz ? '\n\nDikkat: dekontsuz bildirimler de var.' : ''}\n\nOnaylansın mı?`);
   });
 }
 

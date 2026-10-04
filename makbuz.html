@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aidat Makbuzu — Komşu</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+  <!--
+    Aidat tahsilat makbuzu (migration 0035).
+    Bağlantıdaki anahtar (?k=) ile get_receipt_public RPC'si okunur; oturum
+    gerekmez. Anahtar 128 bit rastgele, tahmin edilemez. Sayfa yazdırılabilir
+    / "PDF olarak kaydet" ile indirilebilir — uygulamaya yerel PDF modülü
+    eklemeden sakine belge vermenin yolu.
+  -->
+  <style>
+    :root {
+      --brand: #E9724C; --ink: #1C1917; --body: #44403C; --muted: #6F6862;
+      --line: #EAE6E1; --bg: #F6F5F3; --green: #1F7A4D; --red: #B42318;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg); color: var(--ink); line-height: 1.5;
+      padding: 24px 16px 48px;
+    }
+    .sayfa { max-width: 640px; margin: 0 auto; }
+    .ust { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 12px; }
+    .marka { display: flex; align-items: center; gap: 8px; font-weight: 800; color: var(--ink); text-decoration: none; }
+    .marka img { width: 28px; height: 28px; }
+    .yazdir {
+      border: 0; background: var(--ink); color: #fff; font: inherit; font-weight: 700; font-size: 14px;
+      padding: 10px 16px; border-radius: 10px; cursor: pointer;
+    }
+    .makbuz {
+      background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 28px;
+      position: relative; overflow: hidden;
+    }
+    .baslik { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+      padding-bottom: 18px; border-bottom: 2px solid var(--ink); }
+    .baslik h1 { font-size: 20px; letter-spacing: .2px; }
+    .baslik .site { font-size: 14px; color: var(--body); margin-top: 4px; }
+    .baslik .adres { font-size: 12.5px; color: var(--muted); }
+    .no { text-align: right; flex-shrink: 0; }
+    .no b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+    .no span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; font-weight: 700; }
+    .bilgi { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 24px; padding: 18px 0; border-bottom: 1px solid var(--line); }
+    .bilgi div span { display: block; font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 700; }
+    .bilgi div b { font-size: 15px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    td { padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+    td.t { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .toplam td { border-bottom: 0; padding-top: 16px; font-size: 18px; font-weight: 800; }
+    .yazi { font-size: 13px; color: var(--body); margin-top: 6px; }
+    .not { margin-top: 16px; font-size: 13.5px; color: var(--body); background: var(--bg); border-radius: 10px; padding: 10px 12px; }
+    .alt { display: flex; justify-content: space-between; gap: 16px; margin-top: 28px; font-size: 12.5px; color: var(--muted); }
+    .imza { text-align: right; }
+    .imza b { display: block; color: var(--ink); font-size: 14px; }
+    .damga {
+      position: absolute; top: 46%; left: 50%; transform: translate(-50%, -50%) rotate(-18deg);
+      border: 4px solid var(--red); color: var(--red); font-size: 44px; font-weight: 900; letter-spacing: 4px;
+      padding: 6px 22px; border-radius: 12px; opacity: .78; background: rgba(255,255,255,.6); pointer-events: none;
+    }
+    .iptal-not { margin-top: 14px; color: var(--red); font-weight: 700; font-size: 13.5px; }
+    .dogrulama { margin-top: 14px; font-size: 12px; color: var(--muted); text-align: center; }
+    .durum { text-align: center; padding: 60px 20px; color: var(--muted); background: #fff; border-radius: 16px; border: 1px solid var(--line); }
+    .durum b { display: block; color: var(--ink); font-size: 17px; margin-bottom: 6px; }
+    @media (max-width: 520px) {
+      .makbuz { padding: 20px 18px; }
+      .bilgi { grid-template-columns: 1fr; }
+      .alt { flex-direction: column; }
+      .imza { text-align: left; }
+    }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .ust, .dogrulama { display: none; }
+      .makbuz { border: 0; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sayfa">
+    <div class="ust">
+      <a class="marka" href="https://komsuapp.org"><img src="icon.png" alt="" /><span>Komşu</span></a>
+      <button class="yazdir" id="yazdir" hidden>Yazdır / PDF kaydet</button>
+    </div>
+    <div id="icerik"><div class="durum"><b>Makbuz yükleniyor…</b></div></div>
+    <p class="dogrulama">Bu makbuz Komşu tarafından site yönetiminin tahsilat kaydından üretilmiştir.</p>
+  </div>
+
+  <script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+    const supabase = createClient(
+      'https://latrcfjexphtnqpnvscr.supabase.co',
+      'sb_publishable_XQreUBjsc_VwwbtTMoQzZw_C4WXnHpo',
+      { auth: { persistSession: false } },
+    );
+
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    const TL = (n) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(n) || 0);
+    const tarih = (v) => new Date(v).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
+    const kutu = document.getElementById('icerik');
+    const hata = (b, m) => { kutu.innerHTML = `<div class="durum"><b>${esc(b)}</b>${esc(m)}</div>`; };
+
+    // Tutarı yazıyla (makbuzlarda alışılmış): 1.500,50 → "bin beş yüz TL elli kuruş"
+    const BIR = ['', 'bir', 'iki', 'üç', 'dört', 'beş', 'altı', 'yedi', 'sekiz', 'dokuz'];
+    const ON = ['', 'on', 'yirmi', 'otuz', 'kırk', 'elli', 'altmış', 'yetmiş', 'seksen', 'doksan'];
+    const ucluk = (n) => {
+      const y = Math.floor(n / 100), o = Math.floor((n % 100) / 10), b = n % 10;
+      return [(y ? (y > 1 ? BIR[y] + ' ' : '') + 'yüz' : ''), ON[o], BIR[b]].filter(Boolean).join(' ');
+    };
+    const yaziyla = (n) => {
+      if (n === 0) return 'sıfır';
+      const kademe = ['', 'bin', 'milyon', 'milyar'];
+      const parca = []; let i = 0;
+      while (n > 0) {
+        const u = n % 1000;
+        if (u) parca.unshift(i === 1 && u === 1 ? 'bin' : `${ucluk(u)}${kademe[i] ? ' ' + kademe[i] : ''}`);
+        n = Math.floor(n / 1000); i++;
+      }
+      return parca.join(' ');
+    };
+    const tutarYazi = (t) => {
+      const lira = Math.floor(t), kurus = Math.round((t - lira) * 100);
+      return `Yalnız ${yaziyla(lira)} Türk lirası${kurus ? ` ${yaziyla(kurus)} kuruş` : ''}`;
+    };
+
+    const anahtar = new URLSearchParams(location.search).get('k');
+    if (!anahtar) {
+      hata('Makbuz bulunamadı', 'Bağlantı eksik görünüyor. Uygulamadaki makbuz bağlantısını yeniden açın.');
+    } else {
+      const { data: m, error } = await supabase.rpc('get_receipt_public', { p_token: anahtar });
+      if (error) hata('Makbuz açılamadı', 'Lütfen biraz sonra tekrar deneyin.');
+      else if (!m) hata('Makbuz bulunamadı', 'Bağlantı geçersiz ya da makbuz kaldırılmış.');
+      else {
+        document.title = `Aidat Makbuzu No ${m.no} — ${m.site}`;
+        const daire = [m.blok, `Daire ${m.daire}`].filter(Boolean).join(' · ');
+        kutu.innerHTML = `
+          <article class="makbuz">
+            ${m.iptal ? '<div class="damga">İPTAL</div>' : ''}
+            <div class="baslik">
+              <div>
+                <h1>Aidat Tahsilat Makbuzu</h1>
+                <div class="site">${esc(m.site)}</div>
+                ${m.adres ? `<div class="adres">${esc(m.adres)}</div>` : ''}
+              </div>
+              <div class="no"><span>Makbuz no</span><b>${esc(m.no)}</b></div>
+            </div>
+            <div class="bilgi">
+              <div><span>Tarih</span><b>${tarih(m.tarih)}</b></div>
+              <div><span>Bağımsız bölüm</span><b>${esc(daire)}</b></div>
+              <div><span>Ödeyen</span><b>${esc(m.odeyen || 'Kat maliki / sakin')}</b></div>
+              <div><span>Ödeme şekli</span><b>${esc(m.odeme)}</b></div>
+            </div>
+            <table>
+              ${(m.kalemler || []).map(k => `<tr><td>${esc(k.donem)}</td><td class="t">${TL(k.tutar)}</td></tr>`).join('')}
+              <tr class="toplam"><td>Toplam</td><td class="t">${TL(m.toplam)}</td></tr>
+            </table>
+            <p class="yazi">${esc(tutarYazi(Number(m.toplam)))}</p>
+            ${m.aciklama ? `<div class="not">${esc(m.aciklama)}</div>` : ''}
+            ${m.iptal ? `<p class="iptal-not">Bu makbuz ${tarih(m.iptal)} tarihinde iptal edilmiştir${m.iptal_gerekcesi ? ` (${esc(m.iptal_gerekcesi)})` : ''}.</p>` : ''}
+            <div class="alt">
+              <span>Yukarıdaki tutar ${esc(m.site)} yönetimi adına tahsil edilmiştir.</span>
+              <div class="imza"><span>Tahsil eden</span><b>${esc(m.duzenleyen || 'Site yönetimi')}</b></div>
+            </div>
+          </article>`;
+        const btn = document.getElementById('yazdir');
+        btn.hidden = false;
+        btn.onclick = () => window.print();
+      }
+    }
+  </script>
+</body>
+</html>
