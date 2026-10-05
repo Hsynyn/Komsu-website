@@ -5088,7 +5088,8 @@ async function renderSubscription() {
           <strong id="sub-total">${TL(total())}</strong>
         </div>
         <button class="btn btn-block" id="sub-pay">${ikon('lock')}Kartla güvenli öde</button>
-        <p class="hint inline-ico" style="margin-top:12px;justify-content:center">${ikon('shield')}iyzico altyapısı · 3D Secure · kart bilgisi bize iletilmez</p>
+        <img src="iyzico-ile-ode.svg" alt="iyzico ile Öde" style="display:block;height:26px;width:auto;margin:14px auto 0;">
+        <p class="hint inline-ico" style="margin-top:10px;justify-content:center">${ikon('shield')}3D Secure · kart bilgisi bize iletilmez</p>
         <!-- iyzico Checkout Form buraya yüklenir -->
         <div id="iyzico-form" style="margin-top:16px;"></div>
       </div>

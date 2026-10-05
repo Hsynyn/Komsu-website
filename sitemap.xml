@@ -13,6 +13,12 @@
     <priority>0.3</priority>
   </url>
   <url>
+    <loc>https://komsuapp.org/hakkimizda</loc>
+    <lastmod>2026-10-05</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
     <loc>https://komsuapp.org/iletisim</loc>
     <lastmod>2026-09-17</lastmod>
     <changefreq>yearly</changefreq>

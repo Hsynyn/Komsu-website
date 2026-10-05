@@ -55,6 +55,9 @@ footer {
 footer .links { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; margin-bottom: 12px; }
 footer .links a { color: var(--muted); text-decoration: none; }
 footer .links a:hover { color: var(--ink); }
+/* iyzico ödeme logoları bandı (iyzico ile Öde, Mastercard, Visa, Amex, Troy) */
+.odeme-logolari { display: block; height: 26px; width: auto; max-width: 100%; margin: 0 auto 14px; }
+.pay-logos img { height: 30px; width: auto; max-width: 100%; }
 @media (max-width: 560px) {
   h1 { font-size: 26px; }
   table.info th, table.info td { display: block; width: 100%; }
