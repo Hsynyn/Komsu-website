@@ -1,6 +1,17 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
+  <!-- Panel başka bir sitenin içine gömülemez (tıklama tuzağı / clickjacking).
+       GitHub Pages güvenlik başlığı (X-Frame-Options) eklemeye izin vermediği
+       için koruma burada: çerçeve içindeyse sayfa gizli kalır ve üst pencereye geçer. -->
+  <style id="cerceve-koruma">html{display:none!important}</style>
+  <script>
+    if (window.self === window.top) {
+      document.getElementById('cerceve-koruma').remove();
+    } else {
+      try { window.top.location = window.self.location; } catch (e) {}
+    }
+  </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KOMŞU — Platform Yönetimi</title>

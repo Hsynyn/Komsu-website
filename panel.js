@@ -4304,7 +4304,7 @@ async function renderSettings() {
       <div class="card">
         <div class="grid-2">
           <div class="field"><label>Kullanıcı adı</label><input id="s-sec-user" value="${esc(b.security_username||'')}" placeholder="Örn: guvenlik-a-blok"></div>
-          <div class="field"><label>Şifre</label><input id="s-sec-pass" type="text" value="${esc(b.security_password||'')}" placeholder="En az 4 karakter"></div>
+          <div class="field"><label>Şifre</label><input id="s-sec-pass" type="password" autocomplete="new-password" value="" placeholder="${b.security_password ? 'Kayıtlı — değiştirmek için yeni şifre yazın' : 'En az 4 karakter'}"></div>
         </div>
         <div class="card-foot"><button class="btn" id="s-save-security">Kaydet</button></div>
       </div>
@@ -4354,15 +4354,22 @@ async function renderSettings() {
     const secUser = el('s-sec-user').value.trim() || null;
     const secPass = el('s-sec-pass').value.trim() || null;
 
+    /* Şifre veritabanında şifrelenmiş (bcrypt) durur ve forma geri gelmez
+       (0037). Alan boş bırakılırsa kayıtlı şifre korunur; yalnızca kullanıcı
+       adı değişir. */
+    const kayitliSifre = !!activeBuilding()?.security_password;
     if (secUser && secUser.length < 3) return toast('Güvenlik kullanıcı adı en az 3 karakter olmalıdır.', true);
     if (secPass && secPass.length < 4) return toast('Güvenlik şifresi en az 4 karakter olmalıdır.', true);
-    if ((secUser && !secPass) || (!secUser && secPass)) return toast('Kullanıcı adı ve şifre birlikte doldurulmalı veya her ikisi de boş bırakılmalıdır.', true);
+    if (!secUser && secPass) return toast('Önce kullanıcı adını girin.', true);
+    if (secUser && !secPass && !kayitliSifre) return toast('Kullanıcı adı ve şifre birlikte doldurulmalı veya her ikisi de boş bırakılmalıdır.', true);
 
     el('s-save-security').disabled = true;
-    const { error } = await supabase.from('buildings').update({
-      security_username: secUser,
-      security_password: secPass
-    }).eq('id', bId());
+    const guncelleme = !secUser
+      ? { security_username: null, security_password: null }       // girişi kapat
+      : secPass
+        ? { security_username: secUser, security_password: secPass } // yeni şifre
+        : { security_username: secUser };                           // yalnızca ad
+    const { error } = await supabase.from('buildings').update(guncelleme).eq('id', bId());
 
     await refreshBuilding();
     toast(error ? error.message : 'Güvenlik giriş bilgileri güncellendi', !!error);
