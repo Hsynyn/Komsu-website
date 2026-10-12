@@ -436,7 +436,7 @@ el('export-btn').addEventListener('click', () => {
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `komsu-musteriler-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `yonetivia-musteriler-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
   toast(`${rows.length} kayıt indirildi.`);

@@ -563,7 +563,7 @@ el('verify-resend').addEventListener('click', async () => {
 // supabase-js oturumu URL'den alır → yeni şifre ekranı → updateUser.
 // Mobil uygulama "Şifremi unuttum" için buraya (?forgot=1) yönlendirir.
 // Önkoşul: Dashboard → Authentication → URL Configuration → Redirect URLs
-// listesinde https://komsuapp.org/panel.html bulunmalı; yoksa Site URL'e düşer.
+// listesinde https://yonetivia.com.tr/panel.html bulunmalı; yoksa Site URL'e düşer.
 
 function authErrorText(error, fallback) {
   const m = (error?.message || '').toLowerCase();
@@ -5745,7 +5745,7 @@ async function renderSecurityPanel() {
   el('sec-rep-csv').onclick = () => {
     if (!repRows.length) return;
     downloadCSV(
-      `komsu-giris-cikis-${repDay}.csv`,
+      `yonetivia-giris-cikis-${repDay}.csv`,
       ['Ziyaretçi', 'Neden', 'Hedef Daire', 'Plaka', 'Giriş', 'Çıkış', 'Süre (dk)'],
       repRows.map(r => {
         const mins = r.exit_at ? Math.round((new Date(r.exit_at) - new Date(r.entry_at)) / 60000) : '';

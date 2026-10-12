@@ -173,7 +173,7 @@ function sayfaCercevesi(doc, font, { siteAdi, siteAdres, belgeNo, uretimZamani }
     doc.setFont(font, 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(...MUTED);
-    doc.text(yaz('Bu belge Komşu Yönetim Paneli tarafından üretilmiştir.'), M, yuk - FOOTER_H + 9);
+    doc.text(yaz('Bu belge Yönetivia Yönetim Paneli tarafından üretilmiştir.'), M, yuk - FOOTER_H + 9);
     doc.text(yaz(`Sayfa ${i} / ${toplam}`), gen - M, yuk - FOOTER_H + 9, { align: 'right' });
   }
 }
