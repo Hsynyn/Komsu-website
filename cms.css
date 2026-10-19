@@ -70,6 +70,26 @@
 .detail-kv dt { color: var(--muted); }
 .detail-kv dd { font-weight: 600; }
 
+/* ---- Bölüm sekmeleri ---- */
+.cms-nav { max-width: 560px; margin-bottom: 20px; }
+.cms-nav .seg .badge { margin-left: 4px; padding: 0 7px; font-size: 11px; }
+
+/* ---- Destek yazışması ---- */
+.destek-akis { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 16px; }
+.destek-balon { max-width: 85%; padding: 11px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; }
+.destek-balon.kullanici { align-self: flex-start; background: var(--subtle); }
+.destek-balon.ekip { align-self: flex-end; background: var(--blue-bg); }
+.destek-balon .kim { display: block; font-size: 11.5px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+.destek-balon .zaman { display: block; font-size: 11px; color: var(--muted); margin-top: 6px; text-align: right; }
+.destek-yanit textarea { width: 100%; }
+.destek-eylem { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.c-onizleme { font-size: 12.5px; color: var(--muted); margin-top: 3px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Sürüm formu ---- */
+.surum-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.surum-kart { border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+.surum-kart h4 { margin-bottom: 12px; }
+
 @media (max-width: 860px) {
   .cms-main { padding: 16px; }
   .cms-top { padding: 12px 16px; }

@@ -62,6 +62,14 @@
     </header>
 
     <main class="cms-main">
+      <!-- Bölümler -->
+      <nav class="seg-tabs cms-nav" id="cms-nav">
+        <button class="seg active" data-view="sites">Müşteriler</button>
+        <button class="seg" data-view="destek">Destek <span class="badge b-amber hidden" id="destek-sayac"></span></button>
+        <button class="seg" data-view="surum">Uygulama sürümü</button>
+      </nav>
+
+      <div id="view-sites">
       <!-- Özet metrikler -->
       <section class="stat-grid" id="stats"></section>
 
@@ -107,6 +115,52 @@
         </div>
         <p class="cms-count" id="row-count"></p>
       </section>
+      </div>
+
+      <!-- Destek talepleri (0042) -->
+      <div id="view-destek" class="hidden">
+        <section class="card">
+          <div class="page-head">
+            <h2>Destek talepleri</h2>
+            <div class="tools">
+              <select class="search" id="destek-filtre">
+                <option value="">Tümü</option>
+                <option value="acik" selected>Yanıt bekleyen</option>
+                <option value="yanitlandi">Yanıtlanan</option>
+                <option value="kapandi">Kapanan</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="cms-table">
+              <thead>
+                <tr>
+                  <th>Konu</th>
+                  <th>Kişi</th>
+                  <th>İletişim</th>
+                  <th>Site</th>
+                  <th>Durum</th>
+                  <th>Son mesaj</th>
+                </tr>
+              </thead>
+              <tbody id="destek-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- Uygulama sürümü / zorunlu güncelleme (0043) -->
+      <div id="view-surum" class="hidden">
+        <section class="card">
+          <div class="page-head"><h2>Uygulama sürümü</h2></div>
+          <p class="danger-text" style="margin-bottom:16px">
+            <strong>En düşük sürüm</strong>ün altındaki kullanıcı uygulamayı kullanamaz, mağazaya yönlendirilir.
+            <strong>Önerilen sürüm</strong>ün altındakine kapatılabilir "yeni sürüm var" uyarısı çıkar.
+            En düşük sürümü yalnızca o sürüm mağazada <strong>yayınlandıktan sonra</strong> yükseltin.
+          </p>
+          <div id="surum-body"></div>
+        </section>
+      </div>
     </main>
   </div>
 

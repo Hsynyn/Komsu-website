@@ -57,7 +57,7 @@ const PAY_METHOD = {
 };
 
 /* ============ Durum ============ */
-const S = { rows: [], stats: null };
+const S = { rows: [], stats: null, view: 'sites', destek: [] };
 
 /* ============ Giriş ============ */
 el('toggle-pass').addEventListener('click', () => {
@@ -141,6 +141,9 @@ async function loadData(isRefresh) {
   S.rows = sitesRes.data || [];
   renderStats();
   renderTable();
+  destekSayaci();
+  if (S.view === 'destek') loadDestek();
+  if (S.view === 'surum') loadSurum();
   if (isRefresh) toast('Veriler güncellendi.');
   return true;
 }
@@ -440,6 +443,172 @@ el('export-btn').addEventListener('click', () => {
   a.click();
   URL.revokeObjectURL(a.href);
   toast(`${rows.length} kayıt indirildi.`);
+});
+
+/* ============ Bölümler ============ */
+el('cms-nav').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-view]'); if (!b) return;
+  S.view = b.dataset.view;
+  el('cms-nav').querySelectorAll('.seg').forEach(x => x.classList.toggle('active', x === b));
+  ['sites', 'destek', 'surum'].forEach(v => (v === S.view ? show('view-' + v) : hide('view-' + v)));
+  if (S.view === 'destek') loadDestek();
+  if (S.view === 'surum') loadSurum();
+});
+
+/* ============ Destek talepleri (0042) ============ */
+const DESTEK_DURUM = {
+  acik:       { label: 'Yanıt bekliyor', cls: 'b-amber' },
+  yanitlandi: { label: 'Yanıtlandı',     cls: 'b-green' },
+  kapandi:    { label: 'Kapandı',        cls: 'b-gray'  },
+};
+const DESTEK_KATEGORI = { genel: 'Soru', hata: 'Hata', odeme: 'Abonelik/ödeme', hesap: 'Hesap/giriş', oneri: 'Öneri' };
+const ROL = { admin: 'Yönetici', resident: 'Sakin' };
+const kurulumEksik = (err) => /cms_destek|cms_surum|app_versions|could not find|does not exist/i.test(err?.message || '') || err?.code === 'PGRST202';
+
+// Sekmedeki "yanıt bekleyen" sayısı
+async function destekSayaci() {
+  const { data, error } = await supabase.rpc('cms_destek_talepleri', { p_durum: 'acik' });
+  const n = error ? 0 : (data || []).length;
+  el('destek-sayac').textContent = n;
+  el('destek-sayac').classList.toggle('hidden', !n);
+}
+
+async function loadDestek() {
+  const body = el('destek-body');
+  body.innerHTML = '<tr><td colspan="6" class="c-empty">Yükleniyor…</td></tr>';
+  const filtre = el('destek-filtre').value || null;
+  const { data, error } = await supabase.rpc('cms_destek_talepleri', { p_durum: filtre });
+  if (error) {
+    body.innerHTML = `<tr><td colspan="6" class="c-empty">${kurulumEksik(error)
+      ? 'Destek sistemi kurulu değil: 0042_destek_talepleri.sql migration\'ını Supabase SQL Editor\'den çalıştırın.'
+      : 'Talepler alınamadı: ' + esc(error.message || '')}</td></tr>`;
+    return;
+  }
+  S.destek = data || [];
+  if (!S.destek.length) {
+    body.innerHTML = '<tr><td colspan="6" class="c-empty">Bu filtrede talep yok.</td></tr>';
+    return;
+  }
+  body.innerHTML = S.destek.map(t => {
+    const d = DESTEK_DURUM[t.durum] || { label: t.durum, cls: 'b-gray' };
+    return `<tr data-ticket="${t.id}">
+      <td><div class="c-title">${esc(t.konu)}</div>
+        <div class="c-meta">${esc(DESTEK_KATEGORI[t.kategori] || t.kategori)} · ${NUM(t.mesaj_sayisi)} mesaj</div>
+        <div class="c-onizleme">${t.son_yazan_destek ? 'Siz: ' : ''}${esc(t.son_mesaj || '')}</div></td>
+      <td><div class="c-title">${esc(t.ad || '—')}</div><div class="c-meta">${esc(ROL[t.rol] || t.rol || '')}</div></td>
+      <td>${t.telefon ? `<a class="c-mail" href="tel:${esc(t.telefon)}">${esc(t.telefon)}</a>` : '<span class="c-empty">—</span>'}
+        ${t.eposta ? `<div class="c-meta"><a class="c-mail" href="mailto:${esc(t.eposta)}">${esc(t.eposta)}</a></div>` : ''}</td>
+      <td>${esc(t.site_adi || '—')}<div class="c-meta">${esc([t.platform, t.uygulama_surumu].filter(Boolean).join(' · '))}</div></td>
+      <td><span class="badge ${d.cls}">${d.label}</span></td>
+      <td class="c-nowrap">${dmyhm(t.son_mesaj_at)}</td>
+    </tr>`;
+  }).join('');
+}
+
+el('destek-filtre').addEventListener('change', loadDestek);
+el('destek-body').addEventListener('click', (e) => {
+  if (e.target.closest('a')) return;
+  const tr = e.target.closest('tr[data-ticket]'); if (!tr) return;
+  openTalep(tr.dataset.ticket);
+});
+
+async function openTalep(id) {
+  const t = S.destek.find(x => x.id === id); if (!t) return;
+  el('modal-title').textContent = t.konu;
+  el('modal-body').innerHTML = '<p class="c-empty">Yükleniyor…</p>';
+  show('modal-overlay');
+
+  const { data, error } = await supabase.rpc('cms_destek_mesajlari', { p_ticket: id });
+  if (error) { el('modal-body').innerHTML = `<p class="c-empty">Mesajlar alınamadı: ${esc(error.message || '')}</p>`; return; }
+  const d = DESTEK_DURUM[t.durum] || { label: t.durum, cls: 'b-gray' };
+
+  el('modal-body').innerHTML = `
+    <div class="detail-sec">
+      <dl class="detail-kv">
+        <dt>Kişi</dt><dd>${esc(t.ad || '—')} · ${esc(ROL[t.rol] || t.rol || '')}</dd>
+        <dt>Telefon</dt><dd>${t.telefon ? `<a class="c-mail" href="tel:${esc(t.telefon)}">${esc(t.telefon)}</a>` : '—'}</dd>
+        <dt>E-posta</dt><dd>${t.eposta ? `<a class="c-mail" href="mailto:${esc(t.eposta)}">${esc(t.eposta)}</a>` : '—'}</dd>
+        <dt>Site</dt><dd>${esc(t.site_adi || '—')}</dd>
+        <dt>Cihaz</dt><dd>${esc([t.platform, t.uygulama_surumu].filter(Boolean).join(' · ') || '—')}</dd>
+        <dt>Durum</dt><dd><span class="badge ${d.cls}">${d.label}</span> <span class="c-meta">açılış ${dmyhm(t.created_at)}</span></dd>
+      </dl>
+    </div>
+    <div class="detail-sec">
+      <h4>Yazışma</h4>
+      <div class="destek-akis">
+        ${(data || []).map(m => `<div class="destek-balon ${m.destek_ekibi ? 'ekip' : 'kullanici'}">
+          <span class="kim">${m.destek_ekibi ? 'Yönetivia Destek' : esc(t.ad || 'Kullanıcı')}</span>${esc(m.mesaj)}
+          <span class="zaman">${dmyhm(m.created_at)}</span></div>`).join('')}
+      </div>
+      <div class="field destek-yanit"><label for="destek-yanit">Yanıtınız</label>
+        <textarea id="destek-yanit" rows="4" placeholder="Kullanıcıya yanıt yazın; telefonuna bildirim gider."></textarea></div>
+      <div class="destek-eylem">
+        ${t.durum !== 'kapandi'
+          ? '<button class="btn btn-sm btn-ghost" id="destek-kapat">Yanıtsız kapat</button>'
+          : '<button class="btn btn-sm btn-ghost" id="destek-ac">Yeniden aç</button>'}
+        <button class="btn btn-sm btn-ghost" id="destek-gonder-kapat">Gönder ve kapat</button>
+        <button class="btn btn-sm" id="destek-gonder">Gönder</button>
+      </div>
+    </div>`;
+
+  const yanitla = async (kapat) => {
+    const mesaj = el('destek-yanit').value.trim();
+    if (!mesaj) return toast('Yanıt boş olamaz.', true);
+    const { error: e2 } = await supabase.rpc('cms_destek_yanitla', { p_ticket: id, p_mesaj: mesaj, p_kapat: kapat });
+    if (e2) return toast('Gönderilemedi: ' + (e2.message || ''), true);
+    toast(kapat ? 'Yanıt gönderildi, talep kapandı.' : 'Yanıt gönderildi; kullanıcıya bildirim gitti.');
+    hide('modal-overlay');
+    await loadDestek(); destekSayaci();
+  };
+  const durumYap = async (durum) => {
+    const { error: e3 } = await supabase.rpc('cms_destek_durum', { p_ticket: id, p_durum: durum });
+    if (e3) return toast(e3.message || 'Durum değişmedi', true);
+    hide('modal-overlay');
+    await loadDestek(); destekSayaci();
+  };
+  el('destek-gonder').onclick = () => yanitla(false);
+  el('destek-gonder-kapat').onclick = () => yanitla(true);
+  if (el('destek-kapat')) el('destek-kapat').onclick = () => durumYap('kapandi');
+  if (el('destek-ac')) el('destek-ac').onclick = () => durumYap('acik');
+}
+
+/* ============ Uygulama sürümü (0043) ============ */
+async function loadSurum() {
+  const body = el('surum-body');
+  body.innerHTML = '<p class="c-empty">Yükleniyor…</p>';
+  const { data, error } = await supabase.from('app_versions').select('*').order('platform');
+  if (error || !data?.length) {
+    body.innerHTML = `<p class="c-empty">${error && !kurulumEksik(error)
+      ? 'Alınamadı: ' + esc(error.message || '')
+      : 'Sürüm tablosu kurulu değil: 0043_uygulama_surumu.sql migration\'ını çalıştırın.'}</p>`;
+    return;
+  }
+  const AD = { android: 'Android (Google Play)', ios: 'iOS (App Store)' };
+  body.innerHTML = `<div class="surum-grid">${data.map(v => `
+    <div class="surum-kart" data-platform="${v.platform}">
+      <h4>${AD[v.platform] || v.platform}</h4>
+      <div class="field"><label>En düşük sürüm (altı kilitlenir)</label><input data-k="min" value="${esc(v.min_surum)}" placeholder="1.3.2" /></div>
+      <div class="field"><label>Önerilen sürüm (altına uyarı)</label><input data-k="son" value="${esc(v.son_surum)}" placeholder="1.3.2" /></div>
+      <div class="field"><label>Kullanıcıya mesaj (isteğe bağlı)</label><textarea data-k="mesaj" rows="2">${esc(v.mesaj || '')}</textarea></div>
+      <p class="c-meta">Son değişiklik ${dmyhm(v.updated_at)}</p>
+      <div class="destek-eylem" style="margin-top:10px"><button class="btn btn-sm" data-kaydet="${v.platform}">Kaydet</button></div>
+    </div>`).join('')}</div>`;
+}
+
+el('surum-body').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-kaydet]'); if (!b) return;
+  const kart = b.closest('.surum-kart');
+  const deger = (k) => kart.querySelector(`[data-k="${k}"]`).value.trim();
+  const platform = b.dataset.kaydet;
+  if (!confirm(`${platform === 'ios' ? 'iOS' : 'Android'}: en düşük sürüm ${deger('min')}, önerilen ${deger('son')} olsun mu?\n\nEn düşük sürümün altındaki kullanıcılar uygulamayı güncelleyene kadar kullanamaz.`)) return;
+  b.disabled = true;
+  const { error } = await supabase.rpc('cms_surum_guncelle', {
+    p_platform: platform, p_min: deger('min'), p_son: deger('son'), p_mesaj: deger('mesaj'),
+  });
+  b.disabled = false;
+  if (error) return toast(error.message || 'Kaydedilemedi', true);
+  toast('Sürüm ayarı kaydedildi.');
+  loadSurum();
 });
 
 /* ============ Başlat ============ */
