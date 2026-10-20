@@ -914,7 +914,8 @@ async function boot(user) {
       navigate('subscription');
       return;
     }
-    if (payResult === 'failed') toast('Ödeme tamamlanmadı veya iptal edildi.', true);
+    if (payResult === 'review') toast('Ödemeniz bankada kontrol ediliyor. Onaylanınca aboneliğiniz kendiliğinden uzar.');
+    else if (payResult === 'failed') toast('Ödeme tamamlanmadı veya iptal edildi.', true);
     else toast('Ödeme sırasında bir sorun oluştu.', true);
     navigate('subscription');
     return;
@@ -5132,7 +5133,9 @@ async function renderSubscription() {
         <td>${dmy(p.created_at)}</td><td>${p.months} ay</td><td>${p.apartment_count}</td>
         <td class="t-num">${TL(p.amount)}</td>
         <td>${p.period_start ? `${dmy(p.period_start)} → ${dmy(p.period_end)}` : '—'}</td>
-        <td>${PAY_STATUS[p.status] || p.status}</td>
+        <td>${p.status === 'pending' && Date.now() - new Date(p.created_at).getTime() > 86400000
+          ? '<span class="badge b-gray">Tamamlanmadı</span>'
+          : (PAY_STATUS[p.status] || p.status)}</td>
       </tr>`).join('') : `<tr><td colspan="6">${bosDurum('receipt', 'Henüz ödeme yok', 'Yaptığınız ödemeler faturalarıyla burada listelenir.')}</td></tr>`}</tbody></table>
     </div>`;
 
@@ -5180,8 +5183,11 @@ async function renderSubscription() {
       if (!res.ok || out.error) throw new Error(out.error || 'Ödeme başlatılamadı');
 
       // iyzico Checkout Form'unu göm ve içindeki script'leri çalıştır
+      // iyzico betiği formu id'si "iyzipay-checkout-form" olan kutuya çizer.
+      // İkinci tıklamada eski formun global değişkenleri temizlenmezse form açılmaz.
       const container = el('iyzico-form');
-      container.innerHTML = out.checkoutFormContent || '';
+      try { delete window.iyziInit; delete window.iyziUcsInit; delete window.iyziSubscriptionInit; } catch {}
+      container.innerHTML = `<div id="iyzipay-checkout-form" class="responsive"></div>${out.checkoutFormContent || ''}`;
       container.querySelectorAll('script').forEach((old) => {
         const s = document.createElement('script');
         if (old.src) s.src = old.src; else s.textContent = old.textContent;
