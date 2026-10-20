@@ -905,7 +905,9 @@ async function boot(user) {
   renderBuildingSelector();
 
   // iyzico ödeme dönüşü: callback panele ?payment=... ile yönlendirir
-  const payResult = new URLSearchParams(location.search).get('payment');
+  const payParams = new URLSearchParams(location.search);
+  const payResult = payParams.get('payment');
+  const payMsg = payParams.get('msg');
   if (payResult) {
     // URL'i temizle (yenilemede tekrar tetiklenmesin)
     history.replaceState(null, '', location.pathname);
@@ -915,8 +917,8 @@ async function boot(user) {
       return;
     }
     if (payResult === 'review') toast('Ödemeniz bankada kontrol ediliyor. Onaylanınca aboneliğiniz kendiliğinden uzar.');
-    else if (payResult === 'failed') toast('Ödeme tamamlanmadı veya iptal edildi.', true);
-    else toast('Ödeme sırasında bir sorun oluştu.', true);
+    else if (payResult === 'failed') toast(payMsg ? `Ödeme tamamlanmadı: ${payMsg}` : 'Ödeme tamamlanmadı veya iptal edildi.', true);
+    else toast(payMsg || 'Ödeme sırasında bir sorun oluştu.', true);
     navigate('subscription');
     return;
   }
