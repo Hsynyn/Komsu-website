@@ -186,7 +186,7 @@ export async function kurulumDurumu() {
       acil: denemeBitiyor,
       baslik: 'Aboneliği başlatın',
       aciklama: erisim.source === 'trial'
-        ? `Deneme ${erisim.daysLeft} gün sonra bitiyor. Bitince davet kodları kapanır, sakinler bir hafta sonra uygulamaya giremez.`
+        ? `Deneme ${erisim.daysLeft} gün sonra bitiyor. Bitince sakinler bir hafta sonra uygulamaya giremez.`
         : 'Fiyat daire sayınıza göre hesaplanır; 1, 3, 6 veya 12 ay seçebilirsiniz.',
       bolum: 'subscription', hedef: '#sub-pay',
     },
@@ -485,7 +485,7 @@ const YARDIM = {
   },
   subscription: {
     baslik: 'Abonelik',
-    ozet: 'Davet kodlarınız ve ödeme. Deneme bir ay; bitince davet kodları kapanır, mevcut sakinler bir hafta sonra uygulamaya giremez.',
+    ozet: 'Davet kodlarınız ve ödeme. Deneme bir ay; bitince sakinler bir hafta sonra uygulamaya giremez. Davet kodları her zaman açıktır.',
     adimlar: [
       { metin: '<strong>Davet kodlarınız</strong> burada; sakinlere iletin, uygulamada bu kodla katılırlar.', hedef: '.copy-code' },
       { metin: 'Fiyat daire sayınıza göre hesaplanır. 1, 3, 6 veya 12 ay seçip kartla ödeyin.' },

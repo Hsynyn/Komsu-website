@@ -358,7 +358,7 @@ function accessBannerHTML() {
     head = isTrial
       ? `Ücretsiz deneme süreniz ${a.daysLeft} gün sonra doluyor`
       : `Aboneliğiniz ${a.daysLeft} gün sonra doluyor`;
-    text = 'Süre dolduğunda davet kodlarınız kapanır ve sakinleriniz uygulamayı kullanamaz. Şimdi ödeyerek kesintisiz devam edin.';
+    text = 'Süre dolduğunda siteniz uygulamada kullanılamaz. Şimdi ödeyerek kesintisiz devam edin.';
     cta  = isTrial ? 'Aboneliği Başlat' : 'Aboneliği Yenile';
   } else if (a.kind === 'grace') {
     icon = ikon('alert');
@@ -504,6 +504,8 @@ el('signup-form').addEventListener('submit', async (e) => {
   if (pass.length < 6) return signupError('Şifre en az 6 karakter olmalı.');
   if (pass !== pass2) return signupError('Şifreler birbiriyle eşleşmiyor.');
   if (!el('su-terms').checked) return signupError('Devam etmek için sözleşmeleri kabul etmelisiniz.');
+  // Hizmet yalnızca Site Yönetimi'ne satılır (mobil docs/adr/0001, App Store 3.1.3(c))
+  if (!el('su-yetki').checked) return signupError('Hesap yalnızca bir apartman veya site yönetimi adına açılabilir; lütfen beyan kutusunu işaretleyin.');
 
   const btn = el('signup-btn');
   btn.disabled = true; btn.textContent = 'Hesap oluşturuluyor…';
@@ -912,7 +914,7 @@ async function boot(user) {
     // URL'i temizle (yenilemede tekrar tetiklenmesin)
     history.replaceState(null, '', location.pathname);
     if (payResult === 'success') {
-      toast('✅ Ödeme alındı! Aboneliğiniz aktif, davet kodlarınız açıldı.');
+      toast('✅ Ödeme alındı! Aboneliğiniz aktif.');
       navigate('subscription');
       return;
     }
@@ -1619,7 +1621,7 @@ async function updateOverviewDetails(buildingId) {
             <h3>${esc(b.name)}</h3>
             <span class="muted detail-addr">${esc(b.address || 'Adres belirtilmemiş')}</span>
             <div class="detail-tags">
-              <span class="detail-tag">${hasAccess() ? `Davet kodu: <b>${esc(b.building_code || '—')}</b>` : 'Davet kodu ödemeyle açılır'}</span>
+              <span class="detail-tag">Davet kodu: <b>${esc(b.building_code || '—')}</b></span>
               <span class="detail-tag">${b.floor_count || 5} kat</span>
             </div>
           </div>
@@ -5115,17 +5117,17 @@ async function renderSubscription() {
       </div>
     </div>
 
-    <div class="card ${access ? 'table-card' : ''}">
-      ${access
-        ? `<div class="table-toolbar"><div><h3 style="margin:0">Davet kodları</h3><p class="hint">Sakinler kendi binasının koduyla uygulamaya katılır.</p></div></div>
-           <table><thead><tr><th>Bina</th><th>Daire</th><th>Davet kodu</th><th></th></tr></thead>
-           <tbody>${S.buildings.map(x => `<tr>
-             <td><strong>${esc(x.name)}</strong></td>
-             <td>${x.apartment_count || 0}</td>
-             <td><span class="invite-code">${esc(x.building_code || '—')}</span></td>
-             <td class="t-right"><button class="btn btn-sm btn-ghost copy-code" data-code="${esc(x.building_code || '')}">${ikon('copy')}Kopyala</button></td>
-           </tr>`).join('')}</tbody></table>`
-        : bosDurum('lock', 'Davet kodları ödemeden sonra açılır', 'Deneme süreniz doldu. Ödeme yaptığınız anda kodlar yeniden görünür.')}
+    <!-- Davet kodu hizmet süresinden bağımsızdır (mobil docs/adr/0001):
+         kod yalnızca sakini binaya bağlar, ödemeye göre açılıp kapanmaz. -->
+    <div class="card table-card">
+      <div class="table-toolbar"><div><h3 style="margin:0">Davet kodları</h3><p class="hint">Sakinler kendi binasının koduyla uygulamaya ücretsiz katılır.</p></div></div>
+      <table><thead><tr><th>Bina</th><th>Daire</th><th>Davet kodu</th><th></th></tr></thead>
+      <tbody>${S.buildings.map(x => `<tr>
+        <td><strong>${esc(x.name)}</strong></td>
+        <td>${x.apartment_count || 0}</td>
+        <td><span class="invite-code">${esc(x.building_code || '—')}</span></td>
+        <td class="t-right"><button class="btn btn-sm btn-ghost copy-code" data-code="${esc(x.building_code || '')}">${ikon('copy')}Kopyala</button></td>
+      </tr>`).join('')}</tbody></table>
     </div>
 
     <div class="card table-card">
