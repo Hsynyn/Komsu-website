@@ -231,7 +231,7 @@
         </label>
         <label class="check-row">
           <input type="checkbox" id="su-yetki" />
-          <span>Bu hesabı, yönetmeye yetkili olduğum apartman veya site yönetimi adına açıyorum.</span>
+          <span>Bu hesabı kişisel kullanım için değil, yönetimini üstlendiğim apartman veya site adına açıyorum.</span>
         </label>
         <button type="submit" class="btn btn-block" id="signup-btn">Hesap Oluştur</button>
       </form>
@@ -319,6 +319,12 @@
       </div>
 
       <button type="button" class="btn btn-block" id="setup-btn" style="margin-top:8px;">Kurulumu Tamamla</button>
+      <!-- Mobilde e-posta girişi yok (mobil docs/adr/0001): yönetici, bu hesabın
+           e-postasına ait Google ya da Apple hesabıyla girince otomatik tanınır. -->
+      <p class="blocks-hint" style="margin-top:12px;">
+        Mobil uygulamaya bu hesaptaki e-posta adresinin <b>Google hesabıyla</b> ya da <b>Apple ile</b> girin.
+        Apple ile girerken <b>"E-postamı paylaş"</b> seçeneğini seçin; "E-postamı gizle" seçilirse yönetici hesabınız tanınmaz.
+      </p>
       <div class="alt-action">
         <button type="button" class="linklike" id="setup-logout">Çıkış yap</button>
       </div>

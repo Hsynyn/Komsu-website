@@ -505,7 +505,7 @@ el('signup-form').addEventListener('submit', async (e) => {
   if (pass !== pass2) return signupError('Şifreler birbiriyle eşleşmiyor.');
   if (!el('su-terms').checked) return signupError('Devam etmek için sözleşmeleri kabul etmelisiniz.');
   // Hizmet yalnızca Site Yönetimi'ne satılır (mobil docs/adr/0001, App Store 3.1.3(c))
-  if (!el('su-yetki').checked) return signupError('Hesap yalnızca bir apartman veya site yönetimi adına açılabilir; lütfen beyan kutusunu işaretleyin.');
+  if (!el('su-yetki').checked) return signupError('Hesap kişisel kullanım için değil, yalnızca bir apartman veya site adına açılabilir; lütfen beyan kutusunu işaretleyin.');
 
   const btn = el('signup-btn');
   btn.disabled = true; btn.textContent = 'Hesap oluşturuluyor…';
