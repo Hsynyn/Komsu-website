@@ -513,7 +513,11 @@ el('signup-form').addEventListener('submit', async (e) => {
   const { data, error } = await supabase.auth.signUp({
     email,
     password: pass,
-    options: { data: { display_name: `${name} ${surname}`, name, surname } },
+    // E-posta doğrulaması açık: bağlantı panele döner, oturum orada açılır
+    options: {
+      data: { display_name: `${name} ${surname}`, name, surname },
+      emailRedirectTo: `${location.origin}/panel.html`,
+    },
   });
 
   btn.disabled = false; btn.textContent = 'Hesap Oluştur';
@@ -800,6 +804,12 @@ el('login-form').addEventListener('submit', async (e) => {
       email: el('email').value.trim().toLowerCase(), password: el('password').value,
     });
     btn.disabled = false; btn.textContent = 'Giriş Yap';
+    if (error?.message?.toLowerCase().includes('email not confirmed')) {
+      // Doğrulanmamış hesap: doğrulama ekranına al, oradan tekrar gönderebilir
+      S.pendingEmail = el('email').value.trim().toLowerCase();
+      showVerify(S.pendingEmail);
+      return;
+    }
     if (error || !data.user) { el('login-error').textContent = 'E-posta veya şifre hatalı.'; show('login-error'); return; }
     showScreen('loading'); await boot(data.user);
   } else {
