@@ -57,7 +57,7 @@ const PAY_METHOD = {
 };
 
 /* ============ Durum ============ */
-const S = { rows: [], stats: null, view: 'sites', destek: [] };
+const S = { rows: [], stats: null, view: 'sites', destek: [], sikayet: [] };
 
 /* ============ Giriş ============ */
 el('toggle-pass').addEventListener('click', () => {
@@ -142,7 +142,9 @@ async function loadData(isRefresh) {
   renderStats();
   renderTable();
   destekSayaci();
+  sikayetSayaci();
   if (S.view === 'destek') loadDestek();
+  if (S.view === 'sikayet') loadSikayet();
   if (S.view === 'surum') loadSurum();
   if (isRefresh) toast('Veriler güncellendi.');
   return true;
@@ -450,10 +452,111 @@ el('cms-nav').addEventListener('click', (e) => {
   const b = e.target.closest('[data-view]'); if (!b) return;
   S.view = b.dataset.view;
   el('cms-nav').querySelectorAll('.seg').forEach(x => x.classList.toggle('active', x === b));
-  ['sites', 'destek', 'surum'].forEach(v => (v === S.view ? show('view-' + v) : hide('view-' + v)));
+  ['sites', 'destek', 'sikayet', 'surum'].forEach(v => (v === S.view ? show('view-' + v) : hide('view-' + v)));
   if (S.view === 'destek') loadDestek();
+  if (S.view === 'sikayet') loadSikayet();
   if (S.view === 'surum') loadSurum();
 });
+
+/* ============ İçerik şikayetleri ve engellemeler (0047) ============ */
+// App Store 1.2: geliştirici her kaydı 24 saat içinde inceler. İçerik
+// kaldırma ve kullanıcıyı binadan çıkarma cms_* RPC'leriyle yapılır.
+const SIKAYET_TUR = { post: 'Gönderi', reply: 'Yanıt', private: 'Özel mesaj', user: 'Kullanıcı' };
+const sikayetEksik = (err) => /cms_icerik|cms_sikayet|cms_kullanici|could not find|does not exist/i.test(err?.message || '') || err?.code === 'PGRST202';
+
+async function sikayetSayaci() {
+  const { data, error } = await supabase.rpc('cms_icerik_sikayetleri', { p_durum: 'pending' });
+  const n = error ? 0 : (data || []).length;
+  el('sikayet-sayac').textContent = n;
+  el('sikayet-sayac').classList.toggle('hidden', !n);
+}
+
+async function loadSikayet() {
+  const body = el('sikayet-body');
+  body.innerHTML = '<tr><td colspan="7" class="c-empty">Yükleniyor…</td></tr>';
+  const filtre = el('sikayet-filtre').value || null;
+  const { data, error } = await supabase.rpc('cms_icerik_sikayetleri', { p_durum: filtre });
+  if (error) {
+    body.innerHTML = `<tr><td colspan="7" class="c-empty">${sikayetEksik(error)
+      ? 'Moderasyon kurulu değil: 0047_icerik_moderasyonu.sql migration\'ını Supabase SQL Editor\'den çalıştırın.'
+      : 'Kayıtlar alınamadı: ' + esc(error.message || '')}</td></tr>`;
+    return;
+  }
+  S.sikayet = data || [];
+  if (!S.sikayet.length) {
+    body.innerHTML = '<tr><td colspan="7" class="c-empty">Bu filtrede kayıt yok.</td></tr>';
+    return;
+  }
+  body.innerHTML = S.sikayet.map(r => {
+    const engel = r.kind === 'block';
+    const hakkinda = [r.reported_user_name, r.reported_apartment ? `Daire ${r.reported_apartment}` : ''].filter(Boolean).join(' · ');
+    return `<tr data-sikayet="${r.id}">
+      <td><span class="badge ${engel ? 'b-red' : 'b-amber'}">${engel ? 'Engelleme' : 'Şikayet'}</span>
+        <div class="c-meta">${esc(SIKAYET_TUR[r.content_kind] || '')}</div></td>
+      <td><div class="c-title">${esc(engel ? 'Kullanıcı engellendi' : (r.content_title || '(Başlıksız)'))}</div>
+        <div class="c-onizleme">${esc((r.content_snippet || '').slice(0, 140))}</div>
+        ${r.reason ? `<div class="c-meta">Sebep: ${esc(r.reason)}</div>` : ''}</td>
+      <td>${esc(hakkinda || '—')}</td>
+      <td>${esc(r.reporter_name || '—')}</td>
+      <td>${esc(r.site_adi || '—')}</td>
+      <td><span class="badge ${r.status === 'resolved' ? 'b-green' : 'b-amber'}">${r.status === 'resolved' ? 'Çözüldü' : 'Bekliyor'}</span></td>
+      <td class="c-nowrap">${dmyhm(r.created_at)}</td>
+    </tr>`;
+  }).join('');
+}
+
+el('sikayet-filtre').addEventListener('change', loadSikayet);
+el('sikayet-body').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr[data-sikayet]'); if (!tr) return;
+  openSikayet(tr.dataset.sikayet);
+});
+
+function openSikayet(id) {
+  const r = S.sikayet.find(x => x.id === id); if (!r) return;
+  const engel = r.kind === 'block';
+  const bekliyor = r.status !== 'resolved';
+  const icerikVar = !!(r.help_request_id || r.reply_id || (r.conversation_id && r.reported_user_id));
+  el('modal-title').textContent = engel ? 'Engelleme kaydı' : 'İçerik şikayeti';
+  el('modal-body').innerHTML = `
+    <div class="detail-sec">
+      <dl class="detail-kv">
+        <dt>Tür</dt><dd>${engel ? 'Engelleme' : 'Şikayet'}${r.content_kind ? ' · ' + esc(SIKAYET_TUR[r.content_kind] || r.content_kind) : ''}</dd>
+        <dt>Site</dt><dd>${esc(r.site_adi || '—')}</dd>
+        <dt>Hakkında</dt><dd>${esc([r.reported_user_name, r.reported_apartment ? `Daire ${r.reported_apartment}` : ''].filter(Boolean).join(' · ') || '—')}</dd>
+        <dt>Bildiren</dt><dd>${esc(r.reporter_name || '—')}</dd>
+        <dt>Sebep</dt><dd>${esc(r.reason || '—')}</dd>
+        <dt>Tarih</dt><dd>${dmyhm(r.created_at)}${r.developer_notified_at ? ` <span class="c-meta">· e-posta ${dmyhm(r.developer_notified_at)}</span>` : ''}</dd>
+        <dt>Durum</dt><dd><span class="badge ${bekliyor ? 'b-amber' : 'b-green'}">${bekliyor ? 'Bekliyor' : 'Çözüldü'}</span></dd>
+      </dl>
+    </div>
+    ${r.content_snippet ? `<div class="detail-sec"><h4>İçerik</h4><div class="destek-balon kullanici" style="white-space:pre-wrap">${esc(r.content_snippet)}</div></div>` : ''}
+    <div class="detail-sec destek-eylem">
+      ${bekliyor && icerikVar ? '<button class="btn btn-sm btn-outline-red" id="sikayet-kaldir">İçeriği kaldır</button>' : ''}
+      ${bekliyor && r.reported_user_id ? '<button class="btn btn-sm btn-outline-red" id="sikayet-cikar">Kullanıcıyı binadan çıkar</button>' : ''}
+      ${bekliyor
+        ? '<button class="btn btn-sm btn-ghost" id="sikayet-cozuldu">İşlem gerekmiyor, kapat</button>'
+        : '<button class="btn btn-sm btn-ghost" id="sikayet-ac">Yeniden aç</button>'}
+    </div>`;
+  show('modal-overlay');
+
+  const bitir = async (rpc, args, mesaj) => {
+    const { error } = await supabase.rpc(rpc, args);
+    if (error) return toast(error.message || 'İşlem yapılamadı', true);
+    toast(mesaj);
+    hide('modal-overlay');
+    await loadSikayet(); sikayetSayaci();
+  };
+  if (el('sikayet-kaldir')) el('sikayet-kaldir').onclick = () => {
+    if (!confirm('Şikayet edilen içerik kalıcı olarak silinecek. Devam?')) return;
+    bitir('cms_icerik_kaldir', { p_id: id }, 'İçerik kaldırıldı, kayıt çözüldü.');
+  };
+  if (el('sikayet-cikar')) el('sikayet-cikar').onclick = () => {
+    if (!confirm('Kullanıcı binadan çıkarılacak, dairesi boşaltılacak ve bu binadaki tüm gönderileri silinecek. Devam?')) return;
+    bitir('cms_kullanici_cikar', { p_id: id }, 'Kullanıcı binadan çıkarıldı.');
+  };
+  if (el('sikayet-cozuldu')) el('sikayet-cozuldu').onclick = () => bitir('cms_sikayet_durum', { p_id: id, p_durum: 'resolved' }, 'Kayıt kapatıldı.');
+  if (el('sikayet-ac')) el('sikayet-ac').onclick = () => bitir('cms_sikayet_durum', { p_id: id, p_durum: 'pending' }, 'Kayıt yeniden açıldı.');
+}
 
 /* ============ Destek talepleri (0042) ============ */
 const DESTEK_DURUM = {

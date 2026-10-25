@@ -66,6 +66,7 @@
       <nav class="seg-tabs cms-nav" id="cms-nav">
         <button class="seg active" data-view="sites">Müşteriler</button>
         <button class="seg" data-view="destek">Destek <span class="badge b-amber hidden" id="destek-sayac"></span></button>
+        <button class="seg" data-view="sikayet">Şikayetler <span class="badge b-red hidden" id="sikayet-sayac"></span></button>
         <button class="seg" data-view="surum">Uygulama sürümü</button>
       </nav>
 
@@ -144,6 +145,43 @@
                 </tr>
               </thead>
               <tbody id="destek-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- İçerik şikayetleri ve engellemeler (0047) — App Store 1.2: 24 saat içinde müdahale -->
+      <div id="view-sikayet" class="hidden">
+        <section class="card">
+          <div class="page-head">
+            <h2>Şikayetler ve engellemeler</h2>
+            <div class="tools">
+              <select class="search" id="sikayet-filtre">
+                <option value="pending" selected>Bekleyen</option>
+                <option value="resolved">Çözülen</option>
+                <option value="">Tümü</option>
+              </select>
+            </div>
+          </div>
+          <p class="danger-text" style="margin-bottom:16px">
+            Kullanıcıların şikayet ettiği içerikler ve engelleme kayıtları. Mağaza kuralı gereği her kayıt
+            <strong>24 saat içinde</strong> incelenmeli: içeriği kaldırın ya da kullanıcıyı binadan çıkarın.
+            Aynı kayıtlar site yöneticisinin uygulamasında da görünür.
+          </p>
+          <div class="table-scroll">
+            <table class="cms-table">
+              <thead>
+                <tr>
+                  <th>Tür</th>
+                  <th>İçerik</th>
+                  <th>Hakkında</th>
+                  <th>Bildiren</th>
+                  <th>Site</th>
+                  <th>Durum</th>
+                  <th>Tarih</th>
+                </tr>
+              </thead>
+              <tbody id="sikayet-body"></tbody>
             </table>
           </div>
         </section>
