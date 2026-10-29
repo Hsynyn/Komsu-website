@@ -5047,9 +5047,16 @@ async function renderSubscription() {
     ? supabase.from('subscription_payments').select('*').eq('site_id', sId()).order('created_at', { ascending: false })
     : supabase.from('subscription_payments').select('*').in('building_id', siteBIds()).order('created_at', { ascending: false });
 
-  const [priceRes, payRes] = await Promise.all([
+  // Uygulamadan alınan App Store / Google Play aboneliği (mobil docs/adr/0003).
+  // Tablo 0049'dan önce yoksa hata yok sayılır.
+  const storeQuery = sId()
+    ? supabase.from('site_store_subscriptions').select('*').eq('site_id', sId()).maybeSingle()
+    : Promise.resolve({ data: null });
+
+  const [priceRes, payRes, storeRes] = await Promise.all([
     supabase.from('app_pricing').select('*').eq('id', 1).maybeSingle(),
     paymentsQuery,
+    storeQuery,
   ]);
 
   if (priceRes.error) {
@@ -5075,7 +5082,14 @@ async function renderSubscription() {
 
   // Ödeme doğrudan iyzico'dan alınıyor; yönetici onayı diye bir adım yok.
   // 'pending' artık "banka dönüşü bekleniyor" demek, "onay bekliyor" değil.
-  const PAY_STATUS = { pending: '<span class="badge b-amber">İşleniyor</span>', paid: '<span class="badge b-green">Ödendi</span>', rejected: '<span class="badge b-red">Başarısız</span>', canceled: '<span class="badge b-gray">İptal</span>' };
+  const PAY_STATUS = { pending: '<span class="badge b-amber">İşleniyor</span>', paid: '<span class="badge b-green">Ödendi</span>', rejected: '<span class="badge b-red">Başarısız</span>', canceled: '<span class="badge b-gray">İptal</span>', refunded: '<span class="badge b-gray">İade edildi</span>' };
+  const KANAL = { apple: 'App Store', google: 'Google Play' };
+
+  // Aktif mağaza aboneliği varken webden de ödenirse iki ödeme üst üste biner;
+  // engellemiyoruz, yalnızca uyarıyoruz.
+  const store = storeRes && !storeRes.error ? storeRes.data : null;
+  const storeEnd = store && store.expires_at ? new Date(store.expires_at) : null;
+  const storeActive = !!(storeEnd && storeEnd.getTime() > Date.now());
   const state = { months: 1 };
   const total = () => monthly * state.months;
 
@@ -5096,6 +5110,14 @@ async function renderSubscription() {
       </div>
       <div class="plan-hero-price"><span class="kpi-lbl">Aylık ücret</span><b>${TL(monthly)}</b></div>
     </div>
+
+    ${storeActive ? `
+    <div class="card" style="border-left:4px solid var(--amber, #F59E0B)">
+      <p style="margin:0"><strong>Bu sitenin ${KANAL[store.platform] || 'mağaza'} aboneliği aktif.</strong>
+      ${store.will_renew ? `Bir sonraki yenileme: <strong>${dmy(storeEnd)}</strong>.` : `Yenileme kapalı, bitiş: <strong>${dmy(storeEnd)}</strong>.`}</p>
+      <p class="hint" style="margin-top:6px">Buradan da öderseniz ödeme mevcut sürenin üstüne eklenir. Mağaza aboneliğini kapatmak için
+      uygulamayı satın aldığınız telefonda ${store.platform === 'google' ? 'Google Play → Abonelikler' : 'Ayarlar → Apple Kimliği → Abonelikler'} bölümünü kullanın.</p>
+    </div>` : ''}
 
     <div class="sub-grid">
       <div class="card">
@@ -5144,7 +5166,7 @@ async function renderSubscription() {
       <div class="table-toolbar"><h3 style="margin:0">Ödeme geçmişi</h3></div>
       <table><thead><tr><th>Tarih</th><th>Süre</th><th>Daire</th><th class="t-right">Tutar</th><th>Dönem</th><th>Durum</th></tr></thead>
       <tbody>${payments.length ? payments.map(p => `<tr>
-        <td>${dmy(p.created_at)}</td><td>${p.months} ay</td><td>${p.apartment_count}</td>
+        <td>${dmy(p.created_at)}</td><td>${p.months} ay${KANAL[p.payment_method] ? ` · ${KANAL[p.payment_method]}` : ''}</td><td>${p.apartment_count}</td>
         <td class="t-num">${TL(p.amount)}</td>
         <td>${p.period_start ? `${dmy(p.period_start)} → ${dmy(p.period_end)}` : '—'}</td>
         <td>${p.status === 'pending' && Date.now() - new Date(p.created_at).getTime() > 86400000
