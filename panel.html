@@ -121,7 +121,7 @@
       </div>
 
       <h1 id="login-title">Yönetici Girişi</h1>
-      <p class="sub" id="login-sub">Kayıt sırasında belirlediğiniz e-posta ve şifre ile giriş yapın.</p>
+      <p class="sub" id="login-sub">Web paneli hesabınızın e-posta ve şifresiyle giriş yapın.</p>
       <div id="login-error" class="error hidden"></div>
       <form id="login-form">
         <div class="field">
@@ -137,9 +137,13 @@
         </div>
         <button type="submit" class="btn btn-block" id="login-btn">Giriş Yap</button>
       </form>
+      <div class="alt-action" id="login-sifre">
+        Uygulamada hesabınız var ama web şifreniz yok mu?
+        <button type="button" class="linklike" id="go-forgot">Şifre belirleyin</button>
+      </div>
       <div class="alt-action" id="login-alt">
-        Henüz hesabınız yok mu?
-        <button type="button" class="linklike" id="go-signup">Ücretsiz hesap oluşturun</button>
+        Yeni misiniz?
+        <button type="button" class="linklike" id="go-signup">Uygulamayı indirip başlayın</button>
       </div>
     </div>
   </div>
@@ -148,8 +152,8 @@
   <div id="forgot" class="login-screen hidden">
     <div class="login-card">
       <div class="brand"><img class="home" src="icon.png" alt="" /><span>Yönetivia</span></div>
-      <h1>Şifreyi sıfırla</h1>
-      <p class="sub">Kayıtlı e-postanıza bir sıfırlama bağlantısı göndeririz. Bağlantı sizi buraya geri getirir, yeni şifrenizi belirlersiniz.</p>
+      <h1>Web şifresi belirleyin</h1>
+      <p class="sub">Uygulamaya Apple veya Google ile girdiğiniz hesabın e-postasını yazın. Bağlantı göndeririz; bağlantı sizi buraya getirir, web paneli şifrenizi belirlersiniz. Şifrenizi unuttuysanız da aynı yolu kullanın.</p>
       <div id="forgot-error" class="error hidden"></div>
       <div id="forgot-sent" class="notice hidden">
         <strong id="forgot-sent-email">—</strong> adresine bağlantı gönderildi. Gelen kutunuzu (ve spam klasörünü) kontrol edin.
@@ -192,48 +196,12 @@
   <div id="signup" class="login-screen hidden">
     <div class="login-card">
       <div class="brand"><img class="home" src="icon.png" alt="" /><span>Yönetivia</span></div>
-      <h1>Hesabınızı oluşturun</h1>
-      <p class="sub">İki dakikada hesabınızı açın, ardından sitenizi tanımlayın. İlk ay ücretsiz, kart bilgisi istenmez.</p>
-      <div id="signup-error" class="error hidden"></div>
-      <form id="signup-form">
-        <div class="grid-2">
-          <div class="field">
-            <label for="su-name">Ad</label>
-            <input id="su-name" type="text" autocomplete="given-name" placeholder="Adınız" required />
-          </div>
-          <div class="field">
-            <label for="su-surname">Soyad</label>
-            <input id="su-surname" type="text" autocomplete="family-name" placeholder="Soyadınız" required />
-          </div>
-        </div>
-        <div class="field">
-          <label for="su-email">E-posta</label>
-          <input id="su-email" type="email" autocomplete="email" placeholder="ornek@eposta.com" required />
-        </div>
-        <div class="field">
-          <label for="su-pass">Şifre</label>
-          <div class="input-row">
-            <input id="su-pass" type="password" autocomplete="new-password" placeholder="En az 6 karakter" required />
-            <button type="button" class="eye" id="su-toggle-pass">Göster</button>
-          </div>
-        </div>
-        <div class="field">
-          <label for="su-pass2">Şifre (tekrar)</label>
-          <input id="su-pass2" type="password" autocomplete="new-password" placeholder="Şifrenizi tekrar girin" required />
-        </div>
-        <label class="check-row">
-          <input type="checkbox" id="su-terms" />
-          <span>
-            <a href="kullanim-kosullari.html" target="_blank" rel="noopener">Kullanım Koşulları</a> ve
-            <a href="gizlilik-politikasi.html" target="_blank" rel="noopener">Gizlilik Politikası</a>'nı okudum, kabul ediyorum.
-          </span>
-        </label>
-        <label class="check-row">
-          <input type="checkbox" id="su-yetki" />
-          <span>Bu hesabı kişisel kullanım için değil, yönetimini üstlendiğim apartman veya site adına açıyorum.</span>
-        </label>
-        <button type="submit" class="btn btn-block" id="signup-btn">Hesap Oluştur</button>
-      </form>
+      <h1>Kurulum uygulamadan yapılır</h1>
+      <p class="sub">Yönetivia'yı telefonunuza indirin, Apple veya Google hesabınızla girin ve "Apartman ekle" ile sitenizi bir dakikada kurun. İlk ay ücretsiz, ödeme bilgisi istenmez.</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin:18px 0 6px">
+        <a class="btn btn-block" href="https://apps.apple.com/tr/app/id6761692595" target="_blank" rel="noopener">App Store'dan indir</a>
+        <a class="btn btn-block" href="https://play.google.com/store/apps/details?id=com.huseyinyeni.KomsuApp" target="_blank" rel="noopener">Google Play'den indir</a>
+      </div>
       <div class="alt-action">
         Zaten hesabınız var mı?
         <button type="button" class="linklike" id="go-login">Giriş yapın</button>

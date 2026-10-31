@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Uygulamayı İndir — Yönetivia</title>
+  <meta name="description" content="Yönetivia'yı App Store veya Google Play'den indirin. Kurulum uygulamadan bir dakikada yapılır." />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://yonetivia.com.tr/indir" />
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+  <link rel="stylesheet" href="legal.css" />
+  <!-- Telefondan açılırsa iPhone'da App Store'a, Android'de Google Play'e
+       yönlendirilir; bilgisayarda iki mağaza da gösterilir. -->
+  <script>
+    (function () {
+      var ua = navigator.userAgent || '';
+      var ios = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+      if (ios) location.replace('https://apps.apple.com/tr/app/id6761692595');
+      else if (/Android/i.test(ua)) location.replace('https://play.google.com/store/apps/details?id=com.huseyinyeni.KomsuApp');
+    })();
+  </script>
+  <style>
+    .indir { text-align: center; }
+    .indir .stores { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 24px 0 8px; }
+    .indir .stores a { display: inline-block; padding: 12px 20px; border-radius: 12px; background: #1F1A17; color: #fff; text-decoration: none; font-weight: 600; }
+    .indir ol { text-align: left; max-width: 420px; margin: 24px auto 0; }
+  </style>
+  <script src="analytics.js" defer></script>
+</head>
+<body>
+  <header>
+    <nav class="nav">
+      <a href="index.html"><img src="icon.png" alt="Yönetivia" /><span>Yönetivia</span></a>
+    </nav>
+  </header>
+  <main class="indir">
+    <h1>Yönetivia'yı indirin</h1>
+    <p>Yönetivia iPhone ve Android'de. Kurulum uygulamadan bir dakikada yapılır.</p>
+    <div class="stores">
+      <a href="https://apps.apple.com/tr/app/id6761692595" rel="noopener">App Store'dan indir</a>
+      <a href="https://play.google.com/store/apps/details?id=com.huseyinyeni.KomsuApp" rel="noopener">Google Play'den indir</a>
+    </div>
+    <ol>
+      <li>Uygulamayı indirip Apple veya Google hesabınızla girin.</li>
+      <li>Yöneticiyseniz <strong>Apartman ekle</strong> ile apartmanınızı ya da sitenizi kurun; ilk ay ücretsiz.</li>
+      <li>Davet kodunu apartmanın WhatsApp grubuna gönderin; sakinler bu kodla ücretsiz katılır.</li>
+    </ol>
+  </main>
+  <footer>
+    <div class="links">
+      <a href="index.html">Ana sayfa</a>
+      <a href="hakkimizda.html">Hakkımızda</a>
+      <a href="iptal-iade-kosullari.html">İptal ve İade</a>
+      <a href="kullanim-kosullari.html">Kullanım Koşulları</a>
+      <a href="gizlilik-politikasi.html">Gizlilik</a>
+      <a href="iletisim.html">İletişim</a>
+    </div>
+    © 2026 Yönetivia. Tüm hakları saklıdır.
+  </footer>
+</body>
+</html>

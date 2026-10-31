@@ -437,10 +437,11 @@ el('tab-admin').addEventListener('click', () => {
   el('tab-security').classList.remove('active');
   
   el('login-title').textContent = 'Yönetici Girişi';
-  el('login-sub').textContent = 'Kayıt sırasında belirlediğiniz e-posta ve şifre ile giriş yapın.';
+  el('login-sub').textContent = 'Web paneli hesabınızın e-posta ve şifresiyle giriş yapın.';
   el('email-label').textContent = 'E-posta';
   el('email').placeholder = 'ornek@eposta.com';
   el('login-alt').style.display = 'block';
+  el('login-sifre').style.display = 'block';
 });
 
 el('tab-security').addEventListener('click', () => {
@@ -453,6 +454,7 @@ el('tab-security').addEventListener('click', () => {
   el('email-label').textContent = 'Güvenlik Kullanıcı Adı';
   el('email').placeholder = 'Örn: guvenlik-a-blok';
   el('login-alt').style.display = 'none';
+  el('login-sifre').style.display = 'none';
 });
 
 el('toggle-pass').addEventListener('click', () => {
@@ -471,7 +473,6 @@ function showLogin(message) {
 
 function showSignup() {
   showScreen('signup');
-  hide('signup-error');
 }
 
 function showVerify(email) {
@@ -481,82 +482,14 @@ function showVerify(email) {
 }
 
 /* ============ Yönetici kaydı ============ */
-// Mobildeki akışın web karşılığı: hesap oluştur → (gerekirse e-posta doğrula)
-// → kurulum sihirbazıyla siteyi/binaları tanımla → panele gir.
-// Mobilde kimlik Apple/Google ile alınır; web'de e-posta + şifre kullanılır.
-// İkisi de aynı Supabase Auth kullanıcısına, aynı RPC'ye ve aynı RLS'e bağlanır.
+// Webden kayıt kapalı: yeni yönetici uygulamayı indirip Apple/Google ile girer
+// ve siteyi uygulamada kurar (mobil create-building). "signup" ekranı yalnızca
+// mağaza bağlantılarını gösterir. Web paneli e-postayla açılmış
+// eski hesaplar içindir; doğrulama ekranı onların bekleyen onayları için durur.
 
 el('go-signup').addEventListener('click', () => showSignup());
 el('go-login').addEventListener('click', () => showLogin());
 el('verify-to-login').addEventListener('click', () => showLogin());
-
-el('su-toggle-pass').addEventListener('click', () => {
-  const p = el('su-pass'); const on = p.type === 'password';
-  p.type = on ? 'text' : 'password'; el('su-toggle-pass').textContent = on ? 'Gizle' : 'Göster';
-});
-
-function signupError(msg) {
-  el('signup-error').textContent = msg;
-  show('signup-error');
-}
-
-el('signup-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  hide('signup-error');
-
-  const name = el('su-name').value.trim();
-  const surname = el('su-surname').value.trim();
-  const email = el('su-email').value.trim().toLowerCase();
-  const pass = el('su-pass').value;
-  const pass2 = el('su-pass2').value;
-
-  if (!name || !surname) return signupError('Lütfen ad ve soyad alanlarını doldurun.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return signupError('Geçerli bir e-posta adresi girin.');
-  if (pass.length < 6) return signupError('Şifre en az 6 karakter olmalı.');
-  if (pass !== pass2) return signupError('Şifreler birbiriyle eşleşmiyor.');
-  if (!el('su-terms').checked) return signupError('Devam etmek için sözleşmeleri kabul etmelisiniz.');
-  // Hizmet yalnızca Site Yönetimi'ne satılır (mobil docs/adr/0001, App Store 3.1.3(c))
-  if (!el('su-yetki').checked) return signupError('Hesap kişisel kullanım için değil, yalnızca bir apartman veya site adına açılabilir; lütfen beyan kutusunu işaretleyin.');
-
-  const btn = el('signup-btn');
-  btn.disabled = true; btn.textContent = 'Hesap oluşturuluyor…';
-
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password: pass,
-    // E-posta doğrulaması açık: bağlantı panele döner, oturum orada açılır
-    options: {
-      data: { display_name: `${name} ${surname}`, name, surname },
-      emailRedirectTo: `${location.origin}/panel.html`,
-    },
-  });
-
-  btn.disabled = false; btn.textContent = 'Hesap Oluştur';
-
-  if (error) {
-    const m = (error.message || '').toLowerCase();
-    if (m.includes('already registered') || m.includes('already been registered')) {
-      return signupError('Bu e-posta zaten kayıtlı. Giriş yapmayı deneyin.');
-    }
-    if (m.includes('password')) return signupError('Şifre çok zayıf (en az 6 karakter olmalı).');
-    if (m.includes('rate limit') || m.includes('too many')) {
-      return signupError('Çok fazla deneme yapıldı. Lütfen birkaç dakika sonra tekrar deneyin.');
-    }
-    return signupError(error.message || 'Kayıt oluşturulamadı.');
-  }
-
-  // Kurulum adımında kullanmak üzere ad/soyadı sakla
-  S.pendingName = { name, surname };
-
-  // Projede e-posta onayı açıksa signUp oturum döndürmez → doğrulama ekranı.
-  // Kapalıysa oturum gelir → doğrudan kurulum sihirbazına geçilir.
-  if (data.session && data.user) {
-    await boot(data.user);
-  } else {
-    S.pendingEmail = email;
-    showVerify(email);
-  }
-});
 
 el('verify-resend').addEventListener('click', async () => {
   const btn = el('verify-resend');
@@ -572,9 +505,10 @@ el('verify-resend').addEventListener('click', async () => {
   }
 });
 
-/* ============ Şifremi unuttum (bağlantı ile) ============ */
-// ŞU AN KAPALI: giriş ekranında "Şifremi unuttum" bağlantısı yok. Geri açmak için
-// panel.html'e #go-forgot butonu eklenip aşağıdaki dinleyici bağlanmalı.
+/* ============ Şifre belirle / şifremi unuttum (bağlantı ile) ============ */
+// Uygulamada Apple/Google ile açılan hesabın şifresi yoktur; yönetici web
+// paneline girmek için buradan e-postasına bağlantı alıp şifre belirler.
+// Aynı akış unutulan şifre için de kullanılır.
 // resetPasswordForEmail → Supabase'in standart "Reset Password" e-postası
 // (şablon değişikliği gerekmez) → bağlantı panele #type=recovery ile döner →
 // supabase-js oturumu URL'den alır → yeni şifre ekranı → updateUser.
@@ -603,6 +537,7 @@ function showForgot() {
   el('fp-email').value = el('email').value.trim();
 }
 el('forgot-to-login').addEventListener('click', () => showLogin());
+el('go-forgot').addEventListener('click', () => showForgot());
 
 el('forgot-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -5961,7 +5896,7 @@ async function saveVisitorEntry() {
       el('rp-pass').focus();
     }
     else if (session?.user) await boot(session.user);
-    // Ana sayfadaki "Ücretsiz Başla" bağlantısı ?signup=1 ile gelir
+    // Eski "Ücretsiz Başla" bağlantıları (?signup=1) uygulama indirme ekranına düşer
     else if (new URLSearchParams(location.search).get('signup') === '1') showSignup();
     else showLogin();
   } catch (err) {
