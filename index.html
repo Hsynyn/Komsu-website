@@ -576,7 +576,7 @@
     <div class="container strip-row">
       <div class="strip-item"><div class="ico"><svg class="i"><use href="#i-phone"/></svg></div><div><b>iPhone ve Android</b><span>App Store ve Google Play'de</span></div></div>
       <div class="strip-item"><div class="ico"><svg class="i"><use href="#i-monitor"/></svg></div><div><b>Web yönetici paneli</b><span>Masabaşı işler bilgisayarda</span></div></div>
-      <div class="strip-item"><div class="ico"><svg class="i"><use href="#i-shield"/></svg></div><div><b>Güvenli ödeme</b><span>iyzico · 3D Secure</span></div></div>
+      <div class="strip-item"><div class="ico"><svg class="i"><use href="#i-shield"/></svg></div><div><b>Güvenli ödeme</b><span>App Store ve Google Play üzerinden</span></div></div>
       <div class="strip-item"><div class="ico"><svg class="i"><use href="#i-users"/></svg></div><div><b>Sakinlere ücretsiz</b><span>Yalnızca yönetim abone olur</span></div></div>
     </div>
   </div>
@@ -808,21 +808,20 @@
         </div>
         <div class="pricing-r">
           <div class="price-big"><span id="priceVal">1.059</span><small>₺ / ay</small></div>
-          <div class="price-sub">KDV dahil, aylık faturalandırılır.</div>
+          <div class="price-sub">Vergiler dahil, aylık yenilenir.</div>
           <div class="slider-row">
             <label for="daireSlider">Toplam daire sayısı <b><span id="daireVal">40</span> daire</b></label>
-            <input type="range" min="4" max="400" value="40" step="1" class="komsu" id="daireSlider" />
+            <input type="range" min="1" max="450" value="40" step="1" class="komsu" id="daireSlider" />
           </div>
-          <div class="price-breakdown">Sabit işletim 299₺ + daire başına 19₺ × <span id="daireVal2">40</span></div>
+          <div class="price-breakdown"><span id="kademeVal">31–50</span> daire paketi · uygulamadan App Store veya Google Play ile</div>
           <div class="trial-note"><svg class="i"><use href="#i-gift"/></svg>İlk 1 ay ücretsiz — kart bilgisi istemeden deneyin</div>
           <a class="btn btn-primary btn-lg" href="panel.html?signup=1">Ücretsiz Başla <svg class="i"><use href="#i-arrow"/></svg></a>
         </div>
       </div>
       <p class="price-legal">
-        Fiyatlar Türk Lirası (₺) cinsinden olup KDV dahildir. Abonelik aylıktır ve iptal edilmediği sürece otomatik yenilenir.
-        Satın alma öncesi <a href="mesafeli-satis-sozlesmesi.html">Mesafeli Satış Sözleşmesi</a>,
-        <a href="iptal-iade-kosullari.html">İptal ve İade Koşulları</a> ve
-        <a href="teslimat.html">Teslimat Koşulları</a>'nı inceleyebilirsiniz.
+        Fiyatlar Türkiye App Store ve Google Play fiyatlarıdır (₺, vergiler dahil). Abonelik yönetici tarafından uygulama içinden başlatılır,
+        aylıktır ve iptal edilmediği sürece otomatik yenilenir. İptal için App Store veya Google Play abonelik ayarlarını kullanabilirsiniz.
+        Ayrıntılar: <a href="kullanim-kosullari.html">Kullanım Koşulları</a>.
       </p>
     </div>
   </section>
@@ -886,19 +885,11 @@
         </div>
         <div class="footer-links">
           <a href="hakkimizda.html">Hakkımızda</a>
-          <a href="mesafeli-satis-sozlesmesi.html">Mesafeli Satış Sözleşmesi</a>
           <a href="kullanim-kosullari.html">Kullanım Koşulları</a>
           <a href="iptal-iade-kosullari.html">İptal ve İade</a>
           <a href="gizlilik-politikasi.html">Gizlilik Politikası</a>
-          <a href="teslimat.html">Teslimat</a>
           <a href="iletisim.html">İletişim</a>
         </div>
-      </div>
-      <div class="footer-pay">
-        <div class="pay-logos">
-          <img src="odeme-logolari.svg" alt="iyzico ile Öde, Mastercard, Visa, American Express, Troy" />
-        </div>
-        <p class="pay-note">Ödemeler BDDK lisanslı ödeme kuruluşu iyzico altyapısı ile 256-bit SSL ve 3D Secure korumalı olarak alınır. Kart bilgileriniz sunucularımızda saklanmaz.</p>
       </div>
       <p class="copy">© 2026 Yönetivia. Tüm hakları saklıdır.</p>
     </div>
@@ -914,13 +905,20 @@
     (function(){
       const slider = document.getElementById('daireSlider');
       if (!slider) return;
-      const fmt = new Intl.NumberFormat('tr-TR');
+      // Mağaza kademeleri (mobil docs/MAGAZA_ODEMESI_PLANI.md, store_tiers)
+      const KADEMELER = [
+        [10, 489], [20, 679], [30, 869], [50, 1249.99], [75, 1719.99], [100, 2199],
+        [150, 3149.99], [200, 4099], [250, 5000], [300, 5999], [350, 6999], [400, 7899.99], [Infinity, 7899.99],
+      ];
+      const fmt = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
       function update(){
         const d = parseInt(slider.value, 10);
-        const price = 299 + 19 * d;
+        const i = KADEMELER.findIndex(([ust]) => d <= ust);
+        const alt = i === 0 ? 1 : KADEMELER[i - 1][0] + 1;
+        const ust = KADEMELER[i][0];
         document.getElementById('daireVal').textContent = d;
-        document.getElementById('daireVal2').textContent = d;
-        document.getElementById('priceVal').textContent = fmt.format(price);
+        document.getElementById('kademeVal').textContent = ust === Infinity ? `${alt}+` : `${alt}–${ust}`;
+        document.getElementById('priceVal').textContent = fmt.format(KADEMELER[i][1]);
       }
       slider.addEventListener('input', update);
       update();

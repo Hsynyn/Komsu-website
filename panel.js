@@ -317,6 +317,11 @@ const trialDaysLeft = () => {
    +7 gün çalışmaya devam ediyor · locked → sakinler kilit ekranı görüyor. */
 const WARN_DAYS = 7;
 const GRACE_DAYS = 7;
+// Web (iyzico) ödemesi kapalı: hizmet süresi yalnızca uygulamadan, App Store /
+// Google Play aboneliğiyle uzatılır (mobil docs/adr/0003). Kod duruyor; true
+// yapılırsa abonelik sayfasındaki kartla ödeme geri gelir.
+const WEB_ODEME_ACIK = false;
+const UYGULAMADAN_UZAT = 'Yönetivia uygulamasında Profil → Yönetim → Hizmet durumu';
 const DAY_MS = 86400000;
 
 function getAccessState(now = Date.now()) {
@@ -358,18 +363,24 @@ function accessBannerHTML() {
     head = isTrial
       ? `Ücretsiz deneme süreniz ${a.daysLeft} gün sonra doluyor`
       : `Aboneliğiniz ${a.daysLeft} gün sonra doluyor`;
-    text = 'Süre dolduğunda siteniz uygulamada kullanılamaz. Şimdi ödeyerek kesintisiz devam edin.';
-    cta  = isTrial ? 'Aboneliği Başlat' : 'Aboneliği Yenile';
+    text = WEB_ODEME_ACIK
+      ? 'Süre dolduğunda siteniz uygulamada kullanılamaz. Şimdi ödeyerek kesintisiz devam edin.'
+      : `Süre dolduğunda siteniz uygulamada kullanılamaz. Kesintisiz devam için süreyi uygulamadan uzatın: ${UYGULAMADAN_UZAT}.`;
+    cta  = WEB_ODEME_ACIK ? (isTrial ? 'Aboneliği Başlat' : 'Aboneliği Yenile') : 'Nasıl uzatırım?';
   } else if (a.kind === 'grace') {
     icon = ikon('alert');
     head = `${isTrial ? 'Deneme süreniz' : 'Aboneliğiniz'} doldu — ${a.graceDaysLeft} gün ek süreniz var`;
-    text = `Sisteminiz şu an çalışıyor ama ${a.graceDaysLeft} gün içinde ödeme yapılmazsa sakinleriniz uygulamaya giremeyecek.`;
-    cta  = 'Hemen Öde';
+    text = WEB_ODEME_ACIK
+      ? `Sisteminiz şu an çalışıyor ama ${a.graceDaysLeft} gün içinde ödeme yapılmazsa sakinleriniz uygulamaya giremeyecek.`
+      : `Sisteminiz şu an çalışıyor ama ${a.graceDaysLeft} gün içinde uygulamadan uzatılmazsa sakinleriniz uygulamaya giremeyecek.`;
+    cta  = WEB_ODEME_ACIK ? 'Hemen Öde' : 'Nasıl uzatırım?';
   } else {
     icon = ikon('lock');
     head = 'Sisteminiz kapandı';
-    text = 'Aboneliğiniz sona erdi ve sakinleriniz uygulamaya giremiyor. Ödemeyi tamamladığınızda her şey olduğu gibi geri gelir.';
-    cta  = 'Ödeme Yap ve Aç';
+    text = WEB_ODEME_ACIK
+      ? 'Aboneliğiniz sona erdi ve sakinleriniz uygulamaya giremiyor. Ödemeyi tamamladığınızda her şey olduğu gibi geri gelir.'
+      : `Aboneliğiniz sona erdi ve sakinleriniz uygulamaya giremiyor. Süreyi uygulamadan uzattığınızda her şey olduğu gibi geri gelir: ${UYGULAMADAN_UZAT}.`;
+    cta  = WEB_ODEME_ACIK ? 'Ödeme Yap ve Aç' : 'Nasıl uzatırım?';
   }
 
   return `<div class="access-banner ${a.kind}">
@@ -5095,7 +5106,7 @@ async function renderSubscription() {
 
   const durumAdi = isActive ? 'Aktif' : inTrial ? 'Ücretsiz deneme' : (b.subscription_type === 'free' || !expiry ? 'Ücretsiz plan' : 'Süresi doldu');
   const durumAlt = inTrial
-    ? `Deneme sürenizin bitmesine <strong>${trialDaysLeft()} gün</strong> var. Kesintisiz devam için aşağıdan ödeyebilirsiniz.`
+    ? `Deneme sürenizin bitmesine <strong>${trialDaysLeft()} gün</strong> var. Kesintisiz devam için ${WEB_ODEME_ACIK ? 'aşağıdan ödeyebilirsiniz' : 'süreyi uygulamadan uzatabilirsiniz'}.`
     : expiry ? `Bitiş tarihi <strong>${dmy(expiry)}</strong>${isActive ? ` · ${daysLeft} gün kaldı` : ''}` : '';
 
   $content().innerHTML = `
@@ -5108,10 +5119,10 @@ async function renderSubscription() {
         <b>${durumAdi}</b>
         ${durumAlt ? `<span class="hint">${durumAlt}</span>` : ''}
       </div>
-      <div class="plan-hero-price"><span class="kpi-lbl">Aylık ücret</span><b>${TL(monthly)}</b></div>
+      ${WEB_ODEME_ACIK ? `<div class="plan-hero-price"><span class="kpi-lbl">Aylık ücret</span><b>${TL(monthly)}</b></div>` : ''}
     </div>
 
-    ${storeActive ? `
+    ${storeActive && WEB_ODEME_ACIK ? `
     <div class="card" style="border-left:4px solid var(--amber, #F59E0B)">
       <p style="margin:0"><strong>Bu sitenin ${KANAL[store.platform] || 'mağaza'} aboneliği aktif.</strong>
       ${store.will_renew ? `Bir sonraki yenileme: <strong>${dmy(storeEnd)}</strong>.` : `Yenileme kapalı, bitiş: <strong>${dmy(storeEnd)}</strong>.`}</p>
@@ -5119,7 +5130,21 @@ async function renderSubscription() {
       uygulamayı satın aldığınız telefonda ${store.platform === 'google' ? 'Google Play → Abonelikler' : 'Ayarlar → Apple Kimliği → Abonelikler'} bölümünü kullanın.</p>
     </div>` : ''}
 
-    <div class="sub-grid">
+    ${WEB_ODEME_ACIK ? '' : `
+    <div class="card">
+      <div class="card-head"><h3>Hizmet süresi uygulamadan uzatılır</h3></div>
+      ${storeActive ? `<p style="margin:0 0 8px"><strong>${KANAL[store.platform] || 'Mağaza'} aboneliğiniz aktif.</strong>
+        ${store.will_renew ? `Bir sonraki yenileme: <strong>${dmy(storeEnd)}</strong>.` : `Yenileme kapalı, bitiş: <strong>${dmy(storeEnd)}</strong>.`}</p>` : ''}
+      <ol class="hint" style="margin:0;padding-left:18px;line-height:1.8">
+        <li>Telefonunuzda Yönetivia uygulamasını açın (App Store veya Google Play'den güncel sürüm).</li>
+        <li>Sağ üstteki profil simgesine dokunun, <strong>Yönetim → Hizmet durumu</strong> bölümüne girin.</li>
+        <li>Sitenizin daire sayısına uygun aylık aboneliği başlatın. Ödeme App Store veya Google Play hesabınızdan alınır.</li>
+      </ol>
+      <p class="hint" style="margin-top:10px">Aboneliği iptal etmek için aboneliği başlattığınız telefonda
+      ${store?.platform === 'google' ? 'Google Play → Abonelikler' : store?.platform === 'apple' ? 'Ayarlar → Apple Kimliği → Abonelikler' : 'Ayarlar → Apple Kimliği → Abonelikler (iPhone) veya Google Play → Abonelikler (Android)'} bölümünü kullanın.</p>
+    </div>`}
+
+    ${WEB_ODEME_ACIK ? `<div class="sub-grid">
       <div class="card">
         <div class="card-head"><h3>Aboneliği uzat</h3></div>
         <div class="field"><label>Kaç ay ödemek istersiniz?</label>
@@ -5147,7 +5172,7 @@ async function renderSubscription() {
         </div>
         <p class="hint" style="margin-top:12px">Ödeme tamamlandığı anda aboneliğiniz uzar, ayrıca onay beklemezsiniz. Daire sayınız değişirse sonraki ödeme yeni sayıya göre hesaplanır.</p>
       </div>
-    </div>
+    </div>` : ''}
 
     <!-- Davet kodu hizmet süresinden bağımsızdır (mobil docs/adr/0001):
          kod yalnızca sakini binaya bağlar, ödemeye göre açılıp kapanmaz. -->
@@ -5188,6 +5213,8 @@ async function renderSubscription() {
       }
     });
   });
+
+  if (!WEB_ODEME_ACIK) return;
 
   el('sub-months').addEventListener('click', (e) => {
     const chip = e.target.closest('button[data-m]'); if (!chip) return;

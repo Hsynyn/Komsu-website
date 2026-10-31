@@ -187,8 +187,8 @@ export async function kurulumDurumu() {
       baslik: 'Aboneliği başlatın',
       aciklama: erisim.source === 'trial'
         ? `Deneme ${erisim.daysLeft} gün sonra bitiyor. Bitince sakinler bir hafta sonra uygulamaya giremez.`
-        : 'Fiyat daire sayınıza göre hesaplanır; 1, 3, 6 veya 12 ay seçebilirsiniz.',
-      bolum: 'subscription', hedef: '#sub-pay',
+        : 'Abonelik uygulamadan başlatılır: Profil → Yönetim → Hizmet durumu. Fiyat daire sayınıza göre belirlenir.',
+      bolum: 'subscription',
     },
   ];
 
@@ -485,11 +485,11 @@ const YARDIM = {
   },
   subscription: {
     baslik: 'Abonelik',
-    ozet: 'Davet kodlarınız ve ödeme. Deneme bir ay; bitince sakinler bir hafta sonra uygulamaya giremez. Davet kodları her zaman açıktır.',
+    ozet: 'Davet kodlarınız ve hizmet süreniz. Deneme bir ay; bitince sakinler bir hafta sonra uygulamaya giremez. Davet kodları her zaman açıktır.',
     adimlar: [
       { metin: '<strong>Davet kodlarınız</strong> burada; sakinlere iletin, uygulamada bu kodla katılırlar.', hedef: '.copy-code' },
-      { metin: 'Fiyat daire sayınıza göre hesaplanır. 1, 3, 6 veya 12 ay seçip kartla ödeyin.' },
-      { metin: 'Deneme bitmeden ödeme yaparsanız kesinti olmaz; kalan deneme günleri kaybolmaz.' },
+      { metin: 'Abonelik telefondan başlatılır: uygulamada <strong>Profil → Yönetim → Hizmet durumu</strong>. Ödeme App Store veya Google Play hesabınızdan alınır.' },
+      { metin: 'Deneme bitmeden abonelik başlatırsanız kesinti olmaz.' },
     ],
   },
   security_mode: {
