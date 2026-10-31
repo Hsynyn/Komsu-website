@@ -228,70 +228,17 @@
     </div>
   </div>
 
-  <!-- KURULUM SİHİRBAZI (Site / Apartman tanımı) -->
+  <!-- SİTESİ OLMAYAN HESAP: kurulum yalnızca uygulamada -->
   <div id="setup" class="login-screen hidden">
-    <div class="login-card setup-card">
+    <div class="login-card">
       <div class="brand"><img class="home" src="icon.png" alt="" /><span>Yönetivia</span></div>
-      <div class="setup-steps"><span class="done">1 · Hesap</span><span class="on">2 · Siteniz</span><span>3 · Panel</span></div>
-      <h1>Sitenizi tanımlayın</h1>
-      <p class="sub">Son adım. Binalarınızı ve daire sayılarını girin — bunlar sonradan değiştirilemez, dikkatle doldurun.
-        IBAN, sakinler, aidat ve diğer her şeyi panelden sonra girersiniz; kurulum rehberi size yol gösterecek.</p>
-      <div id="setup-error" class="error hidden"></div>
-
-      <div class="field">
-        <label>Neyi yönetiyorsunuz?</label>
-        <div class="type-seg-row">
-          <button type="button" class="type-seg active" id="seg-apartment">
-            <svg class="ic"><use href="#i-home"/></svg><b>Apartman</b><span>Tek bina</span>
-          </button>
-          <button type="button" class="type-seg" id="seg-site">
-            <svg class="ic"><use href="#i-grid"/></svg><b>Site</b><span>Birden çok blok</span>
-          </button>
-        </div>
+      <h1>Bu hesapta kurulu site yok</h1>
+      <p class="sub">Site kurulumu Yönetivia uygulamasından yapılır. Uygulamaya bu e-postanın Apple veya Google hesabıyla girin,
+        "Apartman ekle" ile sitenizi kurun; ardından bu sayfaya aynı e-posta ve şifreyle tekrar girin.</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin:18px 0 6px">
+        <a class="btn btn-block" href="https://apps.apple.com/tr/app/id6761692595" target="_blank" rel="noopener">App Store'dan indir</a>
+        <a class="btn btn-block" href="https://play.google.com/store/apps/details?id=com.huseyinyeni.KomsuApp" target="_blank" rel="noopener">Google Play'den indir</a>
       </div>
-
-      <div class="field">
-        <label for="st-name" id="st-name-label">Apartman Adı</label>
-        <input id="st-name" type="text" placeholder="Apartman adını girin" required />
-      </div>
-
-      <div class="field">
-        <label for="st-address">Adres</label>
-        <textarea id="st-address" placeholder="Açık adresi girin" required></textarea>
-      </div>
-
-      <!-- Apartman: tek bina -->
-      <div id="setup-single">
-        <div class="grid-2">
-          <div class="field">
-            <label for="st-apt">Daire Sayısı</label>
-            <input id="st-apt" type="number" min="1" max="2000" inputmode="numeric" placeholder="Örn: 24" />
-          </div>
-          <div class="field">
-            <label for="st-floor">Kat Sayısı</label>
-            <input id="st-floor" type="number" min="1" max="200" inputmode="numeric" placeholder="Örn: 6" />
-          </div>
-        </div>
-      </div>
-
-      <!-- Site: çoklu blok -->
-      <div id="setup-blocks" class="hidden">
-        <label class="blocks-label">Sitenizdeki Binalar</label>
-        <p class="blocks-hint">
-          Her bina için ayrı bir davet kodu oluşturulur; sakinler bu kodla kendi binasına katılır.
-          Kasa, sohbet ve kurallar tüm site için ortaktır. Binalar yalnızca kayıt sırasında tanımlanır.
-        </p>
-        <div id="blocks-list"></div>
-        <button type="button" class="add-block" id="add-block">+ Bina Ekle</button>
-      </div>
-
-      <button type="button" class="btn btn-block" id="setup-btn" style="margin-top:8px;">Kurulumu Tamamla</button>
-      <!-- Mobilde e-posta girişi yok (mobil docs/adr/0001): yönetici, bu hesabın
-           e-postasına ait Google ya da Apple hesabıyla girince otomatik tanınır. -->
-      <p class="blocks-hint" style="margin-top:12px;">
-        Mobil uygulamaya bu hesaptaki e-posta adresinin <b>Google hesabıyla</b> ya da <b>Apple ile</b> girin.
-        Apple ile girerken <b>"E-postamı paylaş"</b> seçeneğini seçin; "E-postamı gizle" seçilirse yönetici hesabınız tanınmaz.
-      </p>
       <div class="alt-action">
         <button type="button" class="linklike" id="setup-logout">Çıkış yap</button>
       </div>

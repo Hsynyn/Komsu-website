@@ -586,66 +586,9 @@ el('reset-form').addEventListener('submit', async (e) => {
   }
 });
 
-/* ============ Kurulum sihirbazı ============ */
-// Mobildeki app/create-building.tsx ekranının karşılığı:
-// site tipi, ad, adres ve bina bilgileri → create_site_with_buildings RPC.
-
-const BLOCK_LETTERS = 'ABCDEFGHIJKLMNOPRSTUVYZ';
-const defaultBlockName = (i) => `${BLOCK_LETTERS[i % BLOCK_LETTERS.length]} Blok`;
-
-const SETUP = {
-  siteType: 'apartment',
-  blocks: [
-    { name: defaultBlockName(0), apartmentCount: '', floorCount: '' },
-    { name: defaultBlockName(1), apartmentCount: '', floorCount: '' },
-  ],
-};
-
-function renderBlocks() {
-  el('blocks-list').innerHTML = SETUP.blocks.map((b, i) => `
-    <div class="block-row" data-i="${i}">
-      <input class="b-name" type="text" placeholder="${esc(defaultBlockName(i))}" value="${esc(b.name)}" data-f="name" />
-      <input class="b-num" type="number" min="1" inputmode="numeric" placeholder="Daire" value="${esc(b.apartmentCount)}" data-f="apartmentCount" />
-      <input class="b-num" type="number" min="0" inputmode="numeric" placeholder="Kat" value="${esc(b.floorCount)}" data-f="floorCount" />
-      <button type="button" class="b-del" data-i="${i}" ${SETUP.blocks.length <= 2 ? 'disabled' : ''} title="Binayı kaldır">✕</button>
-    </div>
-  `).join('');
-}
-
-el('blocks-list').addEventListener('input', (e) => {
-  const input = e.target.closest('input[data-f]');
-  if (!input) return;
-  const i = Number(input.closest('.block-row').dataset.i);
-  SETUP.blocks[i][input.dataset.f] = input.value;
-});
-
-el('blocks-list').addEventListener('click', (e) => {
-  const btn = e.target.closest('.b-del');
-  if (!btn || btn.disabled) return;
-  SETUP.blocks.splice(Number(btn.dataset.i), 1);
-  renderBlocks();
-});
-
-el('add-block').addEventListener('click', () => {
-  if (SETUP.blocks.length >= 20) return toast('En fazla 20 bina tanımlayabilirsiniz.', true);
-  SETUP.blocks.push({ name: defaultBlockName(SETUP.blocks.length), apartmentCount: '', floorCount: '' });
-  renderBlocks();
-});
-
-function setSiteType(type) {
-  SETUP.siteType = type;
-  const isSite = type === 'site';
-  el('seg-site').classList.toggle('active', isSite);
-  el('seg-apartment').classList.toggle('active', !isSite);
-  el('setup-blocks').classList.toggle('hidden', !isSite);
-  el('setup-single').classList.toggle('hidden', isSite);
-  el('st-name-label').textContent = isSite ? 'Site Adı' : 'Apartman Adı';
-  el('st-name').placeholder = isSite ? 'Site adını girin' : 'Apartman adını girin';
-  if (isSite) renderBlocks();
-}
-
-el('seg-apartment').addEventListener('click', () => setSiteType('apartment'));
-el('seg-site').addEventListener('click', () => setSiteType('site'));
+/* ============ Sitesi olmayan hesap ============ */
+// Site kurulumu yalnızca mobil uygulamada (create-building). Panele sitesi
+// olmayan bir hesapla girilirse kurulum yerine uygulamaya yönlendirilir.
 
 el('setup-logout').addEventListener('click', async () => {
   await supabase.auth.signOut();
@@ -654,90 +597,7 @@ el('setup-logout').addEventListener('click', async () => {
 
 function showSetup() {
   showScreen('setup');
-  hide('setup-error');
-  setSiteType(SETUP.siteType);
-  renderBlocks();
 }
-
-function setupError(msg) {
-  el('setup-error').textContent = msg;
-  show('setup-error');
-  el('setup').querySelector('.setup-card')?.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-el('setup-btn').addEventListener('click', async () => {
-  hide('setup-error');
-
-  const name = el('st-name').value.trim();
-  const address = el('st-address').value.trim();
-  const isSite = SETUP.siteType === 'site';
-
-  if (!name) return setupError(isSite ? 'Lütfen site adını girin.' : 'Lütfen apartman adını girin.');
-  if (!address) return setupError('Lütfen adresi girin.');
-
-  let buildings;
-  if (isSite) {
-    buildings = [];
-    for (let i = 0; i < SETUP.blocks.length; i++) {
-      const b = SETUP.blocks[i];
-      const bName = (b.name || '').trim();
-      if (!bName) return setupError(`${i + 1}. binanın adını girin.`);
-      const apt = parseInt(b.apartmentCount, 10);
-      if (isNaN(apt) || apt <= 0) return setupError(`${bName} için geçerli bir daire sayısı girin.`);
-      buildings.push({ name: bName, apartment_count: apt, floor_count: parseInt(b.floorCount, 10) || 0 });
-    }
-  } else {
-    const apt = parseInt(el('st-apt').value, 10);
-    const flr = parseInt(el('st-floor').value, 10);
-    if (isNaN(apt) || apt <= 0) return setupError('Geçerli bir daire sayısı girin.');
-    if (isNaN(flr) || flr <= 0) return setupError('Geçerli bir kat sayısı girin.');
-    buildings = [{ name, apartment_count: apt, floor_count: flr }];
-  }
-
-  const btn = el('setup-btn');
-  btn.disabled = true; btn.textContent = 'Kuruluyor…';
-
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { showLogin('Oturumunuz sona ermiş. Lütfen tekrar giriş yapın.'); return; }
-
-    // 1) Siteyi binalarıyla birlikte kur (mobildekiyle aynı RPC)
-    const { data, error } = await supabase.rpc('create_site_with_buildings', {
-      p_name: name,
-      p_site_type: SETUP.siteType,
-      p_address: address,
-      p_buildings: buildings,
-    });
-    if (error) throw new Error(error.message || 'Site oluşturulamadı');
-
-    const firstBuildingId = data?.buildings?.[0]?.id || null;
-
-    // 2) Yönetici profilini oluştur (mobildeki createAdmin ile aynı)
-    const meta = user.user_metadata || {};
-    const pName = S.pendingName?.name || meta.name || (meta.display_name || '').split(' ')[0] || '';
-    const pSurname = S.pendingName?.surname || meta.surname || (meta.display_name || '').split(' ').slice(1).join(' ') || '';
-
-    const { error: pErr } = await supabase.from('profiles').upsert({
-      id: user.id,
-      role: 'admin',
-      name: pName,
-      surname: pSurname,
-      phone: null,
-      email: user.email || null,
-      building_id: firstBuildingId,
-    });
-    if (pErr) throw new Error(pErr.message || 'Yönetici profili kaydedilemedi');
-
-    S.pendingName = null;
-    await boot(user);
-    toast('🎉 Kurulum tamamlandı! 1 aylık ücretsiz denemeniz başladı.');
-  } catch (err) {
-    btn.disabled = false; btn.textContent = 'Kurulumu Tamamla';
-    setupError(err.message || 'Kurulum tamamlanamadı. Lütfen tekrar deneyin.');
-    return;
-  }
-  btn.disabled = false; btn.textContent = 'Kurulumu Tamamla';
-});
 
 el('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -814,7 +674,7 @@ async function boot(user) {
   S.user = user;
   const { data: profile } = await supabase.from('profiles').select('name, surname, building_id, role').eq('id', user.id).maybeSingle();
 
-  // Web'den yeni kaydolan yöneticinin henüz profili yoktur → kurulum sihirbazı.
+  // Uygulamada henüz site kurmamış hesabın profili yoktur → uygulamaya yönlendir
   if (!profile) { showSetup(); return; }
 
   if (profile.role !== 'admin') {
@@ -836,7 +696,7 @@ async function boot(user) {
     if (building) buildings = [building];
   }
 
-  // Binası olmayan yönetici (kayıt yarıda kalmış) → kurulumu tamamlasın
+  // Binası olmayan yönetici → siteyi uygulamadan kursun
   if (!buildings || buildings.length === 0) { showSetup(); return; }
 
   // Binanın bağlı olduğu siteyi ve o sitedeki TÜM binaları çek
@@ -1079,16 +939,15 @@ function watchAccessBanner() {
   accessBannerObserver.observe(host, { childList: true });
 }
 
-// Site ve binalar kurulum sihirbazında oluşturulur; panelden sonradan bina
-// eklenemez. Kaydı yarım kalan yönetici sihirbaza geri yönlendirilir.
+// Site ve binalar uygulamada kurulur; panelden bina eklenemez.
 function needBuilding() {
   if (!bId()) {
     $content().innerHTML = `
       <div class="card" style="text-align: center; padding: 40px;">
         <h3>Henüz Tanımlı Bir Siteniz Yok</h3>
-        <p class="muted" style="margin: 12px 0 16px;">Kurulum tamamlanmamış görünüyor. Sitenizi ve binalarınızı
-        kurulum sihirbazında tanımlayın; bir dakika sürer.</p>
-        <button class="btn" id="need-setup">Kuruluma git →</button>
+        <p class="muted" style="margin: 12px 0 16px;">Sitenizi Yönetivia uygulamasında "Apartman ekle" ile kurun;
+        bir dakika sürer. Kurduktan sonra bu sayfayı yenileyin.</p>
+        <button class="btn" id="need-setup">Nasıl kurarım? →</button>
       </div>`;
     el('need-setup')?.addEventListener('click', () => showSetup());
     return false;
