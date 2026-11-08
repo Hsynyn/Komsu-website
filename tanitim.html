@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>2 dakikada Yönetivia — Apartman yönetimi tek uygulamada</title>
+  <meta name="description" content="Aidat, kasa, duyuru, arıza ve toplantı tek uygulamada. Yönetivia'nın apartmanınızda nasıl çalıştığını 2 dakikalık videoda izleyin." />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://yonetivia.com.tr/tanitim" />
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+  <meta name="theme-color" content="#FBF6F0" />
+  <meta property="og:type" content="video.other" />
+  <meta property="og:url" content="https://yonetivia.com.tr/tanitim" />
+  <meta property="og:title" content="Apartmanın bütün işleri tek uygulamada · Yönetivia" />
+  <meta property="og:description" content="Aidat, kasa, duyuru, arıza ve toplantı. Nasıl çalıştığını 2 dakikada izleyin." />
+  <meta property="og:image" content="https://yonetivia.com.tr/video/tanitim-kapak.jpg" />
+  <meta property="og:video" content="https://yonetivia.com.tr/video/tanitim.mp4" />
+  <meta property="og:video:type" content="video/mp4" />
+  <meta property="og:video:width" content="720" />
+  <meta property="og:video:height" content="1280" />
+  <meta property="og:locale" content="tr_TR" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --primary: #E9724C;
+      --primary-dark: #D4613D;
+      --primary-soft: #FDF0EA;
+      --ink: #1F1B17;
+      --body: #57504A;
+      --muted: #8C837B;
+      --line: #EDE5DE;
+      --bg: #FBF6F0;
+      --card: #FFFFFF;
+      --green: #1F9D63;
+      --radius: 22px;
+      --shadow: 0 1px 2px rgba(31,27,23,.05), 0 12px 32px -12px rgba(31,27,23,.18);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--body); line-height: 1.55; -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+    header { padding: 18px 0; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 800; color: var(--ink); font-size: 18px; }
+    .brand img { width: 34px; height: 34px; border-radius: 9px; }
+
+    .hero { display: grid; gap: 32px; padding: 8px 0 40px; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: var(--primary-dark);
+      background: var(--primary-soft); border: 1px solid rgba(233,114,76,.18); padding: 6px 12px; border-radius: 999px; }
+    h1 { font-size: clamp(30px, 6vw, 46px); line-height: 1.12; letter-spacing: -.02em; color: var(--ink); margin: 14px 0 12px; font-weight: 800; }
+    h1 .hl { color: var(--primary); }
+    .lead { font-size: 17px; margin: 0; max-width: 460px; }
+
+    /* video */
+    .player { position: relative; width: min(100%, 380px); margin: 0 auto; aspect-ratio: 9 / 16; border-radius: 30px; overflow: hidden;
+      background: #000; box-shadow: 0 30px 60px -24px rgba(110,50,20,.35), 0 0 0 8px #1F1B17; }
+    .player video { width: 100%; height: 100%; display: block; object-fit: cover; background: #FBF6F0; }
+    .play { position: absolute; inset: 0; display: grid; place-items: end center; padding: 0 0 13%; border: 0; background: linear-gradient(to top, rgba(31,27,23,.18), rgba(31,27,23,0) 40%); cursor: pointer; }
+    .play span { display: inline-flex; align-items: center; gap: 10px; background: var(--primary); color: #fff; font: 700 17px/1 Inter, sans-serif;
+      padding: 16px 22px 16px 18px; border-radius: 999px; box-shadow: 0 10px 24px -8px rgba(233,114,76,.7); }
+    .play svg { width: 22px; height: 22px; fill: #fff; }
+    .play[hidden] { display: none; }
+    .sure { text-align: center; font-size: 13px; color: var(--muted); margin-top: 14px; }
+
+    /* rol kartları */
+    .roles { display: grid; gap: 16px; padding-bottom: 40px; }
+    .role { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow); }
+    .role .who { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+    .role .who img { width: 56px; height: 56px; border-radius: 50%; background: #F4EFE3; object-fit: cover; border: 3px solid #fff; box-shadow: 0 0 0 1px var(--line); }
+    .role .tag { font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--primary); }
+    .role.sakin .tag { color: var(--ink); }
+    .role h2 { font-size: 22px; line-height: 1.25; margin: 2px 0 0; color: var(--ink); letter-spacing: -.01em; }
+    .role p { margin: 0 0 18px; }
+    .btns { display: flex; flex-wrap: wrap; gap: 10px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 14px; padding: 14px 18px; font-weight: 700; font-size: 15px;
+      text-decoration: none; border: 0; cursor: pointer; font-family: inherit; flex: 1 1 auto; }
+    .btn svg { width: 20px; height: 20px; fill: currentColor; flex: none; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-dark { background: var(--ink); color: #fff; }
+    .btn-wa { background: #1FA855; color: #fff; }
+    .btn-ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+    .note { font-size: 13px; color: var(--muted); margin-top: 12px; }
+    .ok { color: var(--green); font-weight: 700; }
+
+    /* adımlar */
+    section h3 { font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--primary); margin: 0 0 8px; }
+    section h2.t { font-size: clamp(24px, 4.5vw, 32px); color: var(--ink); margin: 0 0 22px; letter-spacing: -.01em; line-height: 1.2; }
+    .steps { display: grid; gap: 12px; padding-bottom: 48px; counter-reset: s; }
+    .step { display: flex; gap: 16px; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
+    .step b { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary-dark); font-weight: 800; }
+    .step strong { color: var(--ink); display: block; margin-bottom: 2px; }
+
+    .faq { padding-bottom: 48px; }
+    details { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; margin-bottom: 10px; }
+    summary { cursor: pointer; font-weight: 700; color: var(--ink); list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+    summary::after { content: "+"; color: var(--primary); font-weight: 800; }
+    details[open] summary::after { content: "–"; }
+    details p { margin: 10px 0 0; }
+
+    footer { border-top: 1px solid var(--line); padding: 24px 0 40px; font-size: 13px; color: var(--muted); }
+    footer .links { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 10px; }
+    footer a { text-decoration: none; }
+
+    /* yapışkan alt çubuk (telefonda) */
+    .sticky { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: rgba(251,246,240,.94);
+      backdrop-filter: blur(10px); border-top: 1px solid var(--line); display: flex; gap: 10px; transform: translateY(110%); transition: transform .3s ease; z-index: 10; }
+    .sticky.on { transform: none; }
+    .sticky .btn { padding: 13px 12px; font-size: 14px; }
+    body { padding-bottom: 76px; }
+
+    @media (min-width: 860px) {
+      .hero { grid-template-columns: 1fr 380px; align-items: center; padding: 30px 0 64px; }
+      .roles { grid-template-columns: 1fr 1fr; }
+      .steps { grid-template-columns: repeat(3, 1fr); }
+      .step { flex-direction: column; }
+      .sticky { display: none; }
+      body { padding-bottom: 0; }
+    }
+  </style>
+  <script src="analytics.js" defer></script>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <a class="brand" href="/"><img src="icon.png" alt="" />Yönetivia</a>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="hero">
+      <div>
+        <span class="eyebrow">▶ 2 dakikalık tanıtım</span>
+        <h1>Apartmanın bütün işleri <span class="hl">tek uygulamada.</span></h1>
+        <p class="lead">Aidat, kasa, duyuru, arıza ve toplantı. Yöneticinin apartmanı nasıl kurduğunu, komşuların nasıl katıldığını ve günlük hayatın nasıl kolaylaştığını izleyin.</p>
+      </div>
+      <div>
+        <div class="player">
+          <video id="video" src="video/tanitim.mp4" poster="video/tanitim-kapak.jpg" playsinline preload="metadata"></video>
+          <button class="play" id="play" type="button" aria-label="Videoyu sesli oynat">
+            <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>Sesli izle · 2 dk</span>
+          </button>
+        </div>
+        <p class="sure">Sesi açın. Videoda gördüğünüz her ekran uygulamanın kendisidir.</p>
+      </div>
+    </div>
+
+    <div class="roles" id="basla">
+      <div class="role">
+        <div class="who"><img src="video/yonetici.png" alt="" /><div><div class="tag">Yönetici misiniz?</div><h2>Apartmanınızı bugün kurun.</h2></div></div>
+        <p>Kurulum 1 dakika sürer, ilk ay ücretsiz. Apartmanı kurun, davet kodunu mesaj grubuna atın; komşular kendiliğinden katılsın.</p>
+        <div class="btns">
+          <a class="btn btn-primary" href="/indir" data-olay="yonetici_indir">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1zM5 19a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H6a1 1 0 0 1-1-1z"/></svg>
+            Uygulamayı indir
+          </a>
+        </div>
+        <p class="note">iPhone'da App Store, Android'de Google Play açılır.</p>
+      </div>
+
+      <div class="role sakin">
+        <div class="who"><img src="video/sakin.png" alt="" /><div><div class="tag">Apartmanda mı oturuyorsunuz?</div><h2>Bu videoyu yöneticinize gönderin.</h2></div></div>
+        <p>Apartmanınız da Yönetivia'ya geçsin; siz ücretsiz katılın. Yöneticiniz zaten kurduysa uygulamayı indirip davet koduyla katılın.</p>
+        <div class="btns">
+          <a class="btn btn-wa" id="wa" href="#" target="_blank" rel="noopener" data-olay="sakin_whatsapp">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm0 18.2c-1.5 0-3-.4-4.3-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3z"/></svg>
+            Yöneticime WhatsApp'tan gönder
+          </a>
+          <button class="btn btn-ghost" id="kopyala" type="button" data-olay="sakin_kopyala">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h9a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-1v1a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-9a3 3 0 0 1 3-3h1V6a3 3 0 0 1 3-3zm0 2a1 1 0 0 0-1 1v1h6a3 3 0 0 1 3 3v6h1a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H9zm-3 4a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H6z"/></svg>
+            <span id="kopyalaYazi">Bağlantıyı kopyala</span>
+          </button>
+          <a class="btn btn-dark" href="/indir" data-olay="sakin_indir">Kodum var, katılacağım</a>
+        </div>
+      </div>
+    </div>
+
+    <section>
+      <h3>Nasıl başlar?</h3>
+      <h2 class="t">Üç adımda bütün apartman uygulamada</h2>
+      <div class="steps">
+        <div class="step"><b>1</b><div><strong>Yönetici kurar</strong>Uygulamayı indirir, Apple veya Google ile girer, apartmanın adını ve daire sayısını yazar. Bir dakika sürer.</div></div>
+        <div class="step"><b>2</b><div><strong>Kodu paylaşır</strong>Uygulama apartmana özel bir davet kodu verir. Yönetici bu kodu apartmanın mesaj grubuna atar.</div></div>
+        <div class="step"><b>3</b><div><strong>Komşular katılır</strong>Uygulamayı indirip "Apartmanımı bul" der, kodu yazar ve dairesini seçer. Sakinler için ücretsizdir.</div></div>
+      </div>
+    </section>
+
+    <section class="faq">
+      <h3>Aklınıza takılanlar</h3>
+      <h2 class="t">Sık sorulan sorular</h2>
+      <details><summary>Sakinler için ücretli mi?</summary><p>Hayır. Sakinler davet koduyla her zaman ücretsiz katılır.</p></details>
+      <details><summary>Yönetici için ücreti nedir?</summary><p>İlk ay ücretsiz. Sonrasında daire sayısına göre aylık abonelikle devam eder; abonelik uygulamadan yönetilir. Fiyatları <a href="/#fiyat">ana sayfada</a> görebilirsiniz.</p></details>
+      <details><summary>Nasıl giriş yapılır?</summary><p>Şifre ve kayıt formu yok. Apple veya Google hesabınızla tek dokunuşla girersiniz.</p></details>
+      <details><summary>Davet kodunu nereden bulurum?</summary><p>Kodu apartman yöneticiniz verir; genellikle apartmanın mesaj grubunda paylaşılır. Yöneticiniz henüz kurmadıysa bu sayfayı ona gönderin.</p></details>
+      <details><summary>Hangi telefonlarda çalışır?</summary><p>iPhone ve Android'de. App Store ve Google Play'de "Yönetivia" adıyla bulabilirsiniz.</p></details>
+      <details><summary>Verilerimizi kim görür?</summary><p>Bilgiler yalnızca kendi apartmanınızın yönetimi ve sakinleri arasında paylaşılır. Ayrıntılar için <a href="/gizlilik-politikasi">Gizlilik Politikası</a>.</p></details>
+    </section>
+  </main>
+
+  <div class="sticky" id="sticky">
+    <a class="btn btn-primary" href="/indir" data-olay="sticky_indir">Uygulamayı indir</a>
+    <a class="btn btn-wa" id="wa2" href="#" target="_blank" rel="noopener" data-olay="sticky_whatsapp">Yöneticime gönder</a>
+  </div>
+
+  <footer>
+    <div class="wrap">
+      <div class="links">
+        <a href="/">Ana sayfa</a>
+        <a href="/hakkimizda">Hakkımızda</a>
+        <a href="/kullanim-kosullari">Kullanım Koşulları</a>
+        <a href="/gizlilik-politikasi">Gizlilik</a>
+        <a href="/iletisim">İletişim</a>
+      </div>
+      © 2026 Yönetivia. Tüm hakları saklıdır.
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var URL_SAYFA = 'https://yonetivia.com.tr/tanitim';
+      var mesaj = 'Merhaba, apartmanımız için Yönetivia diye bir uygulama gördüm. Aidat, kasa, duyuru, arıza ve toplantı tek uygulamada; ' +
+        'sakinler ücretsiz, yönetici için ilk ay ücretsiz. 2 dakikalık videosu burada, bir bakar mısınız? ' + URL_SAYFA;
+      var wa = 'https://wa.me/?text=' + encodeURIComponent(mesaj);
+      document.getElementById('wa').href = wa;
+      document.getElementById('wa2').href = wa;
+
+      function olay(ad) { try { if (window.gtag) gtag('event', ad, { sayfa: 'tanitim' }); } catch (e) {} }
+      document.querySelectorAll('[data-olay]').forEach(function (el) {
+        el.addEventListener('click', function () { olay(el.getAttribute('data-olay')); });
+      });
+
+      // Paylaş / kopyala: telefonda sistem paylaşım menüsü, yoksa panoya kopyala
+      var kop = document.getElementById('kopyala'), kopY = document.getElementById('kopyalaYazi');
+      kop.addEventListener('click', function () {
+        if (navigator.share) {
+          navigator.share({ title: 'Yönetivia · 2 dakikalık tanıtım', text: mesaj.replace(' ' + URL_SAYFA, ''), url: URL_SAYFA }).catch(function () {});
+          return;
+        }
+        var bitti = function () { kopY.textContent = 'Kopyalandı'; kopY.className = 'ok'; setTimeout(function () { kopY.textContent = 'Bağlantıyı kopyala'; kopY.className = ''; }, 2200); };
+        if (navigator.clipboard) navigator.clipboard.writeText(URL_SAYFA).then(bitti, function () {});
+        else { var t = document.createElement('textarea'); t.value = URL_SAYFA; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); bitti(); } catch (e) {} t.remove(); }
+      });
+      if (navigator.share) kopY.textContent = 'Paylaş';
+
+      // Video: büyük düğmeyle sesli başlat
+      var v = document.getElementById('video'), p = document.getElementById('play');
+      p.addEventListener('click', function () { v.muted = false; v.controls = true; v.play(); p.hidden = true; olay('video_oynat'); });
+      v.addEventListener('play', function () { p.hidden = true; v.controls = true; });
+      v.addEventListener('ended', function () { olay('video_bitti'); document.getElementById('basla').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+      var yuzde = { 25: 0, 50: 0, 75: 0 };
+      v.addEventListener('timeupdate', function () {
+        if (!v.duration) return;
+        var o = v.currentTime / v.duration * 100;
+        [25, 50, 75].forEach(function (k) { if (o >= k && !yuzde[k]) { yuzde[k] = 1; olay('video_' + k); } });
+      });
+
+      // Telefonda video geçilince alt çubuk belirir
+      var st = document.getElementById('sticky'), pl = document.querySelector('.player');
+      if ('IntersectionObserver' in window) {
+        new IntersectionObserver(function (e) { st.classList.toggle('on', !e[0].isIntersecting && window.scrollY > 200); }).observe(pl);
+      }
+    })();
+  </script>
+</body>
+</html>
