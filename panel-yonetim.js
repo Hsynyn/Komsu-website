@@ -1591,7 +1591,7 @@ export async function renderDebts() {
 
   const [feeRes, aptRes, noticeRes] = await Promise.all([
     C.supabase.from('monthly_fees').select('*').in('building_id', C.siteBIds()).eq('is_paid', false),
-    C.supabase.from('apartments').select('id, apartment_number, owner_name, building_id, user_id, username').in('building_id', C.siteBIds()),
+    C.supabase.from('apartments').select('*').in('building_id', C.siteBIds()),
     C.supabase.from('debt_notices').select('*').eq('site_id', C.sId()).order('created_at', { ascending: false }),
   ]);
   if (noticeRes.error && migrationUyarisi(noticeRes.error)) return;
@@ -1607,10 +1607,11 @@ export async function renderDebts() {
   const debts = new Map();
   (feeRes.data || []).forEach(f => {
     const a = aptById.get(f.apartment_id); if (!a || !C.gecerliAidat(f)) return;
-    const cur = debts.get(a.id) || { apt: a, principal: 0, late: 0, months: 0, future: 0 };
+    const cur = debts.get(a.id) || { apt: a, principal: 0, late: 0, months: 0, future: 0, donemler: [] };
     if (!C.vadesiGecti(f.year, f.month, f.due_date)) { cur.future += 1; debts.set(a.id, cur); return; }
     cur.principal += Number(f.amount);
     cur.months += 1;
+    cur.donemler.push({ sira: f.year * 100 + f.month, ad: C.donemEtiketi(f) });
     debts.set(a.id, cur);
   });
 
@@ -1620,7 +1621,8 @@ export async function renderDebts() {
   C.$content().innerHTML = `
     ${C.sayfaBasi('Borç Takibi',
       'Vadesi geçmiş aidatı olan daireler. Tahsilat girin, ihtar kaydı açın veya ihtarname hazırlayın.',
-      `<button class="btn btn-ghost" id="debt-csv">${C.ikon('download')} CSV İndir</button>
+      `<button class="btn btn-ghost" id="debt-grup">${C.ikon('users')} Gruba hatırlat</button>
+       <button class="btn btn-ghost" id="debt-csv">${C.ikon('download')} CSV İndir</button>
        <button class="btn" id="debt-belge">${C.ikon('file')} Borç Raporu</button>`)}
     <p class="hint" style="margin-bottom:18px;">
       Borç, <strong>son ödeme günü geçmiş</strong> ödenmemiş aidatların (ve devreden borcun) toplamıdır.
@@ -1642,6 +1644,7 @@ export async function renderDebts() {
         <td class="t-right"><strong>${C.TL(d.principal)}</strong></td>
         <td><div class="row-actions">
           <button class="btn btn-sm btn-green" data-tahsil="${d.apt.id}">${C.ikon('cash')} Tahsilat</button>
+          <button class="btn btn-sm btn-ghost" data-hatirlat="${d.apt.id}">${C.ikon('send')} Hatırlat</button>
           <button class="btn btn-sm btn-ghost" data-notice="${d.apt.id}">${C.ikon('bell')} Takibe al</button>
           <button class="btn btn-sm btn-ghost" data-ihtarname="${d.apt.id}">${C.ikon('file')} İhtarname</button>
         </div></td>
@@ -1703,7 +1706,51 @@ export async function renderDebts() {
   /* İhtarname — icra takibine dayanak olacak resmî yazı. Belge üretilirken
      takip kaydı yoksa açılır, varsa aşaması 'ihtar'a çekilir; böylece
      ekrandaki liste ile üretilen evrak birbirini tutar. */
+  /* Gruba giden mesajda isim, daire ya da tutar YOKTUR (ADR 0004). */
+  C.el('debt-grup').onclick = () => C.mesajPenceresi('Gruba genel hatırlatma', C.grupMesaji(), {
+    aciklama: 'Bu mesaj isim ve tutar içermez; apartman grubuna gönderebilirsiniz. Borçlu listesini gruba göndermeyin.',
+  });
+
   C.el('debt-body').addEventListener('click', async (e) => {
+    /* Kişiye özel hatırlatma: uygulamadaki sakine bildirim (günde bir),
+       uygulamayı kullanmayana hazır WhatsApp mesajı. */
+    const ht = e.target.closest('[data-hatirlat]');
+    if (ht) {
+      const d = debts.get(ht.dataset.hatirlat); if (!d) return;
+      ht.disabled = true;
+      const [uyeRes, telRes] = await Promise.all([
+        C.supabase.from('apartment_members').select('user_id, phone, joined_at').eq('apartment_id', d.apt.id),
+        C.supabase.from('apartment_contacts').select('phone').eq('apartment_id', d.apt.id).maybeSingle(),
+      ]);
+      ht.disabled = false;
+      const uyeler = (uyeRes.data || []).sort((x, y) => String(x.joined_at).localeCompare(String(y.joined_at)));
+      let ad = d.apt.owner_name || '';
+      if (uyeler.length) {
+        const { data: pr } = await C.supabase.from('profiles').select('name, surname').eq('id', uyeler[0].user_id).maybeSingle();
+        ad = [pr?.name, pr?.surname].filter(Boolean).join(' ').trim() || ad;
+      }
+      const telefon = telRes.data?.phone || uyeler.find(u => u.phone)?.phone || '';
+      const metin = C.borcMesaji({
+        ad, daire: C.daireEtiketi(d.apt.building_id, d.apt.apartment_number), tutar: d.principal,
+        donemler: d.donemler.sort((x, y) => x.sira - y.sira).map(x => x.ad), odemeKodu: d.apt.payment_code,
+      });
+      return C.mesajPenceresi(`Hatırlatma — Daire ${d.apt.apartment_number}`, metin, {
+        telefon,
+        aciklama: uyeler.length
+          ? 'Sakin uygulamayı kullanıyor: bildirim gönderebilir ya da mesajı WhatsApp\'tan iletebilirsiniz.'
+          : `Bu daire uygulamayı kullanmıyor. Mesajı ${telefon ? 'WhatsApp\'ta doğrudan kişiye açabilirsiniz' : 'kopyalayıp iletebilirsiniz'}.`,
+        ek: uyeler.length ? {
+          etiket: `${C.ikon('bell')}Uygulamaya bildirim gönder`,
+          onClick: async (btn) => {
+            btn.disabled = true;
+            const { data, error } = await C.supabase.rpc('send_debt_reminder', { p_apartment_id: d.apt.id });
+            if (error) { btn.disabled = false; return C.toast(error.message, true); }
+            C.toast(Number(data?.cihaz) > 0 ? 'Bildirim gönderildi' : 'Sakin bildirimlere izin vermemiş olabilir');
+          },
+        } : null,
+      });
+    }
+
     const th = e.target.closest('[data-tahsil]');
     if (th) {
       const d = debts.get(th.dataset.tahsil); if (!d) return;

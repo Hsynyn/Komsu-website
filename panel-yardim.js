@@ -110,7 +110,10 @@ export async function kurulumDurumu() {
   const isaretli = (site.onboarding && typeof site.onboarding === 'object') ? site.onboarding : {};
   const bina = C.activeBuilding?.() || C.S.buildings?.[0] || {};
 
-  const [sakin, aidat, tx, demirbas, kural, toplanti, denetim, gorev] = await Promise.all([
+  const [doluDaire, duyuru, sakin, aidat, tx, demirbas, kural, toplanti, denetim, gorev] = await Promise.all([
+    // Dolu daire: sakini ya da kayıtlı sakini olan (boş daire 'empty-' önekli)
+    say('apartments', (q) => q.in('building_id', bIds).not('username', 'like', 'empty-%')),
+    say('announcements', (q) => q.in('building_id', bIds)),
     say('apartments', (q) => q.in('building_id', bIds).not('user_id', 'is', null)),
     aidatTutari(),
     say('transactions', (q) => q.in('building_id', bIds)),
@@ -127,22 +130,22 @@ export async function kurulumDurumu() {
   const kod = bina.building_code || '';
 
   const adimlar = [
+    /* Sıra bilinçli (ADR 0004, mobil kurulumService ile aynı): ilk adımlar
+       yöneticinin tek başına bitirebildikleri; davet sonra gelir. */
     {
-      id: 'sakin', kademe: 'cekirdek', tamam: sakin > 0,
-      baslik: 'Sakinleri davet edin',
-      aciklama: sakin > 0
-        ? `${sakin} daire dolu. Katılmayan sakinlere kodu iletmeyi sürdürün.`
-        : 'Sakinler mobil uygulamada bu kodla kendi dairelerine katılır. Kodu WhatsApp grubuna atmanız yeterli.',
-      bolum: 'subscription', hedef: '.copy-code',
-      ekstraHTML: kod ? `<span class="kurulum-kod">${C.esc(kod)}</span>
-        <button class="btn btn-sm btn-ghost" data-kurulum-kopyala="${C.esc(kod)}">Kopyala</button>` : '',
+      id: 'oturan', kademe: 'cekirdek', tamam: doluDaire > 0,
+      baslik: 'Dairelerde oturanları yazın',
+      aciklama: doluDaire > 0
+        ? `${doluDaire} daire dolu. Eksik daireleri istediğiniz zaman tamamlayabilirsiniz.`
+        : 'Her dairede oturanın adını alt alta yazın. Sakinler uygulamayı indirmese de aidat ve borç takibi hemen çalışır.',
+      bolum: 'apartments', hedef: '#apt-oturan',
     },
     {
       id: 'aidat', kademe: 'cekirdek', tamam: aidat > 0,
       baslik: 'Aidat tutarını belirleyin',
       aciklama: aidat > 0
-        ? `Aylık ${C.TL(aidat)}. Her ay Aidat Takibi'nden "Uygula" demeniz yeterli.`
-        : 'Aylık aidat tutarı. Ayarlar\'da bir kez girin; her ay tek tıkla tüm dairelere çıkar.',
+        ? `Aylık ${C.TL(aidat)}. Aidat her ay kendiliğinden dolu dairelere çıkar.`
+        : 'Aylık tutarı ve başlangıç ayını bir kez girin; aidat her ay kendiliğinden dolu dairelere çıkar.',
       bolum: 'settings', hedef: '#s-fee',
     },
     {
@@ -150,6 +153,22 @@ export async function kurulumDurumu() {
       baslik: 'IBAN\'ı girin',
       aciklama: 'Sakinler aidatı nereye yatıracağını uygulamada bu alandan görür. Boşsa "nereye yatıracağız?" diye size sorarlar.',
       bolum: 'settings', hedef: '#s-iban',
+    },
+    {
+      id: 'sakin', kademe: 'cekirdek', tamam: sakin > 0,
+      baslik: 'Sakinleri davet edin',
+      aciklama: sakin > 0
+        ? `${sakin} dairede sakin uygulamaya katıldı. Katılmayanlara kodu iletmeyi sürdürün.`
+        : 'Sakinler mobil uygulamada bu kodla kendi dairelerine katılır. Kodu WhatsApp grubuna atmanız yeterli.',
+      bolum: 'subscription', hedef: '.copy-code',
+      ekstraHTML: kod ? `<span class="kurulum-kod">${C.esc(kod)}</span>
+        <button class="btn btn-sm btn-ghost" data-kurulum-kopyala="${C.esc(kod)}">Kopyala</button>` : '',
+    },
+    {
+      id: 'duyuru', kademe: 'cekirdek', tamam: duyuru > 0,
+      baslik: 'İlk duyurunuzu yayınlayın',
+      aciklama: 'Kısa bir "hoş geldiniz" duyurusu yeterli. Sakinler uygulamayı açtığında boş bir ekranla karşılaşmaz.',
+      bolum: 'announcements',
     },
     {
       id: 'kasa', kademe: 'onerilen', tamam: tx > 0 || bakiyeVar,

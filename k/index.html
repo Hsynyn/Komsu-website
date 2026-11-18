@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Yönetivia daveti</title>
+  <meta name="description" content="Apartmanınızın Yönetivia davet bağlantısı. Uygulamayı indirip dairenize ücretsiz katılın." />
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" type="image/png" sizes="32x32" href="../favicon.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="../apple-touch-icon.png" />
+  <!--
+    Sakin davet sayfası (ADR 0004, Aşama C). Yöneticinin paylaştığı bağlantı:
+      https://yonetivia.com.tr/k/?kod=KOMSU-XXXXXX
+    Sakin uygulamayı indirir, sonra "Uygulamada aç" ile kod dolu gelir
+    (uygulama şeması myapp://k?kod=…).
+    Bu sayfada fiyat, abonelik ya da sitenin diğer sayfalarına bağlantı YOKTUR:
+    uygulamadan gönderilen davet yalnızca daireye katılmaya götürür.
+  -->
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #2B2620; background: #F6F7F9; line-height: 1.5; }
+    .ust { background: linear-gradient(135deg, #E9724C, #F29A5C); color: #fff; padding: 28px 20px 56px; text-align: center;
+      border-radius: 0 0 28px 28px; }
+    .ust img { width: 56px; height: 56px; border-radius: 14px; background: #fff; }
+    .ust h1 { margin: 12px 0 4px; font-size: 22px; font-weight: 800; }
+    .ust p { margin: 0; font-size: 15px; opacity: .92; }
+    main { max-width: 440px; margin: -36px auto 0; padding: 0 16px calc(140px + env(safe-area-inset-bottom)); }
+    .kart { background: #fff; border-radius: 20px; padding: 18px; box-shadow: 0 6px 20px rgba(15,23,42,.06); margin-bottom: 14px; }
+    .etiket { font-size: 12px; font-weight: 800; letter-spacing: .6px; color: #9A8F86; }
+    .kod { margin: 8px 0 12px; padding: 14px; border: 2px dashed #CBD5E1; border-radius: 14px; background: #F8FAFC;
+      font-size: 24px; font-weight: 800; letter-spacing: 3px; text-align: center; font-variant-numeric: tabular-nums; word-break: break-all; }
+    .adim { display: flex; gap: 12px; align-items: flex-start; }
+    .no { flex: 0 0 30px; height: 30px; border-radius: 15px; background: #FFF1EB; color: #C9542B; font-weight: 800;
+      display: flex; align-items: center; justify-content: center; }
+    .adim h2 { margin: 3px 0 4px; font-size: 16px; font-weight: 800; }
+    .adim p { margin: 0 0 12px; font-size: 14px; color: #655C56; }
+    .dugme { display: block; width: 100%; padding: 14px 16px; border-radius: 14px; border: 0; font: inherit; font-size: 16px; font-weight: 700;
+      text-align: center; text-decoration: none; cursor: pointer; background: #C9542B; color: #fff; }
+    .dugme + .dugme { margin-top: 10px; }
+    .dugme.koyu { background: #1F1A17; }
+    .dugme.hafif { background: #fff; color: #2B2620; border: 1.5px solid #E2E8F0; }
+    .not { font-size: 13px; color: #9A8F86; text-align: center; margin: 18px 8px 0; }
+    .gizli { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="ust">
+    <img src="../icon.png" alt="" />
+    <h1>Apartmanınız sizi davet ediyor</h1>
+    <p>Aidat, duyuru ve arıza bildirimleri tek uygulamada. Katılım ücretsiz.</p>
+  </div>
+  <main>
+    <div class="kart" id="kod-kart">
+      <div class="etiket">DAVET KODUNUZ</div>
+      <div class="kod" id="kod">—</div>
+      <button class="dugme hafif" id="kopyala" type="button">Kodu kopyala</button>
+    </div>
+
+    <div class="kart">
+      <div class="adim">
+        <div class="no">1</div>
+        <div style="flex:1">
+          <h2>Uygulamayı indirin</h2>
+          <p>Apple ya da Google hesabınızla tek dokunuşla girin.</p>
+          <a class="dugme koyu" id="ios" href="https://apps.apple.com/tr/app/id6761692595" rel="noopener">App Store'dan indir</a>
+          <a class="dugme koyu" id="android" href="https://play.google.com/store/apps/details?id=com.huseyinyeni.KomsuApp" rel="noopener">Google Play'den indir</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="kart" id="ac-kart">
+      <div class="adim">
+        <div class="no">2</div>
+        <div style="flex:1">
+          <h2>Dairenize katılın</h2>
+          <p id="ac-aciklama">Uygulamayı indirdikten sonra bu sayfaya dönüp aşağıdaki düğmeye dokunun; kodunuz dolu gelir, dairenizi seçmeniz yeter.</p>
+          <a class="dugme" id="ac" href="#">Uygulamada aç</a>
+        </div>
+      </div>
+    </div>
+
+    <p class="not" id="kodsuz" hidden>Bu bağlantıda davet kodu yok. Yöneticinizden bağlantıyı yeniden isteyin.</p>
+    <p class="not">Kodu elle girmek için uygulamada <strong>Apartmanımı bul</strong>'a dokunun.</p>
+  </main>
+
+  <script>
+    (function () {
+      var q = new URLSearchParams(location.search);
+      // ?kod=KOMSU-XXXXXX (asıl biçim), ayrıca ?KOMSU-XXXXXX ve #KOMSU-XXXXXX kabul edilir
+      var ham = q.get('kod') || decodeURIComponent((location.search || '').replace(/^\?/, '').split('&')[0] || '')
+        || decodeURIComponent((location.hash || '').replace(/^#/, ''));
+      var kod = String(ham || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 12);
+      var gecerli = /^[A-Z0-9]+-[A-Z0-9]{4,}$/.test(kod);
+
+      var ua = navigator.userAgent || '';
+      var ios = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+      var android = /Android/i.test(ua);
+      if (ios) document.getElementById('android').classList.add('gizli');
+      if (android) document.getElementById('ios').classList.add('gizli');
+
+      if (!gecerli) {
+        document.getElementById('kod-kart').classList.add('gizli');
+        document.getElementById('ac-kart').classList.add('gizli');
+        document.getElementById('kodsuz').hidden = false;
+        return;
+      }
+      document.getElementById('kod').textContent = kod;
+
+      var ac = document.getElementById('ac');
+      if (android) {
+        // Uygulama kuruluysa açılır, değilse Google Play'e düşer
+        ac.href = 'intent://k?kod=' + encodeURIComponent(kod)
+          + '#Intent;scheme=myapp;package=com.huseyinyeni.KomsuApp;end';
+        document.getElementById('ac-aciklama').textContent =
+          'Aşağıdaki düğmeye dokunun; kodunuz dolu gelir, dairenizi seçmeniz yeter. Uygulama yüklü değilse önce mağaza açılır.';
+      } else if (ios) {
+        ac.href = 'myapp://k?kod=' + encodeURIComponent(kod);
+      } else {
+        // Bilgisayar: uygulama burada açılamaz
+        ac.classList.add('gizli');
+        document.getElementById('ac-aciklama').textContent =
+          'Bu bağlantıyı telefonunuzda açın; ya da uygulamada "Apartmanımı bul"a dokunup yukarıdaki kodu girin.';
+      }
+
+      document.getElementById('kopyala').addEventListener('click', function () {
+        var b = this;
+        var bitti = function () { b.textContent = 'Kopyalandı'; setTimeout(function () { b.textContent = 'Kodu kopyala'; }, 1800); };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(kod).then(bitti, function () {});
+        else {
+          var r = document.createRange(); r.selectNodeContents(document.getElementById('kod'));
+          var s = getSelection(); s.removeAllRanges(); s.addRange(r);
+          try { document.execCommand('copy'); bitti(); } catch (e) {}
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

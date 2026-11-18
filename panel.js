@@ -423,6 +423,156 @@ function openModal(title, bodyHtml, onSave) {
     };
   }
 }
+/* ============ DIŞARIYA ULAŞMA (ADR 0004) ============
+   Uygulamayı kullanmayan sakine duyuru ve borç hatırlatması WhatsApp ya da
+   panodan ulaşır. Mobildeki hatirlatmaService / duyuruPaylasim ile aynı
+   metinler. Borçlu listesi hiçbir yolla gruba gönderilmez. */
+const siteAdi = () => (S.site?.name || activeBuilding()?.name || '').trim();
+const ibanGoster = (iban) => String(iban || '').replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim();
+function hesapSatirlari() {
+  const o = S.site || activeBuilding() || {};
+  const iban = String(o.iban || '').trim();
+  if (!iban) return [];
+  return ['', o.bank_name ? `Banka: ${o.bank_name}` : null, o.account_holder ? `Hesap sahibi: ${o.account_holder}` : null,
+    `IBAN: ${ibanGoster(iban)}`].filter(x => x !== null);
+}
+const bosSatirlariTopla = (satirlar) => satirlar.filter((x, i, a) => x !== '' || (a[i - 1] !== '' && i !== a.length - 1)).join('\n');
+function borcMesaji({ ad, daire, tutar, donemler, odemeKodu }) {
+  const ad2 = siteAdi();
+  return bosSatirlariTopla([
+    ad ? `Merhaba ${ad},` : 'Merhaba,', '',
+    `${ad2 ? ad2 + ' ' : ''}${daire} için ödenmemiş aidat: ${TL(tutar)}`,
+    `Dönem: ${donemler.join(', ')}`,
+    ...hesapSatirlari(),
+    odemeKodu ? `Havale açıklamasına şunu yazın: ${odemeKodu}` : '',
+    '', 'Ödediyseniz bu mesajı dikkate almayın. Teşekkürler.',
+    ad2 ? `${ad2} Yönetimi` : 'Yönetim',
+  ]);
+}
+function grupMesaji() {
+  const ad2 = siteAdi();
+  const hesap = hesapSatirlari();
+  return bosSatirlariTopla([
+    `${ad2 || 'Değerli sakinler'}, aidat hatırlatması`, '',
+    'Aidat ödemesi bekleyen dairelerimiz var. Ödemenizi yaptıysanız teşekkür ederiz; yapmadıysanız en kısa sürede yapmanızı rica ederiz.',
+    ...hesap,
+    hesap.length ? 'Havale açıklamasına daire numaranızı yazmayı unutmayın.' : '',
+    '', ad2 ? `${ad2} Yönetimi` : 'Yönetim',
+  ]);
+}
+const duyuruMetni = (baslik, detay) =>
+  [`DUYURU: ${baslik.trim()}`, '', detay.trim(), '', siteAdi() ? `${siteAdi()} Yönetimi` : 'Yönetim'].join('\n');
+
+/* 0532… / 532… / +90532… → 90532… */
+function whatsappNo(tel) {
+  const r = String(tel || '').replace(/\D/g, '');
+  if (r.length === 12 && r.startsWith('90')) return r;
+  if (r.length === 11 && r.startsWith('0')) return '90' + r.slice(1);
+  if (r.length === 10 && r.startsWith('5')) return '90' + r;
+  return r.length >= 11 ? r : '';
+}
+
+/* Hazır mesajı gösterir; yönetici düzenleyip WhatsApp'ta açar ya da kopyalar.
+   ek: { etiket, onClick } → üçüncü düğme (ör. uygulamaya bildirim, yazdır). */
+function mesajPenceresi(baslik, metin, { telefon = '', aciklama = '', ek = null } = {}) {
+  openModal(baslik, `
+    ${aciklama ? `<p class="hint" style="margin-bottom:12px;">${aciklama}</p>` : ''}
+    <div class="field"><textarea id="mp-metin" rows="11">${esc(metin)}</textarea></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn" id="mp-wa">${ikon('share')}WhatsApp'ta aç</button>
+      <button class="btn btn-ghost" id="mp-kopya">Kopyala</button>
+      ${ek ? `<button class="btn btn-ghost" id="mp-ek">${ek.etiket}</button>` : ''}
+    </div>`);
+  el('mp-wa').addEventListener('click', () => {
+    window.open(`https://wa.me/${whatsappNo(telefon)}?text=${encodeURIComponent(el('mp-metin').value)}`, '_blank', 'noopener');
+  });
+  el('mp-kopya').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(el('mp-metin').value); toast('Mesaj kopyalandı'); }
+    catch { el('mp-metin').select(); toast('Kopyalanamadı — metni elle seçin', true); }
+  });
+  if (ek) el('mp-ek').addEventListener('click', (e) => ek.onClick(e.currentTarget));
+}
+
+/* Panoya asmak için A4 duyuru: yeni pencerede açılır ve yazdırma penceresi gelir. */
+function duyuruYazdir(baslik, detay, tarih) {
+  const t = new Date(tarih || Date.now()).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const satir = detay.split('\n').length;
+  const punto = detay.length > 700 || satir > 22 ? 11.5 : detay.length > 350 || satir > 12 ? 15 : 18;
+  const w = window.open('', '_blank');
+  if (!w) return toast('Açılır pencere engellendi — tarayıcıdan izin verin', true);
+  w.document.write(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>${esc(baslik)}</title><style>
+    @page { size: A4; margin: 0; } * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, 'Helvetica Neue', Roboto, Arial, sans-serif; color: #2B2620; }
+    .sayfa { width: 210mm; min-height: 297mm; padding: 22mm 20mm 18mm; display: flex; flex-direction: column; margin: 0 auto; }
+    .ust { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1.2mm solid #E9724C; padding-bottom: 5mm; }
+    .site { font-size: 15pt; font-weight: 700; } .tarih { font-size: 11pt; color: #655C56; }
+    .etiket { margin-top: 14mm; font-size: 13pt; font-weight: 800; letter-spacing: 3px; color: #C9542B; }
+    h1 { margin: 4mm 0 10mm; font-size: 30pt; line-height: 1.2; font-weight: 800; }
+    .detay { font-size: ${punto}pt; line-height: 1.55; white-space: pre-wrap; flex: 1; }
+    .alt { display: flex; justify-content: space-between; align-items: flex-end; border-top: 0.3mm solid #EFE2CF; padding-top: 5mm; }
+    .imza { font-size: 12pt; font-weight: 700; } .dip { font-size: 8.5pt; color: #9A8F86; }
+  </style></head><body><div class="sayfa">
+    <div class="ust"><div class="site">${esc(siteAdi())}</div><div class="tarih">${esc(t)}</div></div>
+    <div class="etiket">DUYURU</div><h1>${esc(baslik.trim())}</h1>
+    <div class="detay">${esc(detay.trim())}</div>
+    <div class="alt"><div class="imza">${esc(siteAdi() ? siteAdi() + ' Yönetimi' : 'Yönetim')}</div><div class="dip">Yönetivia ile hazırlandı</div></div>
+  </div><script>window.onload = () => setTimeout(() => window.print(), 200);<\/script></body></html>`);
+  w.document.close();
+}
+
+/* Duyuruyu uygulama dışına taşıma penceresi (yayın sonrası ve listeden). */
+function duyuruPaylasPenceresi(baslik, detay, tarih, yeniYayin) {
+  mesajPenceresi(yeniYayin ? 'Duyuru yayınlandı' : 'Duyuruyu paylaş', duyuruMetni(baslik, detay), {
+    aciklama: (yeniYayin ? 'Uygulamadaki sakinlere bildirim gitti. ' : '')
+      + 'Uygulamayı kullanmayan sakinler bu duyuruyu görmez; apartman grubunda paylaşın ya da panoya asın.',
+    ek: { etiket: `${ikon('printer')}Panoya asmak için yazdır`, onClick: () => duyuruYazdir(baslik, detay, tarih) },
+  });
+}
+
+// Mobil constants/duyuruSablonlari.ts ile aynı metinler
+const DUYURU_SABLONLARI = [
+  {
+    id: 'hosgeldin', ad: 'Hoş geldiniz',
+    baslik: 'Apartmanımız artık Yönetivia\'da',
+    detay: 'Değerli sakinler,\n\nAidat, duyuru ve arıza bildirimlerini bundan sonra bu uygulamadan takip edebilirsiniz. Aidat borcunuzu ve ödeme bilgilerini "Aidatlarım" bölümünde görebilir, ödemenizi yaptıktan sonra "Ödedim" diyerek bildirebilirsiniz.\n\nSorularınız için bana ulaşabilirsiniz.',
+  },
+  {
+    id: 'su', ad: 'Su kesintisi',
+    baslik: 'Su kesintisi: [gün] [saat aralığı]',
+    detay: '[Gün ve tarih] günü [saat]–[saat] arasında [sebep: depo temizliği / arıza / İSKİ çalışması] nedeniyle binamızda su kesintisi olacaktır.\n\nİhtiyacınız kadar suyu önceden ayırmanızı rica ederiz.',
+  },
+  {
+    id: 'elektrik', ad: 'Elektrik kesintisi',
+    baslik: 'Elektrik kesintisi: [gün] [saat aralığı]',
+    detay: '[Gün ve tarih] günü [saat]–[saat] arasında [sebep] nedeniyle binamızda elektrik kesintisi olacaktır.\n\nKesinti süresince asansör çalışmayacaktır.',
+  },
+  {
+    id: 'asansor', ad: 'Asansör bakımı',
+    baslik: 'Asansör bakımı: [gün]',
+    detay: '[Gün ve tarih] günü [saat]–[saat] arasında asansörün periyodik bakımı yapılacaktır. Bu süre içinde asansör kullanılamayacaktır.\n\nAnlayışınız için teşekkür ederiz.',
+  },
+  {
+    id: 'aidat', ad: 'Aidat hatırlatma',
+    baslik: '[Ay] ayı aidatı için son gün [tarih]',
+    detay: '[Ay] ayı aidatının son ödeme günü [tarih]. Ödeme bilgilerini uygulamada "Aidatlarım" bölümünde bulabilirsiniz.\n\nÖdemesini yapan sakinlerimize teşekkür ederiz.',
+  },
+  {
+    id: 'toplanti', ad: 'Toplantı çağrısı',
+    baslik: 'Kat malikleri toplantısı: [tarih] [saat]',
+    detay: 'Kat malikleri toplantımız [gün ve tarih] günü saat [saat]\'te [yer]\'de yapılacaktır.\n\nGündem:\n1. [Gündem maddesi]\n2. [Gündem maddesi]\n3. Dilek ve temenniler\n\nKatılamayacak maliklerin vekâlet vermesini rica ederiz.',
+  },
+  {
+    id: 'ilaclama', ad: 'Temizlik / ilaçlama',
+    baslik: '[İlaçlama / genel temizlik]: [gün]',
+    detay: '[Gün ve tarih] günü [saat]–[saat] arasında binamızın ortak alanlarında [ilaçlama / genel temizlik] yapılacaktır.\n\nBu saatlerde kapı önlerine eşya bırakmamanızı, çocukları ve evcil hayvanları ortak alanlardan uzak tutmanızı rica ederiz.',
+  },
+  {
+    id: 'tadilat', ad: 'Tadilat',
+    baslik: '[Daire no] numaralı dairede tadilat',
+    detay: '[Başlangıç tarihi]–[bitiş tarihi] arasında [daire no] numaralı dairede tadilat yapılacaktır. Çalışmalar hafta içi [saat]–[saat] arasında sürecektir.\n\nGürültü için şimdiden anlayışınızı rica ederiz.',
+  },
+];
+
 function closeModal() { hide('modal-overlay'); el('modal-body').innerHTML = ''; el('modal').classList.remove('genis'); }
 el('modal-close').addEventListener('click', closeModal);
 el('modal-overlay').addEventListener('click', (e) => { if (e.target === el('modal-overlay')) closeModal(); });
@@ -851,6 +1001,7 @@ const modulBaglami = {
   MONTHS, adjustBalance, notifyUser, notifyApartment, refreshBuilding, ayEkle,
   aidatRpc, vadesiGecti, gecerliAidat, donemEtiketi, segSecici,
   getAccessState, trialDaysLeft, siteYasiGun, YENI_SITE_GUN,
+  mesajPenceresi, borcMesaji, grupMesaji,
 };
 initYonetim(modulBaglami);
 initBelge(modulBaglami);
@@ -2211,6 +2362,8 @@ function init3DScene() {
 /* ============ 2) DAİRELER (ekleme yok — sakinler kendi ekler) ============ */
 async function renderApartments() {
   if (!needBuilding()) return;
+  // Yeni sitede daire satırları yoksa aç (varsa hiçbir şey yapmaz); oturanlar yazılabilsin
+  await supabase.rpc('ensure_building_apartments', { p_building_id: bId() }).then(() => {}, () => {});
   const { data } = await supabase.from('apartments').select('*').eq('building_id', bId());
   const list = sortByApartment(data);
 
@@ -2247,6 +2400,12 @@ async function renderApartments() {
       });
   }
   const uyeler = (aptId) => membersByApt[aptId] || [];
+  // Kayıtlı sakinlerin telefonu (0051): yalnızca yönetici okuyabilir
+  const telByApt = {};
+  if (aptIds.length) {
+    const { data: tel } = await supabase.from('apartment_contacts').select('apartment_id, phone').in('apartment_id', aptIds);
+    (tel || []).forEach(t => { telByApt[t.apartment_id] = t.phone; });
+  }
   const rows = (filter='') => list
     .filter(a => !filter || `${a.apartment_number} ${a.owner_name||''} ${a.username||''} ${a.vehicle_plate_number||''}`.toLowerCase().includes(filter.toLowerCase()))
     .map(a => `<tr>
@@ -2257,13 +2416,17 @@ async function renderApartments() {
             <span class="uye-ad"><b>${esc(m.ad)}</b>${m.tel ? `<a class="t-muted" href="tel:${esc(m.tel)}">${esc(m.tel)}</a>` : '<span class="t-muted">Telefon yok</span>'}</span>
             <button class="btn btn-xs btn-outline-red" data-act="rm-member" data-uid="${esc(m.uid)}" data-ad="${esc(m.ad)}" data-no="${esc(a.apartment_number)}" title="Bu sakini daireden çıkar">Çıkar</button>
           </div>`).join('')
-        : '<span class="t-muted">Henüz sakin yok</span>'}</td>
+        : (a.registered_at && a.owner_name
+            ? `<div class="uye-satir"><span class="avatar sm">${esc(basHarf(a.owner_name))}</span>
+                <span class="uye-ad"><b>${esc(a.owner_name)}</b>${telByApt[a.id] ? `<a class="t-muted" href="tel:${esc(telByApt[a.id])}">${esc(telByApt[a.id])}</a>` : ''}</span>
+                <span class="badge b-gray" title="Yöneticinin kaydettiği sakin; uygulamayı kullanmıyor">Uygulamada değil</span></div>`
+            : '<span class="t-muted">Henüz sakin yok</span>')}</td>
       <td>${uyeler(a.id).some(m => m.plaka)
         ? uyeler(a.id).filter(m => m.plaka).map(m => esc(m.plaka)).join('<br>')
         : esc(a.vehicle_plate_number||'—')}</td>
       <td>${isOccupied(a)
         ? `<button class="badge chip-toggle ${a.is_active?'b-green':'b-red'}" data-act="toggle" data-id="${a.id}" data-on="${a.is_active}">${a.is_active?'Aktif':'Pasif'}</button>`
-        : '<span class="badge b-gray" title="Sakin katılmamış — aidat ve borç hesabına girmez">Boş</span>'}</td>
+        : '<span class="badge b-gray" title="Oturan yazılmamış, sakin katılmamış: aidat ve borç hesabına girmez">Boş</span>'}</td>
       <td class="t-right"><button class="icon-btn danger" data-act="del" data-id="${a.id}" data-no="${esc(a.apartment_number)}" title="Daireyi sil" aria-label="Daireyi sil">${ikon('trash')}</button></td>
     </tr>`).join('');
 
@@ -2280,25 +2443,104 @@ async function renderApartments() {
       <div><b>${list.length}</b><span>Daire</span></div>
       <div><b>${doluSayi}</b><span>Dolu</span></div>
       <div><b>${list.length - doluSayi}</b><span>Boş</span></div>
-      <div><b>${sakinSayi}</b><span>Kayıtlı sakin</span></div>
+      <div><b>${sakinSayi}</b><span>Uygulamadaki sakin</span></div>
     </div>
 
     <div class="invite-card">
       <span class="ico-tile brand">${ikon('key')}</span>
       <div class="invite-text">
         <b>Davet kodu: <span class="invite-code">${esc(kod || '—')}</span></b>
-        <span>Sakinlere bu kodu verin. Uygulamayı indirip kodu girdiklerinde dairelerine otomatik eklenirler. Bir daireye en fazla iki sakin kaydolabilir.</span>
+        <span>Davet mesajını apartman grubuna gönderin; sakin bağlantıya dokunup uygulamayı indirir ve dairesini seçer. Bir daireye en fazla iki sakin kaydolabilir.</span>
       </div>
-      ${kod ? `<button class="btn btn-ghost btn-sm copy-code" id="apt-copy-code" data-code="${esc(kod)}">${ikon('copy')}Kopyala</button>` : ''}
+      ${kod ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-sm" id="apt-davet-mesaj">${ikon('share')}Davet mesajı</button>
+        <button class="btn btn-ghost btn-sm" id="apt-afis">${ikon('printer')}Afiş</button>
+        <button class="btn btn-ghost btn-sm copy-code" id="apt-copy-code" data-code="${esc(kod)}">${ikon('copy')}Kopyala</button>
+      </div>` : ''}
+    </div>
+
+    <div class="invite-card">
+      <span class="ico-tile brand">${ikon('edit')}</span>
+      <div class="invite-text">
+        <b>Oturanları yazın</b>
+        <span>Uygulamayı kullanmayan sakinleri de adıyla kaydedin. Adını yazdığınız daire dolu sayılır ve bu aydan itibaren aidat alır.</span>
+      </div>
+      ${list.length ? `<button class="btn btn-sm" id="apt-oturan">Listeyi aç</button>` : ''}
     </div>
 
     <div class="card table-card"><table><thead><tr><th style="width:90px">Daire</th><th>Sakinler</th><th>Plaka</th><th>Durum</th><th></th></tr></thead>
-      <tbody id="apt-body">${list.length ? rows() : `<tr><td colspan="5">${bosDurum('home', 'Henüz sakin katılmadı',
-        'Davet kodunu sakinlerle paylaşın. Uygulamadan katıldıkça daireler burada otomatik görünür.')}</td></tr>`}</tbody></table></div>`;
+      <tbody id="apt-body">${list.length ? rows() : `<tr><td colspan="5">${bosDurum('home', 'Henüz daire yok',
+        'Daireler kurulumda oluşturulur. Davet kodunu sakinlerle paylaşın; uygulamadan katıldıkça kendi dairelerine bağlanırlar.')}</td></tr>`}</tbody></table></div>`;
 
+  /* Tek davet bağlantısı (ADR 0004): sakin bağlantıdan mağazaya gider, "Uygulamada
+     aç" ile kodu dolu olarak döner. Mobil components/DavetKodu.tsx ile aynı metin. */
+  el('apt-davet-mesaj')?.addEventListener('click', () => {
+    const ad = cokBloklu() ? `${siteAdi()} ${activeBuilding()?.name || ''}`.trim() : siteAdi();
+    mesajPenceresi('Davet mesajı',
+      `${ad} artık Yönetivia'da. Aidat, duyuru ve arıza bildirimleri tek uygulamada.\n\n`
+      + `Dairenize katılmak için bağlantıya dokunun:\nhttps://yonetivia.com.tr/k/?kod=${encodeURIComponent(kod)}\n\n`
+      + `Davet kodu: ${kod}`,
+      { aciklama: 'Bu mesajı apartmanın WhatsApp grubuna gönderin. Sakin bağlantıya dokunup uygulamayı indirir; kodu elle yazması gerekmez.' });
+  });
+  // Bina girişine asılacak A4 afiş (afis.html): bina adı ve kod dolu açılır
+  el('apt-afis')?.addEventListener('click', () => {
+    const ad = cokBloklu() ? `${siteAdi()} ${activeBuilding()?.name || ''}`.trim() : siteAdi();
+    window.open(`afis?bina=${encodeURIComponent(ad)}&kod=${encodeURIComponent(kod)}`, '_blank', 'noopener');
+  });
   el('apt-copy-code')?.addEventListener('click', async (e) => {
     try { await navigator.clipboard.writeText(e.currentTarget.dataset.code); toast('Davet kodu kopyalandı'); }
     catch { toast('Kopyalanamadı — kodu elle seçin', true); }
+  });
+
+  /* Oturanlar listesi (ADR 0004): mobil app/daire-sakinleri ile aynı RPC.
+     Yalnızca değişen satırlar gönderilir; adı silinen daire boşa düşer. */
+  el('apt-oturan')?.addEventListener('click', () => {
+    const ilk = {};
+    list.forEach(a => {
+      const yazili = { ad: a.owner_name || '', tel: telByApt[a.id] || '', tur: a.resident_kind || '' };
+      // 0051'den önce elle yazılmış ad (sakinsiz dairede) henüz kayıt değil: kaydedilince dolu olur
+      ilk[a.id] = (a.registered_at || uyeler(a.id).length) ? yazili : { ad: '', tel: '', tur: '' };
+      a._yazili = (a.registered_at || a.owner_name) ? yazili : { ad: '', tel: '', tur: '' };
+    });
+    el('modal').classList.add('genis');
+    openModal('Oturanlar', `
+      <p class="hint" style="margin-bottom:14px;">Her dairede oturanın adını yazın. Boş daireleri boş bırakın. Telefonu yalnızca siz görürsünüz.</p>
+      <div class="table-card oturan-tablo" style="max-height:52vh;overflow:auto;"><table><thead><tr>
+        <th style="width:80px">Daire</th><th>Ad Soyad</th><th style="width:170px">Telefon</th><th style="width:140px">Tür</th></tr></thead>
+        <tbody>${list.map(a => `<tr data-oturan="${a.id}">
+          <td><span class="apt-no">${esc(a.apartment_number)}</span></td>
+          <td><input class="o-ad" maxlength="80" value="${esc(a._yazili.ad)}" placeholder="${uyeler(a.id).length ? 'Ev sahibi (isteğe bağlı)' : 'Ad Soyad'}">
+            ${uyeler(a.id).length ? `<div class="t-muted" style="font-size:12.5px;margin-top:3px;">Uygulamada: ${esc(uyeler(a.id).map(m => m.ad).join(', '))}</div>` : ''}</td>
+          <td><input class="o-tel" maxlength="20" inputmode="tel" value="${esc(a._yazili.tel)}" placeholder="İsteğe bağlı"></td>
+          <td><select class="o-tur">
+            <option value="">—</option>
+            <option value="malik" ${a._yazili.tur === 'malik' ? 'selected' : ''}>Kat maliki</option>
+            <option value="kiraci" ${a._yazili.tur === 'kiraci' ? 'selected' : ''}>Kiracı</option></select></td>
+        </tr>`).join('')}</tbody></table></div>
+      <button class="btn btn-block" id="m-save" style="margin-top:16px;">Kaydet</button>`, async () => {
+      const degisen = [];
+      const silinen = [];
+      document.querySelectorAll('#modal-body tr[data-oturan]').forEach(tr => {
+        const id = tr.dataset.oturan;
+        const ad = tr.querySelector('.o-ad').value.trim();
+        const tel = tr.querySelector('.o-tel').value.trim();
+        const tur = tr.querySelector('.o-tur').value;
+        const o = ilk[id];
+        if (ad === o.ad.trim() && tel === o.tel.trim() && tur === o.tur) return;
+        const no = list.find(a => a.id === id)?.apartment_number;
+        if (!ad && tel) throw new Error(`Daire ${no} için telefon yazılmış ama ad boş.`);
+        if (!ad && o.ad.trim()) silinen.push(no);
+        degisen.push({ apartment_id: id, name: ad, phone: tel, kind: tur || null });
+      });
+      if (!degisen.length) { toast('Değişiklik yok'); return; }
+      if (silinen.length && !confirm(`Daire ${silinen.join(', ')} boş sayılacak. Bu ayın ödenmemiş aidatı iptal edilir; eski kayıtlar silinmez.\n\nDevam edilsin mi?`)) {
+        throw new Error('Kaydedilmedi');
+      }
+      const { data, error } = await supabase.rpc('set_registered_residents', { p_rows: degisen });
+      if (error) throw new Error(/set_registered_residents|schema cache/i.test(error.message || '')
+        ? 'Kaydedilemedi: 0051_kayitli_sakin.sql henüz uygulanmamış.' : error.message);
+      toast(`${data ?? degisen.length} daire güncellendi`);
+    });
   });
 
   el('apt-search')?.addEventListener('input', (e) => {
@@ -2445,7 +2687,8 @@ async function renderFees() {
           .push(adByUid[m.user_id] || 'İsimsiz sakin');
       });
   }
-  const sakinler = (a) => isOccupied(a) ? ((sakinlerByApt[a.id] || []).join(', ') || '—') : 'Boş · malik öder';
+  // Uygulamadan katılan yoksa yöneticinin yazdığı kayıtlı sakin (0051) gösterilir
+  const sakinler = (a) => isOccupied(a) ? ((sakinlerByApt[a.id] || []).join(', ') || a.owner_name || '—') : 'Boş · malik öder';
 
   // Ay görünümü yalnızca aylık aidattır; devreden borç Borç Takibi'nde görünür
   const fees = (feeRes.data || []).filter(f => f.kind !== 'devir');
@@ -3398,6 +3641,7 @@ async function renderAnnouncements() {
           </div>
           <div class="lr-text">${esc(a.detail)}</div>
         </div>
+        <button class="icon-btn" data-paylas="${a.id}" title="Paylaş / yazdır" aria-label="Duyuruyu paylaş ya da yazdır">${ikon('share')}</button>
         <button class="icon-btn danger" data-del="${a.id}" title="Duyuruyu sil" aria-label="Duyuruyu sil">${ikon('trash')}</button>
       </div>`).join('') : `<div class="card">${bosDurum('megaphone', 'Henüz duyuru yok',
         'Su kesintisi, toplantı, temizlik günü… Yazdığınız duyuru tüm sakinlerin telefonuna anında düşer.',
@@ -3407,6 +3651,10 @@ async function renderAnnouncements() {
     // Bloğa özel duyuru yalnızca o bloğun sakinlerine görünür ve bildirim gider
     const annState = { hedefBlok: null };
     openModal('Yeni duyuru', `
+      <div class="field"><label>Hazır şablon</label>
+        <div class="cat-grid" id="a-sablon">
+          ${DUYURU_SABLONLARI.map(sb => `<button type="button" class="cat-chip" data-sablon="${sb.id}">${esc(sb.ad)}</button>`).join('')}
+        </div></div>
       <div class="field"><label>Başlık</label><input id="a-title" placeholder="Örn: Yarın 10:00–14:00 arası su kesintisi"></div>
       <div class="field"><label>Detay</label><textarea id="a-detail" rows="4" placeholder="Sakinlerin bilmesi gerekenleri kısaca yazın."></textarea></div>
       ${!cokBloklu() ? '' : `<div class="field"><label>Duyuru kime gidecek?</label>
@@ -3416,7 +3664,7 @@ async function renderAnnouncements() {
         </div>
         <p class="hint" style="margin-top:6px" id="a-scope-info">
           Sitedeki tüm sakinler görür ve bildirim alır.</p></div>`}
-      <p class="hint inline-ico" style="margin-bottom:14px;">${ikon('bell')}Yayınlayınca sakinlere bildirim gider, duyuru panonun en üstüne eklenir.</p>
+      <p class="hint inline-ico" style="margin-bottom:14px;">${ikon('bell')}Yayınlayınca uygulamadaki sakinlere bildirim gider. Sonraki adımda WhatsApp ve pano için de hazırlanır.</p>
       <button class="btn btn-block" id="a-save">${ikon('send')}Yayınla ve bildir</button>`);
     el('a-scope')?.addEventListener('click', (e) => {
       const chip = e.target.closest('button[data-blok]'); if (!chip) return;
@@ -3427,9 +3675,21 @@ async function renderAnnouncements() {
         ? `Yalnızca ${blokAdi(annState.hedefBlok)} sakinleri görür ve bildirim alır.`
         : 'Sitedeki tüm sakinler görür ve bildirim alır.';
     });
+    el('a-sablon').addEventListener('click', (e) => {
+      const chip = e.target.closest('button[data-sablon]'); if (!chip) return;
+      const sb = DUYURU_SABLONLARI.find(x => x.id === chip.dataset.sablon); if (!sb) return;
+      if ((el('a-title').value.trim() || el('a-detail').value.trim())
+          && !confirm('Yazdığınız başlık ve metin şablonla değiştirilsin mi?')) return;
+      el('a-title').value = sb.baslik; el('a-detail').value = sb.detay;
+      el('a-detail').rows = Math.max(6, sb.detay.split('\n').length + 3);
+    });
     el('a-save').addEventListener('click', async () => {
       const title = el('a-title').value.trim(), detail = el('a-detail').value.trim();
       if (!title || !detail) return toast('Başlık ve detay girin', true);
+      // Şablondaki [doldurulacak] yerler unutulmasın
+      if (/\[[^\]]+\]/.test(title + ' ' + detail)) {
+        return toast('Köşeli parantez içindeki yerleri ([gün], [saat] gibi) kendi bilginizle değiştirin', true);
+      }
       el('a-save').disabled = true;
       const { error } = await supabase.from('announcements').insert({
         building_id: annState.hedefBlok || bId(),
@@ -3439,11 +3699,18 @@ async function renderAnnouncements() {
       if (error) { toast(error.message, true); el('a-save').disabled=false; return; }
       await postAnnouncementToChat(title, detail); // mobil sohbete de düşsün
       notifyBuilding(`📢 ${title}`, detail); // sakinlere push
-      closeModal(); toast('Duyuru yayınlandı'); renderAnnouncements();
+      closeModal(); toast('Duyuru yayınlandı'); await renderAnnouncements();
+      duyuruPaylasPenceresi(title, detail, new Date(), true);
     });
   });
 
   el('ann-list').addEventListener('click', async (e) => {
+    const pay = e.target.closest('button[data-paylas]');
+    if (pay) {
+      const a = list.find(x => x.id === pay.dataset.paylas);
+      if (a) duyuruPaylasPenceresi(a.title, a.detail || '', a.created_at, false);
+      return;
+    }
     const btn = e.target.closest('button[data-del]'); if (!btn) return;
     if (!confirm('Duyuru silinsin mi?')) return;
     await supabase.from('announcements').delete().eq('id', btn.dataset.del);
@@ -4102,6 +4369,11 @@ async function renderSettings() {
           <div class="field"><label>Aylık aidat</label>
             <p class="hint" style="margin:4px 0 8px;">${s.fee_start ? `Otomatik · ${TL(s.default_fee_amount)} · ${sonOdemeMetni(s.fee_due_day)} son ödeme` : 'Henüz aidat planı kurulmadı.'}</p>
             <button type="button" class="btn btn-ghost btn-sm" id="s-fee-plan">${ikon('settings')}${s.fee_start ? 'Aidat planını düzenle' : 'Aidat planını kur'}</button></div>
+          ${S.site ? `<div class="field"><label>Otomatik aidat hatırlatması</label>
+            <label style="display:flex;gap:10px;align-items:flex-start;font-weight:400;cursor:pointer;">
+              <input type="checkbox" id="s-fee-reminders" style="width:18px;min-height:18px;height:18px;margin-top:2px;" ${S.site.fee_reminders === false ? '' : 'checked'}>
+              <span class="hint" style="margin:0;">Uygulamadaki sakine son ödeme gününden 3 gün önce ve gün geçince bildirim gider.</span>
+            </label></div>` : ''}
         </div>
         <div class="card-foot"><button class="btn" id="s-save-general">Kaydet</button></div>
       </div>
@@ -4139,6 +4411,14 @@ async function renderSettings() {
   }
 
   el('s-fee-plan')?.addEventListener('click', () => navigate('fees'));
+  // Anında kaydedilir (0052); kolon yoksa kutu eski haline döner
+  el('s-fee-reminders')?.addEventListener('change', async (e) => {
+    const acik = e.target.checked;
+    const { error } = await supabase.from('sites').update({ fee_reminders: acik }).eq('id', S.site.id);
+    if (error) { e.target.checked = !acik; return toast(error.message, true); }
+    S.site.fee_reminders = acik;
+    toast(acik ? 'Otomatik hatırlatma açıldı' : 'Otomatik hatırlatma kapatıldı');
+  });
   el('s-save-general').addEventListener('click', async () => {
     el('s-save-general').disabled = true;
     const name = el('s-name').value.trim();

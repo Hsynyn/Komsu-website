@@ -40,7 +40,7 @@
 
     .alt-kart { margin-top: 7mm; width: 176mm; background: #fff; border: .5mm solid var(--line); border-radius: 7mm; padding: 8mm; display: flex; gap: 9mm; }
     .qr { width: 54mm; flex: none; }
-    .qr img { width: 54mm; height: 54mm; display: block; }
+    .qr img, .qr svg { width: 54mm; height: 54mm; display: block; }
     .qr p { margin: 3mm 0 0; font-size: 4.2mm; font-weight: 700; line-height: 1.3; }
     ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 5mm; }
     li { display: flex; gap: 4mm; align-items: flex-start; }
@@ -84,10 +84,10 @@
 
       <div class="alt-kart">
         <div class="qr">
-          <img src="afis/qr-indir.svg" alt="Uygulamayı indirme QR kodu" />
-          <p>Uygulamayı indirmek için QR'ı okutun</p>
+          <div id="qr"><img src="afis/qr-indir.svg" alt="Uygulamayı indirme QR kodu" /></div>
+          <p id="qrNot">Uygulamayı indirmek için QR'ı okutun</p>
         </div>
-        <ol>
+        <ol id="adimlar">
           <li><b>1</b><div><strong>Uygulamayı indirin</strong><span>App Store veya Google Play'den. Apple ya da Google ile girin; şifre yok.</span></div></li>
           <li><b>2</b><div><strong>"Apartmanımı bul" deyin</strong><span>"Sakinim" seçeneğinden.</span></div></li>
           <li><b>3</b><div><strong>Davet kodunu yazın</strong><span>Yukarıdaki kod.</span></div></li>
@@ -102,6 +102,7 @@
     </div>
   </div>
 
+  <script src="afis/qrcode.js"></script>
   <script>
     (function () {
       var q = new URLSearchParams(location.search);
@@ -117,6 +118,24 @@
         if (kod.length > 12) k.style.fontSize = '14mm';
         document.getElementById('bos').remove();
         document.getElementById('bosNot').remove();
+
+        /* Koda özel QR (ADR 0004): okutan sakin davet sayfasına gider, uygulamayı
+           indirir ve "Uygulamada aç" ile kodu dolu olarak döner. Kütüphane
+           yüklenemezse sabit indirme QR'ı ve eski adımlar kalır. */
+        if (window.qrcode && /^[A-Z0-9]+-[A-Z0-9]{4,}$/.test(kod)) {
+          try {
+            var qr = qrcode(0, 'M');
+            qr.addData('https://yonetivia.com.tr/k/?kod=' + encodeURIComponent(kod));
+            qr.make();
+            document.getElementById('qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+            document.getElementById('qrNot').textContent = 'Katılmak için telefonunuzun kamerasıyla okutun';
+            document.getElementById('adimlar').innerHTML =
+              '<li><b>1</b><div><strong>QR\'ı okutun</strong><span>Telefonunuzun kamerasıyla. Davet sayfası açılır.</span></div></li>' +
+              '<li><b>2</b><div><strong>Uygulamayı indirin</strong><span>Apple ya da Google ile girin; şifre yok.</span></div></li>' +
+              '<li><b>3</b><div><strong>"Uygulamada aç"a dokunun</strong><span>Davet kodunuz dolu gelir.</span></div></li>' +
+              '<li><b>4</b><div><strong>Dairenizi seçin</strong><span>Hepsi bu kadar. Sakinler için ücretsiz.</span></div></li>';
+          } catch (e) { /* sabit QR kalır */ }
+        }
       }
     })();
   </script>

@@ -1037,3 +1037,12 @@ select.mini.bare:focus { box-shadow: none; }
 .table-card table { min-width: 640px; }
 td .row-actions { flex-wrap: nowrap; }
 td:last-child { white-space: nowrap; }
+
+/* Oturanlar listesi (Daireler & Sakinler): tablo içi sade form alanları */
+.oturan-tablo input, .oturan-tablo select {
+  width: 100%; min-height: 38px; padding: 8px 11px; font-family: inherit; font-size: 14.5px; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); outline: none;
+}
+.oturan-tablo input::placeholder { color: var(--faint); }
+.oturan-tablo input:focus, .oturan-tablo select:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--primary-ring); }
+.oturan-tablo td { vertical-align: top; }
