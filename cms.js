@@ -311,6 +311,16 @@ async function openDetail(siteId) {
     </div>
 
     <div class="detail-sec">
+      <h4>Bu siteye mesaj gönder</h4>
+      <p class="c-meta" style="margin:0 0 10px">Yöneticinin telefonuna bildirim gider; uygulamayı açınca ana sayfasında pencere olarak çıkar. Yanıt yazarsa yazışma Destek sekmesinde sürer.</p>
+      <div class="field"><label for="site-mesaj-konu">Başlık</label>
+        <input type="text" id="site-mesaj-konu" class="search" maxlength="150" placeholder="Örn: Aidat planınız hakkında" autocomplete="off" style="width:100%" /></div>
+      <div class="field destek-yanit"><label for="site-mesaj-metin">Mesaj</label>
+        <textarea id="site-mesaj-metin" rows="4" maxlength="4000" placeholder="Bu siteye özel açıklamanızı yazın."></textarea></div>
+      <div class="destek-eylem"><button type="button" class="btn btn-sm" id="site-mesaj-gonder">Gönder</button></div>
+    </div>
+
+    <div class="detail-sec">
       <h4>Binalar (${NUM(buildings.length)})</h4>
       ${buildings.length ? `
         <table class="detail-table">
@@ -373,6 +383,32 @@ async function openDetail(siteId) {
   `;
 
   bindDelete(r);
+  bindSiteMesaj(r);
+}
+
+/* ============ Siteye özel mesaj (0057) ============ */
+// Mesaj, Yönetivia'nın açtığı bir destek talebidir: yöneticiye ana sayfada
+// pencere olarak çıkar, yanıtları Destek sekmesine düşer.
+function bindSiteMesaj(r) {
+  const dugme = el('site-mesaj-gonder'); if (!dugme) return;
+  dugme.onclick = async () => {
+    const konu = el('site-mesaj-konu').value.trim();
+    const mesaj = el('site-mesaj-metin').value.trim();
+    if (!konu) return toast('Başlık yazın.', true);
+    if (!mesaj) return toast('Mesaj yazın.', true);
+    if (!confirm(`"${r.site_name || 'Site'}" yöneticisine gönderilsin mi?\n\n${konu}`)) return;
+    dugme.disabled = true;
+    const { error } = await supabase.rpc('cms_site_mesaj_gonder', { p_site: r.site_id, p_konu: konu, p_mesaj: mesaj });
+    dugme.disabled = false;
+    if (error) {
+      return toast(kurulumEksik(error) || /cms_site_mesaj_gonder/i.test(error.message || '')
+        ? 'Kurulu değil: 0057_yonetivia_mesaji.sql migration\'ını Supabase SQL Editor\'den çalıştırın.'
+        : 'Gönderilemedi: ' + (error.message || ''), true);
+    }
+    el('site-mesaj-konu').value = ''; el('site-mesaj-metin').value = '';
+    toast('Mesaj gönderildi; yönetici ana sayfasında görecek.');
+    destekSayaci();
+  };
 }
 
 /* ============ Site silme ============ */
@@ -580,7 +616,10 @@ async function loadDestek() {
   const body = el('destek-body');
   body.innerHTML = '<tr><td colspan="6" class="c-empty">Yükleniyor…</td></tr>';
   const filtre = el('destek-filtre').value || null;
+  // Art arda iki yükleme çakışırsa eski yanıt yenisinin üstüne yazmasın
+  const sira = (S.destekSira = (S.destekSira || 0) + 1);
   const { data, error } = await supabase.rpc('cms_destek_talepleri', { p_durum: filtre });
+  if (sira !== S.destekSira) return;
   if (error) {
     body.innerHTML = `<tr><td colspan="6" class="c-empty">${kurulumEksik(error)
       ? 'Destek sistemi kurulu değil: 0042_destek_talepleri.sql migration\'ını Supabase SQL Editor\'den çalıştırın.'
@@ -595,7 +634,7 @@ async function loadDestek() {
   body.innerHTML = S.destek.map(t => {
     const d = DESTEK_DURUM[t.durum] || { label: t.durum, cls: 'b-gray' };
     return `<tr data-ticket="${t.id}">
-      <td><div class="c-title">${esc(t.konu)}</div>
+      <td><div class="c-title">${esc(t.konu)}${t.baslatan === 'destek' ? ` <span class="badge b-blue">Sizden</span>${t.gorulme_at ? '' : ' <span class="badge b-gray">Henüz görmedi</span>'}` : ''}</div>
         <div class="c-meta">${esc(DESTEK_KATEGORI[t.kategori] || t.kategori)} · ${NUM(t.mesaj_sayisi)} mesaj</div>
         <div class="c-onizleme">${t.son_yazan_destek ? 'Siz: ' : ''}${esc(t.son_mesaj || '')}</div></td>
       <td><div class="c-title">${esc(t.ad || '—')}</div><div class="c-meta">${esc(ROL[t.rol] || t.rol || '')}</div></td>
@@ -624,6 +663,9 @@ async function openTalep(id) {
   const { data, error } = await supabase.rpc('cms_destek_mesajlari', { p_ticket: id });
   if (error) { el('modal-body').innerHTML = `<p class="c-empty">Mesajlar alınamadı: ${esc(error.message || '')}</p>`; return; }
   const d = DESTEK_DURUM[t.durum] || { label: t.durum, cls: 'b-gray' };
+  const balonlar = (liste) => (liste || []).map(m => `<div class="destek-balon ${m.destek_ekibi ? 'ekip' : 'kullanici'}">
+          <span class="kim">${m.destek_ekibi ? 'Yönetivia Destek' : esc(t.ad || 'Kullanıcı')}</span>${esc(m.mesaj)}
+          <span class="zaman">${dmyhm(m.created_at)}</span></div>`).join('');
 
   el('modal-body').innerHTML = `
     <div class="detail-sec">
@@ -638,11 +680,7 @@ async function openTalep(id) {
     </div>
     <div class="detail-sec">
       <h4>Yazışma</h4>
-      <div class="destek-akis">
-        ${(data || []).map(m => `<div class="destek-balon ${m.destek_ekibi ? 'ekip' : 'kullanici'}">
-          <span class="kim">${m.destek_ekibi ? 'Yönetivia Destek' : esc(t.ad || 'Kullanıcı')}</span>${esc(m.mesaj)}
-          <span class="zaman">${dmyhm(m.created_at)}</span></div>`).join('')}
-      </div>
+      <div class="destek-akis" id="destek-akis">${balonlar(data)}</div>
       <div class="field destek-yanit"><label for="destek-yanit">Yanıtınız</label>
         <textarea id="destek-yanit" rows="4" placeholder="Kullanıcıya yanıt yazın; telefonuna bildirim gider."></textarea></div>
       <div class="destek-eylem">
@@ -654,13 +692,32 @@ async function openTalep(id) {
       </div>
     </div>`;
 
+  // Canlı yazışma: pencere açıkken karşıdan gelen mesajlar kendiliğinden görünür.
+  // Yalnızca balonlar yenilenir; yazmakta olduğunuz yanıt silinmez.
+  let sayi = (data || []).length;
+  clearInterval(S.destekYoklama);
+  S.destekYoklama = setInterval(async () => {
+    const akis = document.getElementById('destek-akis');
+    if (!akis || el('modal-overlay').classList.contains('hidden')) { clearInterval(S.destekYoklama); return; }
+    const { data: yeni, error: ey } = await supabase.rpc('cms_destek_mesajlari', { p_ticket: id });
+    if (ey || !yeni || yeni.length === sayi) return;
+    sayi = yeni.length;
+    akis.innerHTML = balonlar(yeni);
+    akis.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, 8000);
+
   const yanitla = async (kapat) => {
     const mesaj = el('destek-yanit').value.trim();
     if (!mesaj) return toast('Yanıt boş olamaz.', true);
     const { error: e2 } = await supabase.rpc('cms_destek_yanitla', { p_ticket: id, p_mesaj: mesaj, p_kapat: kapat });
     if (e2) return toast('Gönderilemedi: ' + (e2.message || ''), true);
     toast(kapat ? 'Yanıt gönderildi, talep kapandı.' : 'Yanıt gönderildi; kullanıcıya bildirim gitti.');
-    hide('modal-overlay');
+    if (kapat) hide('modal-overlay');
+    else {
+      el('destek-yanit').value = '';
+      const { data: yeni } = await supabase.rpc('cms_destek_mesajlari', { p_ticket: id });
+      if (yeni) { sayi = yeni.length; el('destek-akis').innerHTML = balonlar(yeni); }
+    }
     await loadDestek(); destekSayaci();
   };
   const durumYap = async (durum) => {
